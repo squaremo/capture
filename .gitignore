@@ -19,5 +19,8 @@ infra/terraform.tfvars
 infra/backend.hcl
 infra/*.tfplan
 
+# Frontend build output
+dist/
+
 # OS
 .DS_Store

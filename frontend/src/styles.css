@@ -1,0 +1,253 @@
+/* ── Variables ───────────────────────────────────────────── */
+:root {
+  --bg:       #0d0d0d;
+  --bg-raised: #161616;
+  --border:   #2a2a2a;
+  --accent:   #c8f060;
+  --text:     #e8e8e0;
+  --text-dim: #666;
+  --amber:    #f5c842;
+  --red:      #ff6b6b;
+  --blue:     #7eb8f7;
+
+  --font-mono: 'Berkeley Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+  --font-serif: 'Fraunces', Georgia, serif;
+
+  --radius: 4px;
+  --max-w: 680px;
+}
+
+/* ── Reset ───────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Grain texture overlay ───────────────────────────────── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.35;
+}
+
+/* ── Layout ──────────────────────────────────────────────── */
+#app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  max-width: var(--max-w);
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+/* ── Header ──────────────────────────────────────────────── */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.logo {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 22px;
+  color: var(--accent);
+  letter-spacing: -0.02em;
+}
+
+.vpn-badge {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.vpn-badge.connected { border-color: var(--accent); color: var(--accent); }
+
+/* ── Capture ─────────────────────────────────────────────── */
+.capture {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.capture textarea {
+  width: 100%;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  padding: 12px;
+  resize: none;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.capture textarea:focus {
+  border-color: var(--accent);
+}
+.capture textarea::placeholder { color: var(--text-dim); }
+
+.capture-controls {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* ── Buttons ─────────────────────────────────────────────── */
+button {
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  border: none;
+  border-radius: var(--radius);
+  transition: opacity 0.1s, background 0.1s;
+}
+button:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.btn-submit {
+  background: var(--accent);
+  color: var(--bg);
+  padding: 7px 18px;
+  font-weight: 600;
+}
+.btn-submit:hover { opacity: 0.85; }
+
+.btn-voice {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 7px 10px;
+  display: flex;
+  align-items: center;
+}
+.btn-voice:hover { color: var(--text); border-color: var(--text-dim); }
+.btn-voice.recording { color: var(--red); border-color: var(--red); animation: pulse 1s infinite; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* ── Filters ─────────────────────────────────────────────── */
+.filters {
+  display: flex;
+  gap: 2px;
+  padding: 16px 0 8px;
+}
+
+.filter-tab {
+  background: none;
+  color: var(--text-dim);
+  padding: 4px 12px;
+  border-radius: 99px;
+  font-size: 12px;
+  text-transform: lowercase;
+  border: 1px solid transparent;
+}
+.filter-tab:hover { color: var(--text); }
+.filter-tab.active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* ── Item list ───────────────────────────────────────────── */
+.item-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 24px;
+}
+
+.item {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+  overflow: hidden;
+}
+
+.item-body {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.item-text {
+  flex: 1;
+  word-break: break-word;
+}
+
+.item-status {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+
+.item-result {
+  font-size: 12px;
+  color: var(--text-dim);
+  border-left: 2px solid var(--border);
+  padding-left: 8px;
+}
+
+.item-time {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* ── Shimmer (pending) ───────────────────────────────────── */
+.item-shimmer {
+  height: 3px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--border) 25%, var(--accent) 50%, var(--border) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+}
+
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── Stats footer ────────────────────────────────────────── */
+.stats {
+  margin-top: auto;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-dim);
+  display: flex;
+  gap: 16px;
+}
+
+/* ── Empty state ─────────────────────────────────────────── */
+.inbox-empty {
+  color: var(--text-dim);
+  font-size: 13px;
+  padding: 32px 0;
+  text-align: center;
+}
