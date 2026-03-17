@@ -8,7 +8,7 @@ The core idea: get a thought out of your head and into the system in under 5 sec
 
 ## current state
 
-Two polished single-file HTML/CSS/JS prototypes exist (v1 and v2). The latest (`frontend/index.html`) includes:
+**Frontend** (`frontend/index.html`) — polished single-file HTML/CSS/JS prototype:
 
 - Full UI with dark utilitarian aesthetic (monospaced Berkeley Mono + Fraunces serif, acid green accent `#c8f060`)
 - Textarea capture input with ⌘↵ keyboard shortcut and voice via Web Speech API
@@ -17,16 +17,31 @@ Two polished single-file HTML/CSS/JS prototypes exist (v1 and v2). The latest (`
 - Each resolved item shows a coloured result strip with a natural-language description of the action taken (e.g. "Calendar event created: 'Call dentist' — Tomorrow, 9:00am")
 - Filter tabs: All / Pending / Acted / Done
 - Stats footer, grain texture overlay, VPN status badge
+- Not yet connected to the backend (still uses in-memory state)
 
-Nothing is persisted yet. No backend exists yet.
+**Backend** (`backend/`) — Fastify + SQLite, deployed and running:
 
-## intended stack
+- `POST /api/capture`, `GET /api/items`, `GET /api/items/:id`, `PATCH /api/items/:id`
+- Optimistic flow: item saved immediately as `pending`, Claude processes in background and resolves it
+- Claude intent detection via tool calling (`save_to_inbox` → `triaged`, `create_reminder` → `reminder`, `flag_urgent` → `urgent`)
+- Tailscale IP allowlist middleware (optional via `TAILSCALE_SUBNET` env var)
+- Persisted to SQLite (`better-sqlite3`); DB path via `DB_PATH` env var
 
-- **Frontend**: the existing HTML prototype, to be converted to a PWA (add manifest + service worker)
-- **Backend**: lightweight Node.js (Fastify) or Python (FastAPI) server with SQLite for persistence
-- **Calendar integration**: Google Calendar API or CalDAV for acting on detected reminders
-- **Voice (home station)**: Raspberry Pi + microphone, local transcription via `whisper.cpp`
-- **Access**: Tailscale only — no auth layer needed beyond Tailscale identity; whitelist by Tailscale IP at the server level
+**Infrastructure** — running on Hetzner:
+
+- Terraform config in `infra/` provisions the VM
+- Docker Compose runs backend + nginx reverse proxy with Tailscale TLS certs
+- GitHub Actions: `build.yml` builds and pushes image to GHCR on pushes to `main`; `deploy.yml` SSHs in via Tailscale and pulls the new image
+
+## stack
+
+- **Frontend**: single-file HTML prototype → to be converted to a PWA (add manifest + service worker)
+- **Backend**: Node.js with Fastify + SQLite (`better-sqlite3`)
+- **Intent detection**: Claude API with tool calling (server-side)
+- **Calendar integration**: Google Calendar API or CalDAV — not yet implemented
+- **Voice (home station)**: Raspberry Pi + microphone, local transcription via `whisper.cpp` — not yet implemented
+- **Access**: Tailscale only — no auth layer needed beyond Tailscale identity; allowlist by Tailscale IP at the server level
+- **Hosting**: Hetzner VM, Docker Compose, nginx, GHCR for images
 
 ## repo structure (target)
 
@@ -58,12 +73,10 @@ capture/
 
 ## next steps (suggested)
 
-1. Add `manifest.json` and `sw.js` to make it installable as a PWA
-2. Build the Fastify backend with SQLite persistence (POST /capture, GET /items, PATCH /items/:id)
-3. Connect frontend to backend API (replace in-memory state)
-4. Add Tailscale IP allowlist middleware to the backend
-5. Implement Google Calendar integration for reminder-type captures
-6. Set up `docker-compose.yml` for easy self-hosting
+1. Implement the test suite (Vitest — see `TESTING.md` for the plan)
+2. Connect frontend to backend API (replace in-memory state)
+3. Add `manifest.json` and `sw.js` to make it installable as a PWA
+4. Implement Google Calendar integration for reminder-type captures
 
 ## architecture decisions
 
@@ -73,6 +86,12 @@ capture/
 - **Web Speech API for mobile/desktop voice** — routes through Google's speech service (Chrome). Acceptable tradeoff for convenience. Home station uses local `whisper.cpp` instead for full privacy.
 - **PWA, not native app** — same codebase across phone, laptop, kiosk. Installable to home screen. Voice works on Android Chrome.
 - **Tailscale for access control** — no public ports, no login screen. Backend middleware checks that requests originate from a Tailscale IP.
+
+## working conventions
+
+- **Always branch from `main`** — each piece of work gets its own branch off `main`, not off another feature branch
+- **One thing per branch** — keep branches focused; don't bundle unrelated changes
+- **Commit and push before handing back** — leave the branch in a state that can be reviewed and merged
 
 ## wishlist
 
