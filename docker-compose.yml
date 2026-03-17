@@ -1,6 +1,6 @@
 services:
   backend:
-    build: ./backend
+    image: ghcr.io/squaremo/capture:latest
     restart: unless-stopped
     env_file: /opt/capture/.env
     volumes:
