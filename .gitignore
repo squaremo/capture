@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# SQLite
+*.db
+*.db-shm
+*.db-wal
+
+# Environment
+.env
+.env.local
+
+# Terraform
+infra/.terraform/
+infra/.terraform.lock.hcl
+infra/terraform.tfstate
+infra/terraform.tfstate.backup
+infra/terraform.tfvars
+infra/backend.hcl
+infra/*.tfplan
+
+# OS
+.DS_Store

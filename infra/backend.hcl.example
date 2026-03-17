@@ -1,0 +1,17 @@
+# Copy to backend.hcl and fill in your values.
+# backend.hcl is gitignored — never commit it.
+#
+# Create a bucket in Hetzner Object Storage, then generate S3-compatible
+# credentials under Object Storage → Credentials in the Hetzner Console.
+
+bucket                      = "my-tfstate"
+key                         = "capture/terraform.tfstate"
+region                      = "eu-central"
+endpoint                    = "https://fsn1.your-objectstorage.com"
+access_key                  = "your-access-key"
+secret_key                  = "your-secret-key"
+skip_credentials_validation = true
+skip_metadata_api_check     = true
+skip_region_validation      = true
+force_path_style            = true
+use_lockfile                = true
