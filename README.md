@@ -23,7 +23,24 @@ In [tailscale.com/admin/settings/keys](https://tailscale.com/admin/settings/keys
 - Expiry: **1 day** (used once during bootstrap)
 - Tags: none required
 
-**3. Create a Hetzner Object Storage bucket for Terraform state**
+**3. Set up GitHub Actions secrets**
+
+In your GitHub repo → **Settings → Secrets and variables → Actions**, add:
+
+| Secret | Value |
+|---|---|
+| `TS_OAUTH_CLIENT_ID` | Tailscale OAuth client ID — create one in [tailscale.com/admin/settings/oauth](https://tailscale.com/admin/settings/oauth) with `devices:write` scope and the `tag:ci` tag |
+| `TS_OAUTH_SECRET` | Corresponding OAuth secret |
+| `DEPLOY_HOST` | Server's Tailscale hostname (e.g. `capture.tail1234.ts.net`) |
+| `DEPLOY_USER` | `root` |
+| `DEPLOY_SSH_KEY` | Private key corresponding to the `ssh_public_key` you pass to Terraform |
+
+The Tailscale OAuth client must have permission to create devices with `tag:ci`. In [tailscale.com/admin/acls](https://tailscale.com/admin/acls), ensure `tag:ci` is defined, e.g.:
+```json
+"tagOwners": { "tag:ci": ["autogroup:admin"] }
+```
+
+**4. Create a Hetzner Object Storage bucket for Terraform state**
 
 In the [Hetzner Console](https://console.hetzner.cloud), go to **Object Storage → Buckets** and create a bucket (any region). Then go to **Object Storage → Credentials** and generate an S3-compatible access key/secret.
 
@@ -63,13 +80,13 @@ Once complete, open `https://<server-name>.<tailnet>.ts.net` on any device on yo
 
 ## Updating the app
 
-SSH into the server and pull + restart:
+Push to `main` — GitHub Actions will build the image, push it to GHCR, then SSH into the server and run `docker compose pull && up -d`. No manual steps needed.
+
+To roll back to a previous build, find the `sha-<commit>` image tag in the package registry, then on the server:
 
 ```bash
-ssh root@<server-ip>
 cd /opt/capture/app
-git pull
-docker compose up -d --build
+BACKEND_IMAGE=ghcr.io/squaremo/capture:sha-<commit> docker compose up -d
 ```
 
 ## Teardown
