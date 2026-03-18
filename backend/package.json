@@ -5,11 +5,15 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "test": "vitest run"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.36.0",
     "better-sqlite3": "^9.4.3",
     "fastify": "^4.26.0"
+  },
+  "devDependencies": {
+    "vitest": "^2.0.0"
   }
 }
