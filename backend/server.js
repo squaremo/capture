@@ -1,18 +1,19 @@
 import Fastify from 'fastify'
+import { fileURLToPath } from 'url'
 import { createItem, getItem, listItems, updateItem } from './db.js'
 import { processCapture } from './integrations/claude.js'
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10)
 const HOST = process.env.HOST ?? '0.0.0.0'
-const TAILSCALE_SUBNET = process.env.TAILSCALE_SUBNET ?? null
 
-const app = Fastify({ logger: true })
+export const app = Fastify({ logger: true })
 
 // ── Tailscale IP allowlist ─────────────────────────────────
 app.addHook('onRequest', async (req, reply) => {
-  if (!TAILSCALE_SUBNET) return
+  const subnet = process.env.TAILSCALE_SUBNET
+  if (!subnet) return
   const ip = req.ip
-  if (!isInSubnet(ip, TAILSCALE_SUBNET)) {
+  if (!isInSubnet(ip, subnet)) {
     reply.code(403).send({ error: 'Forbidden: Tailscale access only' })
   }
 })
@@ -71,11 +72,13 @@ app.patch('/api/items/:id', async (req, reply) => {
 })
 
 // ── Start ──────────────────────────────────────────────────
-try {
-  await app.listen({ port: PORT, host: HOST })
-} catch (err) {
-  app.log.error(err)
-  process.exit(1)
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  try {
+    await app.listen({ port: PORT, host: HOST })
+  } catch (err) {
+    app.log.error(err)
+    process.exit(1)
+  }
 }
 
 // ── Helpers ────────────────────────────────────────────────
