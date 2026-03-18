@@ -15,6 +15,7 @@ name: Bootstrap
 #   TF_STATE_ENDPOINT   Object Storage endpoint, e.g. https://fsn1.your-objectstorage.com
 #   TF_STATE_ACCESS_KEY S3-compatible access key for the state bucket
 #   TF_STATE_SECRET_KEY S3-compatible secret key for the state bucket
+#   GH_PAT              GitHub Personal Access Token with repo scope (to write secrets)
 
 on:
   workflow_dispatch:
@@ -31,7 +32,6 @@ on:
 
 permissions:
   contents: read
-  secrets: write
 
 jobs:
   bootstrap:
@@ -80,7 +80,7 @@ jobs:
       - name: Save deploy secrets
         working-directory: infra
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           deploy_host=$(terraform output -raw tailscale_fqdn | sed 's|https://||')
           gh secret set DEPLOY_SSH_KEY --body-file /tmp/deploy_key
