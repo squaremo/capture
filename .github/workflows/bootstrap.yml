@@ -1,0 +1,88 @@
+name: Bootstrap
+
+# Provisions the Hetzner server via Terraform, generates an SSH key pair,
+# and saves the deploy secrets (DEPLOY_HOST, DEPLOY_SSH_KEY, DEPLOY_USER)
+# so the Deploy workflow can run without manual configuration.
+#
+# Pre-requisites — set these GitHub Actions secrets before running:
+#   HCLOUD_TOKEN        Hetzner Cloud API token
+#   ANTHROPIC_API_KEY   Anthropic API key (written to server .env via cloud-init)
+#   TS_AUTH_KEY         Tailscale auth key for the VM to join the tailnet
+#   TS_OAUTH_CLIENT_ID  Tailscale OAuth client ID (also used by Deploy)
+#   TS_OAUTH_SECRET     Tailscale OAuth client secret (also used by Deploy)
+#   TAILSCALE_TAILNET   Your tailnet name, e.g. yourtailnet.ts.net
+#   TF_STATE_BUCKET     Hetzner Object Storage bucket name for Terraform state
+#   TF_STATE_ENDPOINT   Object Storage endpoint, e.g. https://fsn1.your-objectstorage.com
+#   TF_STATE_ACCESS_KEY S3-compatible access key for the state bucket
+#   TF_STATE_SECRET_KEY S3-compatible secret key for the state bucket
+
+on:
+  workflow_dispatch:
+    inputs:
+      server_name:
+        description: Server hostname (becomes the Tailscale machine name)
+        default: capture
+      location:
+        description: "Hetzner datacenter: fsn1 nbg1 hel1 ash hil"
+        default: fsn1
+      server_type:
+        description: "Hetzner server type (default: cx22, ~€4.35/mo)"
+        default: cx22
+
+permissions:
+  contents: read
+  secrets: write
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Generate SSH key pair
+        run: ssh-keygen -t ed25519 -C "capture-deploy" -f /tmp/deploy_key -N ""
+
+      - name: Terraform init
+        working-directory: infra
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="key=capture/terraform.tfstate" \
+            -backend-config="region=eu-central" \
+            -backend-config="endpoint=${{ secrets.TF_STATE_ENDPOINT }}" \
+            -backend-config="access_key=${{ secrets.TF_STATE_ACCESS_KEY }}" \
+            -backend-config="secret_key=${{ secrets.TF_STATE_SECRET_KEY }}" \
+            -backend-config="skip_credentials_validation=true" \
+            -backend-config="skip_metadata_api_check=true" \
+            -backend-config="skip_region_validation=true" \
+            -backend-config="force_path_style=true" \
+            -backend-config="use_lockfile=true"
+
+      - name: Terraform apply
+        working-directory: infra
+        env:
+          TF_VAR_hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
+          TF_VAR_anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          TF_VAR_tailscale_auth_key: ${{ secrets.TS_AUTH_KEY }}
+          TF_VAR_tailscale_tailnet: ${{ secrets.TAILSCALE_TAILNET }}
+          TF_VAR_server_name: ${{ inputs.server_name }}
+          TF_VAR_location: ${{ inputs.location }}
+          TF_VAR_server_type: ${{ inputs.server_type }}
+        run: |
+          export TF_VAR_ssh_public_key=$(cat /tmp/deploy_key.pub)
+          terraform apply -auto-approve
+
+      - name: Save deploy secrets
+        working-directory: infra
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          deploy_host=$(terraform output -raw tailscale_fqdn | sed 's|https://||')
+          gh secret set DEPLOY_SSH_KEY --body-file /tmp/deploy_key
+          gh secret set DEPLOY_HOST --body "$deploy_host"
+          gh secret set DEPLOY_USER --body "root"
