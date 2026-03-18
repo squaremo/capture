@@ -78,6 +78,10 @@ capture/
 
 - **Context / tag view** — Claude auto-tags items during processing (e.g. `#shopping`, `#health`, `#work`). A context switcher in the inbox lets you filter to all items with a given tag across all statuses. Useful for e.g. seeing everything to pick up at the shop in one view. Questions to resolve: can an item have multiple tags? Should Claude proactively suggest consolidating related items ("you have 4 #shopping items — want a list?")?
 
+## deployment
+
+Three GitHub Actions workflows — Bootstrap (manual, runs Terraform + saves secrets), Build (on push to `main`), Deploy (after build). Run Bootstrap once; subsequent pushes are fully automated. Full setup docs in `README.md`.
+
 ## design reference
 
 Colour palette:

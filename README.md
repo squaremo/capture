@@ -2,73 +2,68 @@
 
 A self-hosted, privacy-first quick-capture app. Accessible only over Tailscale.
 
-## Prerequisites
+## How deployment works
 
-- Docker + Docker Compose v2 on the host
-- A [Hetzner Cloud](https://console.hetzner.cloud) account
-- A [Tailscale](https://tailscale.com) account with the machine you're deploying from on your tailnet
-- An [Anthropic API key](https://console.anthropic.com)
-- Terraform >= 1.10
+Three GitHub Actions workflows handle the full lifecycle:
 
-## Before you deploy
+| Workflow | Trigger | What it does |
+|---|---|---|
+| **Bootstrap** | Manual (`workflow_dispatch`) | Provisions the Hetzner server via Terraform, generates an SSH key pair, saves `DEPLOY_HOST` / `DEPLOY_SSH_KEY` / `DEPLOY_USER` as Actions secrets |
+| **Build** | Push to `main` (changes to `backend/`) | Builds the Docker image, pushes it to GHCR |
+| **Deploy** | After Build succeeds | Connects via Tailscale, SSHs into the server, pulls the new image |
+
+Run **Bootstrap once** to set up the server. After that, pushing to `main` handles builds and deployments automatically.
+
+## Before you run Bootstrap
 
 **1. Enable Tailscale HTTPS certificates**
 
-In [tailscale.com/admin/dns](https://tailscale.com/admin/dns), scroll to **HTTPS Certificates** and enable it. This allows the server to get a valid TLS cert for its `*.ts.net` hostname.
+In [tailscale.com/admin/dns](https://tailscale.com/admin/dns), scroll to **HTTPS Certificates** and enable it. This lets the server get a valid TLS cert for its `*.ts.net` hostname.
 
-**2. Generate a Tailscale auth key**
+**2. Create a Tailscale OAuth client**
 
-In [tailscale.com/admin/settings/keys](https://tailscale.com/admin/settings/keys), create a key with:
-- Reusable: **off**
-- Expiry: **1 day** (used once during bootstrap)
-- Tags: none required
+In [tailscale.com/admin/settings/oauth](https://tailscale.com/admin/settings/oauth), create a client with `devices:write` scope and tag `tag:ci`. In [tailscale.com/admin/acls](https://tailscale.com/admin/acls), ensure the tag is defined:
 
-**3. Set up GitHub Actions secrets**
-
-In your GitHub repo → **Settings → Secrets and variables → Actions**, add:
-
-| Secret | Value |
-|---|---|
-| `TS_OAUTH_CLIENT_ID` | Tailscale OAuth client ID — create one in [tailscale.com/admin/settings/oauth](https://tailscale.com/admin/settings/oauth) with `devices:write` scope and the `tag:ci` tag |
-| `TS_OAUTH_SECRET` | Corresponding OAuth secret |
-| `DEPLOY_HOST` | Server's Tailscale hostname (e.g. `capture.tail1234.ts.net`) |
-| `DEPLOY_USER` | `root` |
-| `DEPLOY_SSH_KEY` | Private key corresponding to the `ssh_public_key` you pass to Terraform |
-
-The Tailscale OAuth client must have permission to create devices with `tag:ci`. In [tailscale.com/admin/acls](https://tailscale.com/admin/acls), ensure `tag:ci` is defined, e.g.:
 ```json
 "tagOwners": { "tag:ci": ["autogroup:admin"] }
 ```
+
+**3. Create a Hetzner API token**
+
+In **Hetzner Console → Security → API Tokens**, create a token with **Read & Write** permissions.
 
 **4. Create a Hetzner Object Storage bucket for Terraform state**
 
 In the [Hetzner Console](https://console.hetzner.cloud), go to **Object Storage → Buckets** and create a bucket (any region). Then go to **Object Storage → Credentials** and generate an S3-compatible access key/secret.
 
-**4. Create a Hetzner API token**
+**5. Add GitHub Actions secrets**
 
-In **Hetzner Console → Security → API Tokens**, create a token with **Read & Write** permissions.
+In your repo → **Settings → Secrets and variables → Actions**, add:
 
-## Deploy
+| Secret | Value |
+|---|---|
+| `HCLOUD_TOKEN` | Hetzner API token (step 3) |
+| `ANTHROPIC_API_KEY` | Anthropic API key |
+| `TS_AUTH_KEY` | One-time Tailscale auth key — create in [tailscale.com/admin/settings/keys](https://tailscale.com/admin/settings/keys) with Reusable: **off**, Expiry: **1 day** |
+| `TS_OAUTH_CLIENT_ID` | Tailscale OAuth client ID (step 2) |
+| `TS_OAUTH_SECRET` | Tailscale OAuth client secret (step 2) |
+| `TAILSCALE_TAILNET` | Your tailnet name, e.g. `yourname.ts.net` |
+| `TF_STATE_BUCKET` | Object Storage bucket name (step 4) |
+| `TF_STATE_ENDPOINT` | Object Storage endpoint, e.g. `https://fsn1.your-objectstorage.com` |
+| `TF_STATE_ACCESS_KEY` | S3 access key (step 4) |
+| `TF_STATE_SECRET_KEY` | S3 secret key (step 4) |
 
-```bash
-cd infra
+Bootstrap will automatically create `DEPLOY_HOST`, `DEPLOY_SSH_KEY`, and `DEPLOY_USER` when it runs — don't set these manually.
 
-# Configure the Terraform state backend
-cp backend.hcl.example backend.hcl
-# Edit backend.hcl: fill in bucket name, endpoint, access_key, secret_key
+## Bootstrap
 
-terraform init -backend-config=backend.hcl
+Go to **Actions → Bootstrap → Run workflow**. Optionally override:
 
-terraform apply
-# You will be prompted for:
-#   hcloud_token         — Hetzner API token
-#   anthropic_api_key    — Anthropic API key
-#   tailscale_auth_key   — Tailscale auth key from step 2
-#   tailscale_tailnet    — your tailnet suffix, e.g. "tail1234.ts.net"
-#   ssh_public_key       — contents of ~/.ssh/id_ed25519.pub (or similar)
-```
+- `server_name` — Tailscale machine name and hostname (default: `capture`)
+- `location` — Hetzner datacenter: `fsn1` `nbg1` `hel1` `ash` `hil` (default: `fsn1`)
+- `server_type` — Hetzner server type (default: `cx22`, 2 vCPU / 4 GB RAM, ~€4.35/mo)
 
-Terraform will print the server IP, Tailscale FQDN, and SSH command when done.
+The workflow runs Terraform, then saves the three deploy secrets. The server IP and Tailscale FQDN appear in the workflow logs.
 
 The server takes ~2 minutes to finish bootstrapping (cloud-init installs Docker, Tailscale, gets the TLS cert, clones the repo, and starts the app). You can watch progress with:
 
@@ -78,11 +73,13 @@ ssh root@<server-ip> journalctl -f
 
 Once complete, open `https://<server-name>.<tailnet>.ts.net` on any device on your tailnet.
 
+> **Note:** `TS_AUTH_KEY` is consumed on first use. If you ever destroy and reprovision the server, generate a fresh key before re-running Bootstrap.
+
 ## Updating the app
 
-Push to `main` — GitHub Actions will build the image, push it to GHCR, then SSH into the server and run `docker compose pull && up -d`. No manual steps needed.
+Push to `main` — GitHub Actions will build a new image, push it to GHCR, then SSH into the server and run `docker compose pull && up -d`. No manual steps needed.
 
-To roll back to a previous build, find the `sha-<commit>` image tag in the package registry, then on the server:
+To roll back, find the `sha-<commit>` image tag in the package registry, then on the server:
 
 ```bash
 cd /opt/capture/app
@@ -93,6 +90,7 @@ BACKEND_IMAGE=ghcr.io/squaremo/capture:sha-<commit> docker compose up -d
 
 ```bash
 cd infra
+terraform init -backend-config=backend.hcl
 terraform destroy
 ```
 
