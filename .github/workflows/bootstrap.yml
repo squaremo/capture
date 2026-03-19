@@ -84,6 +84,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           deploy_host=$(terraform output -raw tailscale_fqdn | sed 's|https://||')
-          gh secret set DEPLOY_SSH_KEY --body-file /tmp/deploy_key
+          gh secret set DEPLOY_SSH_KEY --body "$(cat /tmp/deploy_key)"
           gh secret set DEPLOY_HOST --body "$deploy_host"
           gh secret set DEPLOY_USER --body "root"
