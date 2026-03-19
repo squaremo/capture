@@ -27,8 +27,8 @@ on:
         description: "Hetzner datacenter: fsn1 nbg1 hel1 ash hil"
         default: fsn1
       server_type:
-        description: "Hetzner server type (default: cx22, ~€4.35/mo)"
-        default: cx22
+        description: "Hetzner server type (default: cpx21)"
+        default: cpx21
 
 permissions:
   contents: read
