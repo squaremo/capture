@@ -21,10 +21,14 @@ jobs:
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
 
+      - name: Resolve Tailscale IP
+        id: ts
+        run: echo "ip=$(tailscale ip -4 ${{ secrets.DEPLOY_HOST }})" >> "$GITHUB_OUTPUT"
+
       - name: Deploy
         uses: appleboy/ssh-action@v1
         with:
-          host: ${{ secrets.DEPLOY_HOST }}
+          host: ${{ steps.ts.outputs.ip }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
