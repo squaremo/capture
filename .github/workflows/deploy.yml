@@ -24,7 +24,9 @@ jobs:
 
       - name: Resolve Tailscale IP
         id: ts
-        run: echo "ip=$(tailscale ip -4 ${{ secrets.DEPLOY_HOST }})" >> "$GITHUB_OUTPUT"
+        run: |
+          peer=$(echo "${{ secrets.DEPLOY_HOST }}" | cut -d. -f1)
+          echo "ip=$(tailscale ip -4 "$peer")" >> "$GITHUB_OUTPUT"
 
       - name: Deploy
         uses: appleboy/ssh-action@v1
