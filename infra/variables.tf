@@ -38,7 +38,7 @@ variable "location" {
 
 variable "server_type" {
   description = "Hetzner server type"
-  default     = "cpx21" # 3 vCPU AMD, 4 GB RAM
+  default     = "cx23" # 2 vCPU, 4 GB RAM (CX Gen3)
 }
 
 variable "repo_url" {
