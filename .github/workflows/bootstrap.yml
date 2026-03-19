@@ -27,8 +27,8 @@ on:
         description: "Hetzner datacenter: fsn1 nbg1 hel1 ash hil"
         default: fsn1
       server_type:
-        description: "Hetzner server type (default: cx23)"
-        default: cx23
+        description: "Hetzner server type (default: cpx22)"
+        default: cpx22
 
 permissions:
   contents: read
