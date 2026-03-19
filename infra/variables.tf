@@ -38,7 +38,7 @@ variable "location" {
 
 variable "server_type" {
   description = "Hetzner server type"
-  default     = "cx22" # 2 vCPU, 4 GB RAM, ~€4.35/mo
+  default     = "cpx21" # 3 vCPU AMD, 4 GB RAM
 }
 
 variable "repo_url" {
