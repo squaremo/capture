@@ -25,10 +25,10 @@ on:
         default: capture
       location:
         description: "Hetzner datacenter: fsn1 nbg1 hel1 ash hil"
-        default: fsn1
+        default: nbg1
       server_type:
-        description: "Hetzner server type (default: cx23)"
-        default: cx23
+        description: "Hetzner server type (default: cpx22)"
+        default: cpx22
 
 permissions:
   contents: read
@@ -84,6 +84,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           deploy_host=$(terraform output -raw tailscale_fqdn | sed 's|https://||')
-          gh secret set DEPLOY_SSH_KEY --body-file /tmp/deploy_key
+          gh secret set DEPLOY_SSH_KEY --body "$(cat /tmp/deploy_key)"
           gh secret set DEPLOY_HOST --body "$deploy_host"
           gh secret set DEPLOY_USER --body "root"
