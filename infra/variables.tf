@@ -28,7 +28,7 @@ variable "server_name" {
 
 variable "location" {
   description = "Hetzner datacenter location"
-  default     = "fsn1"
+  default     = "nbg1"
 
   validation {
     condition     = contains(["fsn1", "nbg1", "hel1", "ash", "hil"], var.location)
