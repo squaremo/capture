@@ -26,7 +26,7 @@ jobs:
         id: ts
         run: |
           peer=$(echo "${{ secrets.DEPLOY_HOST }}" | cut -d. -f1)
-          echo "ip=$(tailscale ip -4 "$peer")" >> "$GITHUB_OUTPUT"
+          echo "ip=$(tailscale status --json | jq -r --arg h "$peer" '.Peer[] | select(.HostName == $h) | .TailscaleIPs[0]')" >> "$GITHUB_OUTPUT"
 
       - name: Deploy
         uses: appleboy/ssh-action@v1
