@@ -2,6 +2,24 @@ locals {
   tailscale_fqdn = "${var.server_name}.${var.tailscale_tailnet}"
 }
 
+# ── Tailscale ACL ──────────────────────────────────────────────────────────────
+# Manages the tailnet policy. Replaces the entire ACL file, so this includes
+# the default member↔member rule that Tailscale ships with out of the box.
+
+resource "tailscale_acl" "main" {
+  acl = jsonencode({
+    tagOwners = {
+      "tag:ci" = ["autogroup:admin"]
+    }
+    acls = [
+      # Default: members can reach all other members on any port
+      { action = "accept", src = ["autogroup:member"], dst = ["autogroup:member:*"] },
+      # CI runners may SSH to member devices (needed for deploy workflow)
+      { action = "accept", src = ["tag:ci"], dst = ["autogroup:member:22"] },
+    ]
+  })
+}
+
 # ── SSH key ────────────────────────────────────────────────────────────────────
 
 resource "hcloud_ssh_key" "default" {

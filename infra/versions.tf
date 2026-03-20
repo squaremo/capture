@@ -9,9 +9,18 @@ terraform {
       source  = "hetznercloud/hcloud"
       version = "~> 1.49"
     }
+    tailscale = {
+      source  = "tailscale/tailscale"
+      version = "~> 0.17"
+    }
   }
 }
 
 provider "hcloud" {
   token = var.hcloud_token
+}
+
+provider "tailscale" {
+  oauth_client_id     = var.ts_oauth_client_id
+  oauth_client_secret = var.ts_oauth_secret
 }

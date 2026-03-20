@@ -13,6 +13,16 @@ variable "tailscale_auth_key" {
   sensitive   = true
 }
 
+variable "ts_oauth_client_id" {
+  description = "Tailscale OAuth client ID — must have devices:write and policy:write scopes"
+  sensitive   = true
+}
+
+variable "ts_oauth_secret" {
+  description = "Tailscale OAuth client secret"
+  sensitive   = true
+}
+
 variable "tailscale_tailnet" {
   description = "Your Tailscale tailnet hostname suffix, e.g. 'tail1234.ts.net' or 'yourname.github'"
 }

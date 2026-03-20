@@ -20,22 +20,11 @@ Run **Bootstrap once** to set up the server. After that, pushing to `main` handl
 
 In [tailscale.com/admin/dns](https://tailscale.com/admin/dns), scroll to **HTTPS Certificates** and enable it. This lets the server get a valid TLS cert for its `*.ts.net` hostname.
 
-**2. Create a Tailscale OAuth client and configure ACLs**
+**2. Create a Tailscale OAuth client**
 
-In [tailscale.com/admin/settings/oauth](https://tailscale.com/admin/settings/oauth), create a client with `devices:write` scope and tag `tag:ci`.
+In [tailscale.com/admin/settings/oauth](https://tailscale.com/admin/settings/oauth), create a client with **both** `devices:write` and `policy:write` scopes, tagged `tag:ci`.
 
-In [tailscale.com/admin/acls](https://tailscale.com/admin/acls), add both a `tagOwners` entry for `tag:ci` and an ACL rule that allows the CI runner to SSH into the server. The server is registered without a tag (a plain auth key), so it appears as `autogroup:member`:
-
-```json
-"tagOwners": {
-  "tag:ci": ["autogroup:admin"]
-},
-"acls": [
-  { "action": "accept", "src": ["tag:ci"], "dst": ["autogroup:member:22"] }
-]
-```
-
-Without this ACL rule the CI runner joins the tailnet but cannot see the server as a peer, causing the deploy step to fail.
+The ACL (`tagOwners`, member↔member rule, CI SSH rule) is managed by Terraform and applied automatically when Bootstrap runs — no manual ACL editing needed.
 
 **3. Create a Hetzner API token**
 
