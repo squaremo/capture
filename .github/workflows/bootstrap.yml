@@ -87,3 +87,29 @@ jobs:
           gh secret set DEPLOY_SSH_KEY --body "$(cat /tmp/deploy_key)"
           gh secret set DEPLOY_HOST --body "$deploy_host"
           gh secret set DEPLOY_USER --body "root"
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v2
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Wait for server to join tailnet
+        run: |
+          echo "Waiting for ${{ inputs.server_name }} to appear in the tailnet (up to 5 min)..."
+          for i in $(seq 1 30); do
+            ip=$(tailscale status --json | jq -r --arg h "${{ inputs.server_name }}" \
+              '.Peer[] | select(.HostName == $h) | .TailscaleIPs[0]')
+            if [ -n "$ip" ]; then
+              echo "Server is on the tailnet: $ip"
+              exit 0
+            fi
+            echo "  attempt $i/30 — not yet visible, waiting 10s..."
+            sleep 10
+          done
+          echo ""
+          echo "Timed out. Check:"
+          echo "  1. Server booted: ssh root@$(cd infra && terraform output -raw server_ip) journalctl -b"
+          echo "  2. Tailscale ACL allows tag:ci to see the server (README step 2)"
+          exit 1
