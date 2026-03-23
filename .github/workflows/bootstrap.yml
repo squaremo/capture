@@ -71,6 +71,8 @@ jobs:
           TF_VAR_anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           TF_VAR_tailscale_auth_key: ${{ secrets.TS_AUTH_KEY }}
           TF_VAR_tailscale_tailnet: ${{ secrets.TAILSCALE_TAILNET }}
+          TF_VAR_ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TF_VAR_ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
           TF_VAR_server_name: ${{ inputs.server_name }}
           TF_VAR_location: ${{ inputs.location }}
           TF_VAR_server_type: ${{ inputs.server_type }}
