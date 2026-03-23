@@ -22,34 +22,39 @@ In [tailscale.com/admin/dns](https://tailscale.com/admin/dns), scroll to **HTTPS
 
 **2. Create a Tailscale OAuth client**
 
-In [tailscale.com/admin/settings/oauth](https://tailscale.com/admin/settings/oauth), create a client with **both** `devices:write` and `policy:write` scopes, tagged `tag:ci`.
+In [tailscale.com/admin/settings/oauth](https://tailscale.com/admin/settings/oauth), create a client with `devices:write` scope, tagged `tag:ci`. This is used by the Build and Deploy workflows to join the tailnet as an ephemeral CI node.
 
-The ACL (`tagOwners`, member↔member rule, CI SSH rule) is managed by Terraform and applied automatically when Bootstrap runs — no manual ACL editing needed.
+**3. Create a Tailscale API key**
 
-**3. Create a Hetzner API token**
+In [tailscale.com/admin/settings/keys](https://tailscale.com/admin/settings/keys), generate an API key. This is used only by Terraform (at Bootstrap time) to manage the tailnet ACL — it needs broader admin access than an OAuth client scope allows.
+
+The ACL (`tagOwners`, member↔member rule, CI SSH rule) is applied automatically when Bootstrap runs — no manual ACL editing needed.
+
+**4. Create a Hetzner API token**
 
 In **Hetzner Console → Security → API Tokens**, create a token with **Read & Write** permissions.
 
-**4. Create a Hetzner Object Storage bucket for Terraform state**
+**5. Create a Hetzner Object Storage bucket for Terraform state**
 
 In the [Hetzner Console](https://console.hetzner.cloud), go to **Object Storage → Buckets** and create a bucket (any region). Then go to **Object Storage → Credentials** and generate an S3-compatible access key/secret.
 
-**5. Add GitHub Actions secrets**
+**6. Add GitHub Actions secrets**
 
 In your repo → **Settings → Secrets and variables → Actions**, add:
 
 | Secret | Value |
 |---|---|
-| `HCLOUD_TOKEN` | Hetzner API token (step 3) |
+| `HCLOUD_TOKEN` | Hetzner API token (step 4) |
 | `ANTHROPIC_API_KEY` | Anthropic API key |
 | `TS_AUTH_KEY` | One-time Tailscale auth key — create in [tailscale.com/admin/settings/keys](https://tailscale.com/admin/settings/keys) with Reusable: **off**, Expiry: **1 day** |
 | `TS_OAUTH_CLIENT_ID` | Tailscale OAuth client ID (step 2) |
 | `TS_OAUTH_SECRET` | Tailscale OAuth client secret (step 2) |
+| `TS_API_KEY` | Tailscale API key (step 3) |
 | `TAILSCALE_TAILNET` | Your tailnet name, e.g. `yourname.ts.net` |
-| `TF_STATE_BUCKET` | Object Storage bucket name (step 4) |
+| `TF_STATE_BUCKET` | Object Storage bucket name (step 5) |
 | `TF_STATE_ENDPOINT` | Object Storage endpoint, e.g. `https://fsn1.your-objectstorage.com` |
-| `TF_STATE_ACCESS_KEY` | S3 access key (step 4) |
-| `TF_STATE_SECRET_KEY` | S3 secret key (step 4) |
+| `TF_STATE_ACCESS_KEY` | S3 access key (step 5) |
+| `TF_STATE_SECRET_KEY` | S3 secret key (step 5) |
 
 Bootstrap will automatically create `DEPLOY_HOST`, `DEPLOY_SSH_KEY`, and `DEPLOY_USER` when it runs — don't set these manually.
 

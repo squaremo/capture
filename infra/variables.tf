@@ -13,13 +13,8 @@ variable "tailscale_auth_key" {
   sensitive   = true
 }
 
-variable "ts_oauth_client_id" {
-  description = "Tailscale OAuth client ID — must have devices:write and policy:write scopes"
-  sensitive   = true
-}
-
-variable "ts_oauth_secret" {
-  description = "Tailscale OAuth client secret"
+variable "ts_api_key" {
+  description = "Tailscale API key — used by Terraform to manage the tailnet ACL (generate at tailscale.com/admin/settings/keys)"
   sensitive   = true
 }
 
