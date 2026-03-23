@@ -78,6 +78,7 @@ jobs:
           TF_VAR_server_type: ${{ inputs.server_type }}
         run: |
           export TF_VAR_ssh_public_key=$(cat /tmp/deploy_key.pub)
+          terraform import tailscale_acl.main acl || true
           terraform apply -auto-approve
 
       - name: Save deploy secrets
