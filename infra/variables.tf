@@ -8,11 +8,6 @@ variable "anthropic_api_key" {
   sensitive   = true
 }
 
-variable "tailscale_auth_key" {
-  description = "Tailscale auth key (generate at tailscale.com/admin/settings/keys — use ephemeral:false, reusable:false)"
-  sensitive   = true
-}
-
 variable "ts_api_key" {
   description = "Tailscale API key — used by Terraform to manage the tailnet ACL (generate at tailscale.com/admin/settings/keys)"
   sensitive   = true

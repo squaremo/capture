@@ -7,7 +7,6 @@ name: Bootstrap
 # Pre-requisites — set these GitHub Actions secrets before running:
 #   HCLOUD_TOKEN        Hetzner Cloud API token
 #   ANTHROPIC_API_KEY   Anthropic API key (written to server .env via cloud-init)
-#   TS_AUTH_KEY         Tailscale auth key for the VM to join the tailnet
 #   TS_OAUTH_CLIENT_ID  Tailscale OAuth client ID (also used by Deploy)
 #   TS_OAUTH_SECRET     Tailscale OAuth client secret (also used by Deploy)
 #   TAILSCALE_TAILNET   Your tailnet name, e.g. yourtailnet.ts.net
@@ -69,7 +68,6 @@ jobs:
         env:
           TF_VAR_hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
           TF_VAR_anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          TF_VAR_tailscale_auth_key: ${{ secrets.TS_AUTH_KEY }}
           TF_VAR_tailscale_tailnet: ${{ secrets.TAILSCALE_TAILNET }}
           TF_VAR_ts_api_key: ${{ secrets.TS_API_KEY }}
           TF_VAR_server_name: ${{ inputs.server_name }}

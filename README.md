@@ -46,7 +46,6 @@ In your repo → **Settings → Secrets and variables → Actions**, add:
 |---|---|
 | `HCLOUD_TOKEN` | Hetzner API token (step 4) |
 | `ANTHROPIC_API_KEY` | Anthropic API key |
-| `TS_AUTH_KEY` | One-time Tailscale auth key — create in [tailscale.com/admin/settings/keys](https://tailscale.com/admin/settings/keys) with Reusable: **off**, Expiry: **1 day** |
 | `TS_OAUTH_CLIENT_ID` | Tailscale OAuth client ID (step 2) |
 | `TS_OAUTH_SECRET` | Tailscale OAuth client secret (step 2) |
 | `TS_API_KEY` | Tailscale API key (step 3) |
@@ -76,7 +75,6 @@ ssh root@<server-ip> journalctl -f
 
 Once complete, open `https://<server-name>.<tailnet>.ts.net` on any device on your tailnet.
 
-> **Note:** `TS_AUTH_KEY` is consumed on first use. If you ever destroy and reprovision the server, generate a fresh key before re-running Bootstrap.
 
 ## Updating the app
 
