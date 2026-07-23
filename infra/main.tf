@@ -20,6 +20,19 @@ resource "tailscale_acl" "main" {
   })
 }
 
+# ── Tailscale auth key ─────────────────────────────────────────────────────────
+# Generated fresh each time Bootstrap runs; passed to cloud-init so the server
+# can join the tailnet on first boot. Single-use, expires after 1 hour.
+
+resource "tailscale_tailnet_key" "server" {
+  reusable      = false
+  ephemeral     = false
+  preauthorized = true
+  expiry        = 3600
+
+  depends_on = [tailscale_acl.main]
+}
+
 # ── SSH key ────────────────────────────────────────────────────────────────────
 
 resource "hcloud_ssh_key" "default" {
@@ -63,7 +76,7 @@ resource "hcloud_server" "capture" {
 
   user_data = templatefile("${path.module}/cloud-init.yaml.tpl", {
     server_name        = var.server_name
-    tailscale_auth_key = var.tailscale_auth_key
+    tailscale_auth_key = tailscale_tailnet_key.server.key
     tailscale_fqdn     = local.tailscale_fqdn
     anthropic_api_key  = var.anthropic_api_key
     repo_url           = var.repo_url
