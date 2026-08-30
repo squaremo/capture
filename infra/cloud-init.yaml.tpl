@@ -21,6 +21,12 @@ write_files:
       PORT=3000
       HOST=0.0.0.0
       TAILSCALE_SUBNET=100.64.0.0/10
+      # Optional — enables the create_linear_task tool. Leave both unset to disable.
+      # LINEAR_API_KEY=
+      # LINEAR_TEAM_ID=
+      # Optional — any value above can instead be an op://vault/item/field
+      # reference, resolved at startup via a 1Password Service Account.
+      # OP_SERVICE_ACCOUNT_TOKEN=
 
   - path: /etc/systemd/system/capture.service
     content: |

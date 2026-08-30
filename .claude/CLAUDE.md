@@ -25,9 +25,11 @@ The core idea: get a thought out of your head and into the system in under 5 sec
 
 - `POST /api/capture`, `GET /api/items`, `GET /api/items/:id`, `PATCH /api/items/:id`
 - Optimistic flow: item saved immediately as `pending`, Claude processes in background and resolves it
-- Claude intent detection via tool calling (`save_to_inbox` → `triaged`, `create_reminder` → `reminder`, `flag_urgent` → `urgent`)
+- Claude intent detection via tool calling (`save_to_inbox` → `triaged`, `create_reminder` → `reminder`, `flag_urgent` → `urgent`) — these three are pure classification, no external side effect
+- **`create_linear_task` → `acted`** — the first tool that actually does something external (creates a real Linear issue via their GraphQL API); only offered to Claude when `LINEAR_API_KEY`/`LINEAR_TEAM_ID` are both set, so it's opt-in
 - Tailscale IP allowlist middleware (optional via `TAILSCALE_SUBNET` env var)
 - Persisted to SQLite (`better-sqlite3`); DB path via `DB_PATH` env var
+- `backend/secrets.js`: any secret env var's value can be a literal, or an `op://vault/item/field` reference resolved at startup via a 1Password Service Account (needs `OP_SERVICE_ACCOUNT_TOKEN`) — falls back to reading the literal value when that token isn't set, so 1Password is optional
 
 **Infrastructure** — running on Hetzner, server created manually (no Terraform — that was tried and abandoned; may revisit later):
 

@@ -52,6 +52,12 @@ journalctl -u capture -n 50 --no-pager
 
 Once complete, open `https://<server_name>.<tailnet>.ts.net` on any Tailscale-connected device.
 
+## Optional integrations
+
+`create_linear_task` lets Claude create real Linear issues for capture text that reads as project/engineering work. It's off by default — set `LINEAR_API_KEY` and `LINEAR_TEAM_ID` in the server's `.env` (both required) to turn it on.
+
+Any secret env var — `ANTHROPIC_API_KEY`, `LINEAR_API_KEY` — can be set to a literal value as usual, or to an `op://vault/item/field` reference, resolved at startup via a 1Password Service Account (set `OP_SERVICE_ACCOUNT_TOKEN`). This needs a 1Password plan that supports Service Accounts — see `TODO.md`.
+
 ## Rolling back
 
 Find the git SHA to roll back to (`git log --oneline`), then **Actions → Rollback → Run workflow**, pass the SHA. Watchtower applies it within a few minutes — no server access needed.
