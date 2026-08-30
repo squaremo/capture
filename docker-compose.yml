@@ -11,7 +11,7 @@ services:
       - "com.centurylinklabs.watchtower.enable=true"
 
   nginx:
-    image: nginx:alpine
+    image: ghcr.io/squaremo/capture-frontend:latest
     restart: unless-stopped
     ports:
       - "80:80"
@@ -21,6 +21,8 @@ services:
       - /etc/tailscale/certs:/etc/nginx/certs:ro
     depends_on:
       - backend
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
 
   watchtower:
     image: containrrr/watchtower
