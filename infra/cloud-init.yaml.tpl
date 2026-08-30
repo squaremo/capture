@@ -42,6 +42,31 @@ write_files:
       [Install]
       WantedBy=multi-user.target
 
+  - path: /etc/systemd/system/capture-sync.service
+    content: |
+      [Unit]
+      Description=Pull latest capture repo config and reconcile compose stack
+      After=network-online.target docker.service
+      Requires=docker.service
+
+      [Service]
+      Type=oneshot
+      WorkingDirectory=/opt/capture/app
+      ExecStart=/usr/bin/git pull --ff-only
+      ExecStart=/usr/bin/docker compose up -d --remove-orphans
+
+  - path: /etc/systemd/system/capture-sync.timer
+    content: |
+      [Unit]
+      Description=Periodically sync capture deploy config from git
+
+      [Timer]
+      OnBootSec=5min
+      OnUnitActiveSec=5min
+
+      [Install]
+      WantedBy=timers.target
+
 runcmd:
   # ── Docker ──────────────────────────────────────────────────────────────────
   - install -m 0755 -d /etc/apt/keyrings
@@ -69,3 +94,4 @@ runcmd:
   - git clone "${repo_url}" /opt/capture/app
   - mkdir -p /opt/capture/data
   - systemctl enable --now capture.service
+  - systemctl enable --now capture-sync.timer
