@@ -15,42 +15,9 @@ The server is created manually (no Terraform) and configures itself on first boo
 
 So: push to `main`, wait a few minutes, the server updates itself.
 
-## Before you create the server
+## Bootstrapping a server from scratch
 
-**1. Enable MagicDNS and HTTPS Certificates**
-
-In [tailscale.com/admin/dns](https://tailscale.com/admin/dns): enable **MagicDNS** first, then **HTTPS Certificates**. Both are required for the server to get a valid TLS cert for its `*.ts.net` hostname — `tailscale cert` fails without them. You need to be an **Owner/Admin** of the tailnet to change these (check `tailscale.com/admin/users`).
-
-**2. Generate a Tailscale auth key**
-
-In [tailscale.com/admin/settings/keys](https://tailscale.com/admin/settings/keys), generate an auth key (non-reusable is fine — it's used once, at first boot).
-
-**3. Set up 1Password secrets**
-
-The server only ever gets one secret directly (below); everything else — `ANTHROPIC_API_KEY`, `LINEAR_API_KEY`, `LINEAR_TEAM_ID` — is read from 1Password at startup via the `op://...` references already committed in [`infra/production.env`](infra/production.env). Create matching items in 1Password (adjust the vault/item/field names in that file instead, if you'd rather use your own), then create a **Service Account** scoped to that vault and copy its token. Needs a 1Password plan that supports Service Accounts.
-
-## Creating the server
-
-In the [Hetzner Cloud Console](https://console.hetzner.cloud):
-
-- Image: **Ubuntu 24.04**
-- Firewall: allow inbound **UDP 41641** (Tailscale) only — app traffic arrives over the Tailscale interface, not the public one, so ports 80/443 don't need to be open publicly
-- No SSH key needed — cloud-init does the whole setup; use Hetzner's browser **Console** (with the emailed root password) if you ever need emergency access
-- In **Cloud config / User data**, paste the contents of [`infra/cloud-init.yaml.tpl`](infra/cloud-init.yaml.tpl) with the placeholders filled in directly in Hetzner's box (so nothing sensitive has to go anywhere else):
-  - `${server_name}` → e.g. `capture`
-  - `${op_service_account_token}` → the 1Password Service Account token from step 3 above — the only secret typed in at bootstrap
-  - `${tailscale_auth_key}` → the auth key from step 2 above
-  - `${tailscale_fqdn}` → `<server_name>.<your-tailnet>.ts.net`
-  - `${repo_url}` → `https://github.com/squaremo/capture.git`
-
-The server takes ~2 minutes to finish (installs Docker, joins Tailscale, gets a TLS cert, clones the repo, starts the app). Check progress via the Hetzner **Console**:
-
-```bash
-cloud-init status
-journalctl -u capture -n 50 --no-pager
-```
-
-Once complete, open `https://<server_name>.<tailnet>.ts.net` on any Tailscale-connected device.
+See [`infra/BOOTSTRAP.md`](infra/BOOTSTRAP.md) for the full ordered checklist (Tailscale, 1Password, Hetzner, verification). Short version: create the server in the Hetzner Console, paste [`infra/cloud-init.yaml.tpl`](infra/cloud-init.yaml.tpl) as its user-data with the placeholders filled in, wait ~2 minutes, open `https://<server_name>.<tailnet>.ts.net`.
 
 ## Optional integrations
 
