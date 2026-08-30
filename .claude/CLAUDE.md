@@ -76,11 +76,9 @@ capture/
 - **Act or triage**: items either go to inbox for later review, or trigger an immediate action (calendar entry)
 - **Cross-device**: works well on mobile browser, desktop browser, and a dedicated kiosk-style home station
 
-## next steps (suggested)
+## next steps
 
-1. Add real PWA icons (`vite-plugin-pwa` manifest currently references `/icons/192.png` and `/icons/512.png`, which don't exist)
-2. Implement Google Calendar integration for reminder-type captures
-3. Revisit Terraform/IaC for server provisioning once the app itself is further along
+See `TODO.md` for the current list.
 
 ## architecture decisions
 
