@@ -2,7 +2,9 @@ services:
   backend:
     image: ghcr.io/squaremo/capture:latest
     restart: unless-stopped
-    env_file: /opt/capture/.env
+    env_file:
+      - infra/production.env
+      - /opt/capture/.env.secret
     volumes:
       - /opt/capture/data:/data
     expose:

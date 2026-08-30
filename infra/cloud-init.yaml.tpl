@@ -13,20 +13,14 @@ package_update: true
 package_upgrade: true
 
 write_files:
-  - path: /opt/capture/.env
+  # The only secret written to the server directly. Everything else the
+  # app needs lives in 1Password and is referenced via op:// values
+  # committed in infra/production.env, delivered by git pull like any
+  # other config change — see capture-sync.timer below.
+  - path: /opt/capture/.env.secret
     permissions: "0600"
     content: |
-      ANTHROPIC_API_KEY=${anthropic_api_key}
-      DB_PATH=/data/capture.db
-      PORT=3000
-      HOST=0.0.0.0
-      TAILSCALE_SUBNET=100.64.0.0/10
-      # Optional — enables the create_linear_task tool. Leave both unset to disable.
-      # LINEAR_API_KEY=
-      # LINEAR_TEAM_ID=
-      # Optional — any value above can instead be an op://vault/item/field
-      # reference, resolved at startup via a 1Password Service Account.
-      # OP_SERVICE_ACCOUNT_TOKEN=
+      OP_SERVICE_ACCOUNT_TOKEN=${op_service_account_token}
 
   - path: /etc/systemd/system/capture.service
     content: |
@@ -39,7 +33,7 @@ write_files:
       [Service]
       Type=simple
       WorkingDirectory=/opt/capture/app
-      EnvironmentFile=/opt/capture/.env
+      EnvironmentFile=/opt/capture/.env.secret
       ExecStart=/usr/bin/docker compose up
       ExecStop=/usr/bin/docker compose down
       Restart=on-failure

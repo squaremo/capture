@@ -5,8 +5,7 @@
 - [ ] Frontend e2e tests (Playwright/Cypress) — now that the frontend actually talks to the backend, this is unblocked
 - [ ] Deploy smoke test — a post-deploy health check hitting `GET /api/items` over Tailscale, to confirm a rollout actually landed
 - [ ] Revisit Terraform/IaC for server provisioning once the app itself is further along (tried and abandoned once already — see git history around the `claude/*-RKHeR` branches for what went wrong)
-- [ ] Set `LINEAR_API_KEY` / `LINEAR_TEAM_ID` on the server to turn on the new `create_linear_task` tool (off by default)
-- [ ] Confirm whether the 1Password plan supports Service Accounts; if not, look at Connect Server or an alternative (Infisical free tier self-hosts and covers this use case) — `resolveEnv` in `backend/secrets.js` already supports either, nothing to build either way
+- [ ] Create the 1Password items referenced in `infra/production.env` (anthropic api_key, linear api_key + team_id), then set `OP_SERVICE_ACCOUNT_TOKEN` on the server (`/opt/capture/.env.secret`) to turn everything on
 
 ## ideas (freeform)
 

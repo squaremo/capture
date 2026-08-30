@@ -25,9 +25,9 @@ In [tailscale.com/admin/dns](https://tailscale.com/admin/dns): enable **MagicDNS
 
 In [tailscale.com/admin/settings/keys](https://tailscale.com/admin/settings/keys), generate an auth key (non-reusable is fine — it's used once, at first boot).
 
-**3. Have your Anthropic API key ready**
+**3. Set up 1Password secrets**
 
-Used by the backend for intent detection.
+The server only ever gets one secret directly (below); everything else — `ANTHROPIC_API_KEY`, `LINEAR_API_KEY`, `LINEAR_TEAM_ID` — is read from 1Password at startup via the `op://...` references already committed in [`infra/production.env`](infra/production.env). Create matching items in 1Password (adjust the vault/item/field names in that file instead, if you'd rather use your own), then create a **Service Account** scoped to that vault and copy its token. Needs a 1Password plan that supports Service Accounts.
 
 ## Creating the server
 
@@ -36,9 +36,9 @@ In the [Hetzner Cloud Console](https://console.hetzner.cloud):
 - Image: **Ubuntu 24.04**
 - Firewall: allow inbound **UDP 41641** (Tailscale) only — app traffic arrives over the Tailscale interface, not the public one, so ports 80/443 don't need to be open publicly
 - No SSH key needed — cloud-init does the whole setup; use Hetzner's browser **Console** (with the emailed root password) if you ever need emergency access
-- In **Cloud config / User data**, paste the contents of [`infra/cloud-init.yaml.tpl`](infra/cloud-init.yaml.tpl) with the placeholders filled in directly in Hetzner's box (so the auth key and Anthropic key never have to go anywhere else):
+- In **Cloud config / User data**, paste the contents of [`infra/cloud-init.yaml.tpl`](infra/cloud-init.yaml.tpl) with the placeholders filled in directly in Hetzner's box (so nothing sensitive has to go anywhere else):
   - `${server_name}` → e.g. `capture`
-  - `${anthropic_api_key}` → your Anthropic API key
+  - `${op_service_account_token}` → the 1Password Service Account token from step 3 above — the only secret typed in at bootstrap
   - `${tailscale_auth_key}` → the auth key from step 2 above
   - `${tailscale_fqdn}` → `<server_name>.<your-tailnet>.ts.net`
   - `${repo_url}` → `https://github.com/squaremo/capture.git`
@@ -54,9 +54,9 @@ Once complete, open `https://<server_name>.<tailnet>.ts.net` on any Tailscale-co
 
 ## Optional integrations
 
-`create_linear_task` lets Claude create real Linear issues for capture text that reads as project/engineering work. It's off by default — set `LINEAR_API_KEY` and `LINEAR_TEAM_ID` in the server's `.env` (both required) to turn it on.
+`create_linear_task` lets Claude create real Linear issues for capture text that reads as project/engineering work. It's on whenever `LINEAR_API_KEY` and `LINEAR_TEAM_ID` resolve to real values (both required) — delete or comment out those two lines in [`infra/production.env`](infra/production.env) to turn it off.
 
-Any secret env var — `ANTHROPIC_API_KEY`, `LINEAR_API_KEY` — can be set to a literal value as usual, or to an `op://vault/item/field` reference, resolved at startup via a 1Password Service Account (set `OP_SERVICE_ACCOUNT_TOKEN`). This needs a 1Password plan that supports Service Accounts — see `TODO.md`.
+Any env var in `infra/production.env` can be a literal value instead of an `op://...` reference if you'd rather not use 1Password for it — `resolveEnv()` (`backend/secrets.js`) passes non-`op://` values through unchanged. Just don't commit a real secret as a literal, since this file is in the (public) repo.
 
 ## Rolling back
 

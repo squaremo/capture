@@ -29,7 +29,8 @@ The core idea: get a thought out of your head and into the system in under 5 sec
 - **`create_linear_task` → `acted`** — the first tool that actually does something external (creates a real Linear issue via their GraphQL API); only offered to Claude when `LINEAR_API_KEY`/`LINEAR_TEAM_ID` are both set, so it's opt-in
 - Tailscale IP allowlist middleware (optional via `TAILSCALE_SUBNET` env var)
 - Persisted to SQLite (`better-sqlite3`); DB path via `DB_PATH` env var
-- `backend/secrets.js`: any secret env var's value can be a literal, or an `op://vault/item/field` reference resolved at startup via a 1Password Service Account (needs `OP_SERVICE_ACCOUNT_TOKEN`) — falls back to reading the literal value when that token isn't set, so 1Password is optional
+- `backend/secrets.js`: any secret env var's value can be a literal, or an `op://vault/item/field` reference resolved at startup via a 1Password Service Account (needs `OP_SERVICE_ACCOUNT_TOKEN`) — falls back to reading the literal value when that token isn't set, so 1Password is optional at the code level
+- Deployed config is split: `infra/production.env` (committed — `op://` refs and non-secret values, delivered by `capture-sync.timer`'s git pull) + `/opt/capture/.env.secret` (not in git, written once by cloud-init, holds only `OP_SERVICE_ACCOUNT_TOKEN`) — the server itself only ever receives that one secret directly
 
 **Infrastructure** — running on Hetzner, server created manually (no Terraform — that was tried and abandoned; may revisit later):
 
