@@ -20,4 +20,5 @@ Unstructured thoughts on where this could go, captured as-is — not scoped or c
 - **Drive custom-built apps too**, not just third-party services — these would need to be reachable on the same Tailscale network.
 - **Favourites**: named shortcuts (e.g. "play [song]") that just replay a fixed, previously-approved sequence of tool calls when invoked — no new planning/approval step needed each time.
 - **Proposed flow**: typed or voice input is processed by the LLM into a plan — a schedule of tool calls plus target location/device — along with prose repeating back what was asked. The prose and a description of the plan are played back to the human, who approves or vetoes before anything executes.
+  - Not implemented yet: today's `create_linear_task` (and any future side-effecting tool) executes immediately with no approve/veto step — confirmed live, it just went ahead and created the ticket. Worth deciding whether *every* acting tool needs this, or just some.
 - **Integrations tab in the UI** — a tab showing which integrations are currently enabled (e.g. Linear on/off based on whether it's configured).
