@@ -4,95 +4,58 @@ A self-hosted, privacy-first quick-capture app. Accessible only over Tailscale.
 
 ## How deployment works
 
-Three GitHub Actions workflows handle the full lifecycle:
+The server is created manually (no Terraform) and configures itself on first boot via cloud-init. After that, updates reach it without any further server access:
 
-| Workflow | Trigger | What it does |
+| Piece | Trigger | What it does |
 |---|---|---|
-| **Bootstrap** | Manual (`workflow_dispatch`) | Provisions the Hetzner server via Terraform, generates an SSH key pair, saves `DEPLOY_HOST` / `DEPLOY_SSH_KEY` / `DEPLOY_USER` as Actions secrets |
-| **Build** | Push to `main` (changes to `backend/`) | Builds the Docker image, pushes it to GHCR |
-| **Deploy** | After Build succeeds | Connects via Tailscale, SSHs into the server, pulls the new image |
+| **Build** / **Build Frontend** | Push to `main` (`backend/**` / `frontend/**`) | Builds a Docker image, pushes it to GHCR as `:latest` and `:sha-<commit>` |
+| **Watchtower** (on the server) | Polls every 5 min | Pulls a new `backend`/`nginx` image when GHCR's `:latest` digest changes, restarts that container |
+| **capture-sync timer** (on the server) | Every 5 min | `git pull` in `/opt/capture/app`, then `docker compose up -d` — picks up `docker-compose.yml`/`nginx.conf` changes Watchtower can't see |
+| **Rollback** | Manual (`workflow_dispatch`) | Re-points GHCR's `:latest` tag at an older `:sha-<commit>` build; Watchtower picks it up on its next poll |
 
-Run **Bootstrap once** to set up the server. After that, pushing to `main` handles builds and deployments automatically.
+So: push to `main`, wait a few minutes, the server updates itself.
 
-## Before you run Bootstrap
+## Before you create the server
 
-**1. Enable Tailscale HTTPS certificates**
+**1. Enable MagicDNS and HTTPS Certificates**
 
-In [tailscale.com/admin/dns](https://tailscale.com/admin/dns), scroll to **HTTPS Certificates** and enable it. This lets the server get a valid TLS cert for its `*.ts.net` hostname.
+In [tailscale.com/admin/dns](https://tailscale.com/admin/dns): enable **MagicDNS** first, then **HTTPS Certificates**. Both are required for the server to get a valid TLS cert for its `*.ts.net` hostname — `tailscale cert` fails without them. You need to be an **Owner/Admin** of the tailnet to change these (check `tailscale.com/admin/users`).
 
-**2. Create a Tailscale OAuth client**
+**2. Generate a Tailscale auth key**
 
-In [tailscale.com/admin/settings/oauth](https://tailscale.com/admin/settings/oauth), create a client with `devices:write` scope, tagged `tag:ci`. This is used by the Build and Deploy workflows to join the tailnet as an ephemeral CI node.
+In [tailscale.com/admin/settings/keys](https://tailscale.com/admin/settings/keys), generate an auth key (non-reusable is fine — it's used once, at first boot).
 
-**3. Create a Tailscale API key**
+**3. Have your Anthropic API key ready**
 
-In [tailscale.com/admin/settings/keys](https://tailscale.com/admin/settings/keys), generate an API key. This is used only by Terraform (at Bootstrap time) to manage the tailnet ACL — it needs broader admin access than an OAuth client scope allows.
+Used by the backend for intent detection.
 
-The ACL (`tagOwners`, member↔member rule, CI SSH rule) is applied automatically when Bootstrap runs — no manual ACL editing needed.
+## Creating the server
 
-**4. Create a Hetzner API token**
+In the [Hetzner Cloud Console](https://console.hetzner.cloud):
 
-In **Hetzner Console → Security → API Tokens**, create a token with **Read & Write** permissions.
+- Image: **Ubuntu 24.04**
+- Firewall: allow inbound **UDP 41641** (Tailscale) only — app traffic arrives over the Tailscale interface, not the public one, so ports 80/443 don't need to be open publicly
+- No SSH key needed — cloud-init does the whole setup; use Hetzner's browser **Console** (with the emailed root password) if you ever need emergency access
+- In **Cloud config / User data**, paste the contents of [`infra/cloud-init.yaml.tpl`](infra/cloud-init.yaml.tpl) with the placeholders filled in directly in Hetzner's box (so the auth key and Anthropic key never have to go anywhere else):
+  - `${server_name}` → e.g. `capture`
+  - `${anthropic_api_key}` → your Anthropic API key
+  - `${tailscale_auth_key}` → the auth key from step 2 above
+  - `${tailscale_fqdn}` → `<server_name>.<your-tailnet>.ts.net`
+  - `${repo_url}` → `https://github.com/squaremo/capture.git`
 
-**5. Create a Hetzner Object Storage bucket for Terraform state**
-
-In the [Hetzner Console](https://console.hetzner.cloud), go to **Object Storage → Buckets** and create a bucket (any region). Then go to **Object Storage → Credentials** and generate an S3-compatible access key/secret.
-
-**6. Add GitHub Actions secrets**
-
-In your repo → **Settings → Secrets and variables → Actions**, add:
-
-| Secret | Value |
-|---|---|
-| `HCLOUD_TOKEN` | Hetzner API token (step 4) |
-| `ANTHROPIC_API_KEY` | Anthropic API key |
-| `TS_OAUTH_CLIENT_ID` | Tailscale OAuth client ID (step 2) |
-| `TS_OAUTH_SECRET` | Tailscale OAuth client secret (step 2) |
-| `TS_API_KEY` | Tailscale API key (step 3) |
-| `TAILSCALE_TAILNET` | Your tailnet name, e.g. `yourname.ts.net` |
-| `TF_STATE_BUCKET` | Object Storage bucket name (step 5) |
-| `TF_STATE_ENDPOINT` | Object Storage endpoint, e.g. `https://fsn1.your-objectstorage.com` |
-| `TF_STATE_ACCESS_KEY` | S3 access key (step 5) |
-| `TF_STATE_SECRET_KEY` | S3 secret key (step 5) |
-
-Bootstrap will automatically create `DEPLOY_HOST`, `DEPLOY_SSH_KEY`, and `DEPLOY_USER` when it runs — don't set these manually.
-
-## Bootstrap
-
-Go to **Actions → Bootstrap → Run workflow**. Optionally override:
-
-- `server_name` — Tailscale machine name and hostname (default: `capture`)
-- `location` — Hetzner datacenter: `fsn1` `nbg1` `hel1` `ash` `hil` (default: `fsn1`)
-- `server_type` — Hetzner server type (default: `cx22`, 2 vCPU / 4 GB RAM, ~€4.35/mo)
-
-The workflow runs Terraform, then saves the three deploy secrets. The server IP and Tailscale FQDN appear in the workflow logs.
-
-The server takes ~2 minutes to finish bootstrapping (cloud-init installs Docker, Tailscale, gets the TLS cert, clones the repo, and starts the app). You can watch progress with:
+The server takes ~2 minutes to finish (installs Docker, joins Tailscale, gets a TLS cert, clones the repo, starts the app). Check progress via the Hetzner **Console**:
 
 ```bash
-ssh root@<server-ip> journalctl -f
+cloud-init status
+journalctl -u capture -n 50 --no-pager
 ```
 
-Once complete, open `https://<server-name>.<tailnet>.ts.net` on any device on your tailnet.
+Once complete, open `https://<server_name>.<tailnet>.ts.net` on any Tailscale-connected device.
 
+## Rolling back
 
-## Updating the app
-
-Push to `main` — GitHub Actions will build a new image, push it to GHCR, then SSH into the server and run `docker compose pull && up -d`. No manual steps needed.
-
-To roll back, find the `sha-<commit>` image tag in the package registry, then on the server:
-
-```bash
-cd /opt/capture/app
-BACKEND_IMAGE=ghcr.io/squaremo/capture:sha-<commit> docker compose up -d
-```
+Find the git SHA to roll back to (`git log --oneline`), then **Actions → Rollback → Run workflow**, pass the SHA. Watchtower applies it within a few minutes — no server access needed.
 
 ## Teardown
 
-```bash
-cd infra
-terraform init -backend-config=backend.hcl
-terraform destroy
-```
-
-This removes the Hetzner server, SSH key, and firewall. The Object Storage bucket (Terraform state) is not managed by Terraform and must be deleted manually if no longer needed.
+Delete the server directly in the Hetzner Cloud Console. Tailscale devices don't cost anything left orphaned, but you can remove the stale entry at `tailscale.com/admin/machines` whenever convenient.

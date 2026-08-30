@@ -8,16 +8,18 @@ The core idea: get a thought out of your head and into the system in under 5 sec
 
 ## current state
 
-**Frontend** (`frontend/index.html`) — polished single-file HTML/CSS/JS prototype:
+**Frontend** (`frontend/`) — Vite-built PWA, deployed and connected to the live backend:
 
-- Full UI with dark utilitarian aesthetic (monospaced Berkeley Mono + Fraunces serif, acid green accent `#c8f060`)
+- Modular components: `capture.js` (input), `inbox.js` (list/filters), `item.js` (row rendering)
+- `api.js` calls the real backend (`postCapture`, `getItems`, `patchItem`) — no mock/in-memory state
+- `vite-plugin-pwa` generates the manifest and service worker at build time (installable to home screen); manifest icons are still placeholders — not yet added
+- Dark utilitarian aesthetic (monospaced Berkeley Mono + Fraunces serif, acid green accent `#c8f060`)
 - Textarea capture input with ⌘↵ keyboard shortcut and voice via Web Speech API
 - **Optimistic UI**: item appears instantly in inbox with a `pending` state + shimmer bar, then resolves in-place ~1.5s later with what was done
 - Item states: `pending` → `triaged` / `reminder` / `urgent` / `acted` / `failed`
 - Each resolved item shows a coloured result strip with a natural-language description of the action taken (e.g. "Calendar event created: 'Call dentist' — Tomorrow, 9:00am")
 - Filter tabs: All / Pending / Acted / Done
 - Stats footer, grain texture overlay, VPN status badge
-- Not yet connected to the backend (still uses in-memory state)
 
 **Backend** (`backend/`) — Fastify + SQLite, deployed and running:
 
@@ -27,15 +29,18 @@ The core idea: get a thought out of your head and into the system in under 5 sec
 - Tailscale IP allowlist middleware (optional via `TAILSCALE_SUBNET` env var)
 - Persisted to SQLite (`better-sqlite3`); DB path via `DB_PATH` env var
 
-**Infrastructure** — running on Hetzner:
+**Infrastructure** — running on Hetzner, server created manually (no Terraform — that was tried and abandoned; may revisit later):
 
-- Terraform config in `infra/` provisions the VM
-- Docker Compose runs backend + nginx reverse proxy with Tailscale TLS certs
-- GitHub Actions: `build.yml` builds and pushes image to GHCR on pushes to `main`; `deploy.yml` SSHs in via Tailscale and pulls the new image
+- Server provisioned by hand via the Hetzner Cloud Console; configures itself on first boot from `infra/cloud-init.yaml.tpl` pasted in as user-data (Docker, Tailscale join, TLS cert, clone repo, start app)
+- Docker Compose runs backend + nginx (serving the built frontend) + Watchtower
+- `build.yml` / `build-frontend.yml` push new images to GHCR on changes to `backend/**` / `frontend/**`
+- **Watchtower** (in compose) polls GHCR every 5 min and auto-updates `backend`/`nginx` when their image changes — no SSH deploy step
+- **`capture-sync` systemd timer** on the server (`infra/install-capture-sync.sh` installs it on existing boxes) pulls `main` and reconciles `docker-compose.yml` every 5 min — catches compose/config changes Watchtower can't see
+- `rollback.yml` re-points GHCR's `:latest` at an older `:sha-<commit>` build (manual dispatch) — no server access needed
 
 ## stack
 
-- **Frontend**: single-file HTML prototype → to be converted to a PWA (add manifest + service worker)
+- **Frontend**: Vite + `vite-plugin-pwa`, built into a static bundle served by nginx
 - **Backend**: Node.js with Fastify + SQLite (`better-sqlite3`)
 - **Intent detection**: Claude API with tool calling (server-side)
 - **Calendar integration**: Google Calendar API or CalDAV — not yet implemented
@@ -73,10 +78,9 @@ capture/
 
 ## next steps (suggested)
 
-1. Implement the test suite (Vitest — see `TESTING.md` for the plan)
-2. Connect frontend to backend API (replace in-memory state)
-3. Add `manifest.json` and `sw.js` to make it installable as a PWA
-4. Implement Google Calendar integration for reminder-type captures
+1. Add real PWA icons (`vite-plugin-pwa` manifest currently references `/icons/192.png` and `/icons/512.png`, which don't exist)
+2. Implement Google Calendar integration for reminder-type captures
+3. Revisit Terraform/IaC for server provisioning once the app itself is further along
 
 ## architecture decisions
 
@@ -101,7 +105,7 @@ capture/
 
 ## deployment
 
-Three GitHub Actions workflows — Bootstrap (manual, runs Terraform + saves secrets), Build (on push to `main`), Deploy (after build). Run Bootstrap once; subsequent pushes are fully automated. Full setup docs in `README.md`.
+Server is created manually via the Hetzner Console (cloud-init handles first-boot setup); after that, pushes to `main` reach it automatically via GHCR + Watchtower + the `capture-sync` timer — no SSH, ever. Full setup docs in `README.md`.
 
 ## design reference
 
