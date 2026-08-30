@@ -90,7 +90,12 @@ runcmd:
 
   # ── Tailscale ────────────────────────────────────────────────────────────────
   - curl -fsSL https://tailscale.com/install.sh | sh
-  - tailscale up --authkey="${tailscale_auth_key}" --hostname="${server_name}"
+  # --snat-subnet-routes=false: without it, tailscaled masquerades any
+  # traffic it forwards to a local destination — including a peer's
+  # request into the Docker bridge network — replacing the real client
+  # IP with the bridge gateway address before the app ever sees it,
+  # which breaks the Tailscale-subnet allowlist check in server.js.
+  - tailscale up --authkey="${tailscale_auth_key}" --hostname="${server_name}" --snat-subnet-routes=false
   # Wait for Tailscale to be fully up and get its IP
   - until tailscale status --json | jq -e '.Self.Online == true' > /dev/null 2>&1; do sleep 2; done
 
