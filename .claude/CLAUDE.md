@@ -34,7 +34,8 @@ The core idea: get a thought out of your head and into the system in under 5 sec
 
 **Infrastructure** — running on Hetzner, server created manually (no Terraform — that was tried and abandoned; may revisit later):
 
-- Server provisioned by hand via the Hetzner Cloud Console; configures itself on first boot from `infra/cloud-init.yaml.tpl` pasted in as user-data (Docker, Tailscale join, TLS cert, clone repo, start app)
+- Server provisioned by hand via the Hetzner Cloud Console; configures itself on first boot from `infra/cloud-init.yaml.tpl` pasted in as user-data (Docker, Tailscale join, TLS cert, clone repo, start app, create a non-root `admin` user with SSH key + passwordless sudo — root SSH stays key-less/unusable on purpose)
+- SSH access is `ssh admin@<server>.<tailnet>.ts.net` (over Tailscale, no port 22 firewall rule needed) + `sudo -i`; the Hetzner browser Console is fallback-only — it can't reliably paste, so it's unusable for typing real secrets
 - Docker Compose runs backend + nginx (serving the built frontend) + Watchtower
 - `build.yml` / `build-frontend.yml` push new images to GHCR on changes to `backend/**` / `frontend/**`
 - **Watchtower** (in compose) polls GHCR every 5 min and auto-updates `backend`/`nginx` when their image changes — no SSH deploy step

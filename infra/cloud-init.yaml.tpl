@@ -2,6 +2,17 @@
 hostname: ${server_name}
 manage_etc_hosts: true
 
+# A non-root admin user for SSH — root SSH login is unusable without a key
+# on file anyway, and this way there's never a root password involved:
+# access is entirely key-based, and sudo needs no password once you're in.
+users:
+  - name: admin
+    groups: sudo
+    shell: /bin/bash
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    ssh_authorized_keys:
+      - ${admin_ssh_public_key}
+
 packages:
   - ca-certificates
   - curl
