@@ -27,7 +27,11 @@ services:
       - "com.centurylinklabs.watchtower.enable=true"
 
   watchtower:
-    image: containrrr/watchtower
+    # containrrr/watchtower was archived Dec 2025 and misdetects the Docker
+    # API version against Docker Engine v29+, causing it to fail outright.
+    # nickfedor/watchtower is the actively maintained fork — same image,
+    # same config, drop-in replacement.
+    image: nickfedor/watchtower
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
