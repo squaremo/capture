@@ -6,7 +6,7 @@ import { processCapture } from './integrations/claude.js'
 const PORT = parseInt(process.env.PORT ?? '3000', 10)
 const HOST = process.env.HOST ?? '0.0.0.0'
 
-export const app = Fastify({ logger: true })
+export const app = Fastify({ logger: true, trustProxy: true })
 
 // ── Tailscale IP allowlist ─────────────────────────────────
 app.addHook('onRequest', async (req, reply) => {
