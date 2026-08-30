@@ -1,0 +1,45 @@
+name: Rollback
+
+# Points the `latest` GHCR tag at a previous build's image, identified by
+# git SHA. Watchtower on the server polls `latest` and will pick up the
+# change within a few minutes — no server access needed for this workflow.
+#
+# Find a SHA to roll back to with: git log --oneline
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Git SHA of the build to roll back to (short form, e.g. from `git log --oneline`)
+        required: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Point latest at the target build
+        run: |
+          docker buildx imagetools create \
+            --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ inputs.sha }}
+
+      - name: Confirm
+        run: docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
