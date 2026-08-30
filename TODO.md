@@ -5,7 +5,8 @@
 - [ ] Frontend e2e tests (Playwright/Cypress) — now that the frontend actually talks to the backend, this is unblocked
 - [ ] Deploy smoke test — a post-deploy health check hitting `GET /api/items` over Tailscale, to confirm a rollout actually landed
 - [ ] Revisit Terraform/IaC for server provisioning once the app itself is further along (tried and abandoned once already — see git history around the `claude/*-RKHeR` branches for what went wrong)
-- [ ] Create the 1Password items referenced in `infra/production.env` (anthropic api_key, linear api_key + team_id), then set `OP_SERVICE_ACCOUNT_TOKEN` on the server (`/opt/capture/.env.secret`) to turn everything on
+- [x] Create the 1Password items referenced in `infra/production.env` (anthropic api_key, linear api_key + team_id), then set `OP_SERVICE_ACCOUNT_TOKEN` on the server (`/opt/capture/.env.secret`) to turn everything on — confirmed working end-to-end, first real Linear ticket created via the app
+- [ ] UI bug: after a capture resolves (e.g. to `acted` via `create_linear_task`), the frontend still shows it as pending/deciding instead of updating in place — the optimistic-UI polling in `frontend/src/main.js` isn't picking up the resolved state. Not yet diagnosed.
 
 ## ideas (freeform)
 
