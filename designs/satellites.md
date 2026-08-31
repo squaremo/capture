@@ -203,15 +203,15 @@ explicitly if that's ever genuinely needed.
 - Provisioning story for a new satellite (how house-id and local device
   config get onto the box) — likely follows the same cloud-init pattern
   used for the main server, not yet written.
-- TODO: satellite-side track search — given a rich query (`title`/
-  `artist`/etc, see Room/house targeting), find and play the best-matching
-  track. Any retry/fallback strategy (stripping the artist and retrying,
-  alternate spellings, ...) is ordinary code in the satellite's search
-  integration, not an LLM decision — the interpreter's single-round-trip
-  plan can't loop back to Claude mid-search anyway. A genuinely bad match
-  is caught at approval, same as everything else, not by getting the
-  search itself perfect.
-- TODO: satellite-side room/speaker matching — fuzzy-match the `room`
-  arg ("bedroom") against the satellite's actual configured device names
-  ("Master bedroom"). Same reasoning: plain code, not something Claude
-  resolves mid-plan (see the dispatch discussion above).
+- Satellite-side track search and room/speaker matching are implemented
+  as stubs (`satellite/services/sonos.js`, documented in
+  `satellite/README.md`'s Protocol section) — both plain code, not an LLM
+  decision, per the reasoning above. Speaker matching is real (exact →
+  substring → bounded edit-distance, against a hardcoded speaker list,
+  refusing to guess wildly and failing the request rather than the LLM's
+  plan); track search fabricates a plausible-shaped result (an id, a
+  `matchConfidence`) without querying an actual catalog. TODO: swap in a
+  real catalog search (Spotify's, or Sonos's own) behind `searchTrack()` —
+  the protocol shape is designed to survive that swap unchanged. TODO:
+  swap the hardcoded speaker list for real per-house device config once
+  that provisioning story (above) exists.

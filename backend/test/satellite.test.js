@@ -39,9 +39,14 @@ describe('controlPlayback', () => {
   })
 
   it('posts the rich query and returns the play result', async () => {
+    const playResult = {
+      playing: true,
+      track: { id: 'trk_abc123', title: 'Silver Machine', artist: 'Hawkwind', album: null, matchConfidence: 'exact' },
+      speaker: { name: 'Living Room', requested: 'living room', confidence: 'exact' },
+    }
     mockFetch
       .mockResolvedValueOnce(jsonResponse({ house: 'home', capabilities: ['sonos'] }))
-      .mockResolvedValueOnce(jsonResponse({ playing: true, track: 'Silver Machine by Hawkwind', room: 'living room' }))
+      .mockResolvedValueOnce(jsonResponse(playResult))
 
     const result = await controlPlayback({
       houses,
@@ -51,7 +56,7 @@ describe('controlPlayback', () => {
       artist: 'Hawkwind',
     })
 
-    expect(result).toEqual({ playing: true, track: 'Silver Machine by Hawkwind', room: 'living room' })
+    expect(result).toEqual(playResult)
     const [url, options] = mockFetch.mock.calls[1]
     expect(url).toBe('http://localhost:4000/api/play')
     expect(JSON.parse(options.body)).toEqual({
@@ -68,6 +73,16 @@ describe('controlPlayback', () => {
       .mockResolvedValueOnce(jsonResponse({ error: 'title is required' }, false, 400))
 
     await expect(controlPlayback({ houses, house: 'home', title: '' })).rejects.toThrow('title is required')
+  })
+
+  it('throws with the satellite-reported error when no speaker matches the room', async () => {
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse({ house: 'home', capabilities: ['sonos'] }))
+      .mockResolvedValueOnce(jsonResponse({ error: 'No speaker matching "garage"' }, false, 422))
+
+    await expect(
+      controlPlayback({ houses, house: 'home', title: 'x', room: 'garage' })
+    ).rejects.toThrow('No speaker matching')
   })
 })
 

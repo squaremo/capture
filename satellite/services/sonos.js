@@ -1,21 +1,35 @@
-// Stand-in for real Sonos UPnP control until there's hardware to talk to.
-// Exposes the same shape a real implementation would, so swapping this
-// out later doesn't change the controller API in server.js.
+// Stand-in for real Sonos + catalog-search integration until there's
+// hardware/an API to talk to. Exposes the same shape a real
+// implementation would — a matched track and a matched speaker, each
+// carrying a confidence label — so swapping this out later doesn't
+// change callers. See designs/satellites.md.
 
-let state = { playing: false, track: null, room: null }
+// Stub device list — a real implementation would discover these from the
+// house's actual Sonos system rather than hardcoding them (there's no
+// per-house device config yet, see Open questions in the design doc).
+const SPEAKERS = ['Living Room', 'Bedroom', 'Kitchen']
+
+let state = { playing: false, track: null, speaker: null }
 
 export function getStatus() {
   return { ...state }
 }
 
-// Takes a rich query (title/artist/album) rather than one opaque string —
-// finding the actual best-matching track is this function's job. For now
-// it just composes a display string; a real implementation would search
-// Spotify/Sonos and pick a match (see designs/satellites.md TODOs).
+// Throws if room doesn't match any configured speaker closely enough —
+// never silently plays on a guessed speaker. Only commits state once both
+// the track and the speaker have resolved.
 export function play({ title, artist, album, room }) {
-  const track = [title, artist && `by ${artist}`, album && `(${album})`].filter(Boolean).join(' ')
-  state = { playing: true, track, room: room ?? null }
-  console.log(`[sonos stub] playing "${track}" in ${room ?? 'unspecified room'}`)
+  const speaker = matchSpeaker(room, SPEAKERS)
+  if (speaker.confidence === 'no_match') {
+    throw new Error(`No speaker matching "${speaker.requested}"`)
+  }
+
+  const track = searchTrack({ title, artist, album })
+  state = { playing: true, track, speaker }
+  console.log(
+    `[sonos stub] playing "${track.title}"${track.artist ? ` by ${track.artist}` : ''} ` +
+    `(${track.matchConfidence} match) on ${speaker.name} (${speaker.confidence} match for "${speaker.requested}")`
+  )
   return getStatus()
 }
 
@@ -23,4 +37,71 @@ export function pause() {
   state = { ...state, playing: false }
   console.log('[sonos stub] paused')
   return getStatus()
+}
+
+// Stand-in for a real catalog search (Spotify, Sonos's own search, ...).
+// Returns a plausible-shaped result — an id and a confidence label based
+// on how specific the query was — without actually querying anything. A
+// real implementation swaps only this function; callers don't change.
+function searchTrack({ title, artist, album }) {
+  return {
+    id: `trk_${Math.random().toString(36).slice(2, 10)}`,
+    title,
+    artist: artist ?? null,
+    album: album ?? null,
+    matchConfidence: artist ? 'exact' : 'approximate',
+  }
+}
+
+// Fuzzy-matches free text ("bedroom") against this satellite's actual
+// speaker names ("Master Bedroom") — never the LLM's job, see
+// designs/satellites.md. Exact match, then substring either direction,
+// then a bounded edit-distance fallback; nothing within a plausible
+// distance reports no_match rather than guessing wildly. No room given at
+// all defaults to the first configured speaker.
+function matchSpeaker(query, speakers) {
+  if (!query) {
+    return { name: speakers[0] ?? null, requested: null, confidence: speakers.length ? 'default' : 'no_match' }
+  }
+
+  const q = query.trim().toLowerCase()
+
+  const exact = speakers.find(s => s.toLowerCase() === q)
+  if (exact) return { name: exact, requested: query, confidence: 'exact' }
+
+  const partial = speakers.find(s => s.toLowerCase().includes(q) || q.includes(s.toLowerCase()))
+  if (partial) return { name: partial, requested: query, confidence: 'approximate' }
+
+  let best = null
+  let bestDistance = Infinity
+  for (const s of speakers) {
+    const distance = levenshtein(q, s.toLowerCase())
+    if (distance < bestDistance) {
+      bestDistance = distance
+      best = s
+    }
+  }
+  const threshold = Math.max(3, Math.floor((best?.length ?? 0) / 2))
+  if (best && bestDistance <= threshold) return { name: best, requested: query, confidence: 'approximate' }
+
+  return { name: null, requested: query, confidence: 'no_match' }
+}
+
+function levenshtein(a, b) {
+  const rows = a.length + 1
+  const cols = b.length + 1
+  const d = Array.from({ length: rows }, (_, i) => {
+    const row = new Array(cols).fill(0)
+    row[0] = i
+    return row
+  })
+  for (let j = 0; j < cols; j++) d[0][j] = j
+
+  for (let i = 1; i < rows; i++) {
+    for (let j = 1; j < cols; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost)
+    }
+  }
+  return d[rows - 1][cols - 1]
 }

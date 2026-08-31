@@ -39,7 +39,7 @@ async function refresh() {
   const res = await fetch('/api/status')
   const s = await res.json()
   document.getElementById('status').textContent = s.playing
-    ? `[${s.house}] playing: ${s.track}${s.room ? ` in ${s.room}` : ''}`
+    ? `[${s.house}] playing: ${s.track.title}${s.track.artist ? ` by ${s.track.artist}` : ''} on ${s.speaker.name}`
     : `[${s.house}] paused`
 }
 
@@ -48,11 +48,16 @@ document.getElementById('play').onclick = async () => {
   const artist = document.getElementById('artist').value.trim()
   const room = document.getElementById('room').value.trim()
   if (!title) return
-  await fetch('/api/play', {
+  const res = await fetch('/api/play', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title, artist, room }),
   })
+  if (!res.ok) {
+    const { error } = await res.json()
+    document.getElementById('status').textContent = `error: ${error}`
+    return
+  }
   refresh()
 }
 
