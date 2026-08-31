@@ -26,7 +26,8 @@
 <body>
   <h1>satellite</h1>
   <div class="row">
-    <input id="track" placeholder="track name" size="30">
+    <input id="track" placeholder="track name" size="24">
+    <input id="room" placeholder="room" size="14">
     <button id="play">play</button>
     <button id="pause">pause</button>
   </div>
@@ -37,17 +38,18 @@ async function refresh() {
   const res = await fetch('/api/status')
   const s = await res.json()
   document.getElementById('status').textContent = s.playing
-    ? `[${s.house}] playing: ${s.track}`
+    ? `[${s.house}] playing: ${s.track}${s.room ? ` in ${s.room}` : ''}`
     : `[${s.house}] paused`
 }
 
 document.getElementById('play').onclick = async () => {
   const track = document.getElementById('track').value.trim()
+  const room = document.getElementById('room').value.trim()
   if (!track) return
   await fetch('/api/play', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ track }),
+    body: JSON.stringify({ track, room }),
   })
   refresh()
 }

@@ -34,11 +34,11 @@ app.get('/api/status', async () => ({
 }))
 
 app.post('/api/play', async (req, reply) => {
-  const { track } = req.body ?? {}
+  const { track, room } = req.body ?? {}
   if (!track || typeof track !== 'string' || !track.trim()) {
     return reply.code(400).send({ error: 'track is required' })
   }
-  return sonos.play(track.trim())
+  return sonos.play(track.trim(), typeof room === 'string' ? room.trim() : undefined)
 })
 
 app.post('/api/pause', async () => sonos.pause())
