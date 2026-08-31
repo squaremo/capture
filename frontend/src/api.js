@@ -28,3 +28,15 @@ export async function patchItem(id, patch) {
   if (!res.ok) throw new Error(`patch item failed: ${res.status}`)
   return res.json()
 }
+
+export async function approveItem(id) {
+  const res = await fetch(`${BASE}/items/${id}/approve`, { method: 'POST' })
+  if (!res.ok) throw new Error(`approve item failed: ${res.status}`)
+  return res.json()
+}
+
+export async function vetoItem(id) {
+  const res = await fetch(`${BASE}/items/${id}/veto`, { method: 'POST' })
+  if (!res.ok) throw new Error(`veto item failed: ${res.status}`)
+  return res.json()
+}

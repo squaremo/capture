@@ -9,6 +9,7 @@ describe('createItem', () => {
     expect(item.status).toBe('pending')
     expect(item.tags).toEqual([])
     expect(item.action_result).toBeNull()
+    expect(item.pending_action).toBeNull()
     expect(item.created_at).toBeTruthy()
   })
 })
@@ -76,5 +77,17 @@ describe('updateItem', () => {
     const item = createItem('no-op update')
     const result = updateItem(item.id, {})
     expect(result).toEqual(item)
+  })
+
+  it('pending_action round-trips as an object and clears back to null', () => {
+    const item = createItem('proposed action')
+    const withAction = updateItem(item.id, {
+      status: 'awaiting_approval',
+      pending_action: { tool: 'create_linear_task', input: { title: 'Fix bug' } },
+    })
+    expect(withAction.pending_action).toEqual({ tool: 'create_linear_task', input: { title: 'Fix bug' } })
+
+    const cleared = updateItem(item.id, { status: 'acted', pending_action: null })
+    expect(cleared.pending_action).toBeNull()
   })
 })

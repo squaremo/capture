@@ -1,7 +1,7 @@
 import './styles.css'
 import { createCaptureInput } from './components/capture.js'
 import { createInbox } from './components/inbox.js'
-import { postCapture, getItems } from './api.js'
+import { postCapture, getItems, approveItem, vetoItem } from './api.js'
 
 const app = document.getElementById('app')
 
@@ -17,7 +17,26 @@ vpnBadge.textContent = 'tailscale'
 header.append(logo, vpnBadge)
 
 // ── Inbox ─────────────────────────────────────────────────
-const inbox = createInbox()
+const inFlight = new Set() // item ids currently being approved/vetoed
+
+const inbox = createInbox({
+  onApprove: (id) => handleDecision(id, approveItem),
+  onVeto: (id) => handleDecision(id, vetoItem),
+})
+
+async function handleDecision(id, action) {
+  if (inFlight.has(id)) return // ignore repeat clicks while a decision is in flight
+  inFlight.add(id)
+  try {
+    const updated = await action(id)
+    inbox.updateItem(updated)
+    updateStats()
+  } catch (err) {
+    console.error(err)
+  } finally {
+    inFlight.delete(id)
+  }
+}
 
 // ── Stats footer ──────────────────────────────────────────
 const stats = document.createElement('footer')

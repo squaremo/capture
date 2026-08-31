@@ -19,7 +19,7 @@ vi.mock('../integrations/linear.js', () => ({
 process.env.LINEAR_API_KEY = 'test-linear-key'
 process.env.LINEAR_TEAM_ID = 'test-team-id'
 
-const { processCapture } = await import('../integrations/claude.js')
+const { processCapture, executeAction } = await import('../integrations/claude.js')
 
 beforeEach(() => {
   mockCreate.mockClear()
@@ -34,13 +34,28 @@ describe('processCapture with Linear enabled', () => {
     expect(toolNames).toContain('create_linear_task')
   })
 
-  it('actually creates the Linear task and returns status acted', async () => {
+  it('proposes the task without creating it, awaiting approval', async () => {
     mockCreate.mockResolvedValue({
       content: [{ type: 'tool_use', name: 'create_linear_task', input: { title: 'Fix bug', description: 'details', tags: ['work'] } }],
     })
-    mockCreateLinearTask.mockResolvedValue({ url: 'https://linear.app/x/issue/1', title: 'Fix bug' })
 
     const result = await processCapture('fix the login bug')
+
+    expect(mockCreateLinearTask).not.toHaveBeenCalled()
+    expect(result).toEqual({
+      status: 'awaiting_approval',
+      tags: ['work'],
+      action_result: 'Proposed: create Linear task "Fix bug"',
+      pending_action: { tool: 'create_linear_task', input: { title: 'Fix bug', description: 'details' } },
+    })
+  })
+})
+
+describe('executeAction', () => {
+  it('runs the proposed Linear task creation and returns status acted', async () => {
+    mockCreateLinearTask.mockResolvedValue({ url: 'https://linear.app/x/issue/1', title: 'Fix bug' })
+
+    const result = await executeAction({ tool: 'create_linear_task', input: { title: 'Fix bug', description: 'details' } })
 
     expect(mockCreateLinearTask).toHaveBeenCalledWith({
       apiKey: 'test-linear-key',
@@ -50,16 +65,16 @@ describe('processCapture with Linear enabled', () => {
     })
     expect(result).toEqual({
       status: 'acted',
-      tags: ['work'],
       action_result: 'Linear task created: "Fix bug" — https://linear.app/x/issue/1',
     })
   })
 
   it('propagates Linear API errors as thrown exceptions', async () => {
-    mockCreate.mockResolvedValue({
-      content: [{ type: 'tool_use', name: 'create_linear_task', input: { title: 'x', tags: [] } }],
-    })
     mockCreateLinearTask.mockRejectedValue(new Error('Linear API error: 401'))
-    await expect(processCapture('fix the login bug')).rejects.toThrow('Linear API error: 401')
+    await expect(executeAction({ tool: 'create_linear_task', input: { title: 'x' } })).rejects.toThrow('Linear API error: 401')
+  })
+
+  it('throws for an unknown tool', async () => {
+    await expect(executeAction({ tool: 'nonexistent', input: {} })).rejects.toThrow('Unknown action tool')
   })
 })

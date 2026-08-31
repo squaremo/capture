@@ -14,24 +14,35 @@ db.exec(`
     status       TEXT NOT NULL DEFAULT 'pending',
     tags         TEXT NOT NULL DEFAULT '[]',
     action_result TEXT,
+    pending_action TEXT,
     created_at   TEXT NOT NULL
   )
 `)
+// Migration for existing databases created before pending_action existed.
+try {
+  db.exec('ALTER TABLE items ADD COLUMN pending_action TEXT')
+} catch (err) {
+  if (!/duplicate column name/.test(err.message)) throw err
+}
 
 function newId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 }
 
 function parseItem(row) {
-  return { ...row, tags: JSON.parse(row.tags) }
+  return {
+    ...row,
+    tags: JSON.parse(row.tags),
+    pending_action: row.pending_action ? JSON.parse(row.pending_action) : null,
+  }
 }
 
 export function createItem(text) {
   const id = newId()
   const created_at = new Date().toISOString()
   db.prepare(
-    'INSERT INTO items (id, text, status, tags, action_result, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(id, text, 'pending', '[]', null, created_at)
+    'INSERT INTO items (id, text, status, tags, action_result, pending_action, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, text, 'pending', '[]', null, null, created_at)
   return getItem(id)
 }
 
@@ -47,12 +58,13 @@ export function listItems({ status } = {}) {
   return rows.map(parseItem)
 }
 
-export function updateItem(id, { status, tags, action_result }) {
+export function updateItem(id, { status, tags, action_result, pending_action }) {
   const fields = []
   const values = []
-  if (status !== undefined)        { fields.push('status = ?');        values.push(status) }
-  if (tags !== undefined)          { fields.push('tags = ?');           values.push(JSON.stringify(tags)) }
-  if (action_result !== undefined) { fields.push('action_result = ?'); values.push(action_result) }
+  if (status !== undefined)         { fields.push('status = ?');         values.push(status) }
+  if (tags !== undefined)           { fields.push('tags = ?');           values.push(JSON.stringify(tags)) }
+  if (action_result !== undefined)  { fields.push('action_result = ?');  values.push(action_result) }
+  if (pending_action !== undefined) { fields.push('pending_action = ?'); values.push(pending_action ? JSON.stringify(pending_action) : null) }
   if (!fields.length) return getItem(id)
   values.push(id)
   db.prepare(`UPDATE items SET ${fields.join(', ')} WHERE id = ?`).run(...values)

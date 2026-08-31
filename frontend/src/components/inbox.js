@@ -2,7 +2,7 @@ import { createItemEl, updateItemEl } from './item.js'
 
 const FILTERS = ['all', 'pending', 'acted', 'done']
 
-export function createInbox() {
+export function createInbox({ onApprove, onVeto } = {}) {
   const section = document.createElement('section')
   section.className = 'inbox'
 
@@ -33,11 +33,20 @@ export function createInbox() {
     render()
   })
 
+  list.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-action]')
+    if (!btn) return
+    const id = btn.closest('.item')?.dataset.id
+    if (!id) return
+    if (btn.dataset.action === 'approve') onApprove?.(id)
+    if (btn.dataset.action === 'veto') onVeto?.(id)
+  })
+
   function visible(item) {
     if (activeFilter === 'all') return true
-    if (activeFilter === 'pending') return item.status === 'pending'
+    if (activeFilter === 'pending') return ['pending', 'awaiting_approval'].includes(item.status)
     if (activeFilter === 'acted') return ['acted', 'reminder', 'urgent'].includes(item.status)
-    if (activeFilter === 'done') return ['triaged', 'acted', 'reminder', 'urgent', 'failed'].includes(item.status)
+    if (activeFilter === 'done') return ['triaged', 'acted', 'reminder', 'urgent', 'failed', 'vetoed'].includes(item.status)
     return true
   }
 

@@ -14,9 +14,9 @@ Your job is to classify and act on it by calling exactly one tool:
 - save_to_inbox: a general note or task to triage later
 - create_reminder: something time-sensitive that should become a calendar event or reminder
 - flag_urgent: something that needs immediate attention${LINEAR_ENABLED ? `
-- create_linear_task: real project/engineering work that should be tracked in Linear (e.g. "fix the login bug", "add dark mode")` : ''}
+- create_linear_task: real project/engineering work that should be tracked in Linear (e.g. "fix the login bug", "add dark mode") — this proposes the task; it isn't created until the human approves it` : ''}
 
-Always include a short, natural-language action_result string describing what you did (e.g. "Saved to inbox", "Reminder set: 'Call dentist' — Tomorrow, 9:00am", "Flagged as urgent"). This is not needed for create_linear_task — its result is generated from what was actually created.
+Always include a short, natural-language action_result string describing what you did (e.g. "Saved to inbox", "Reminder set: 'Call dentist' — Tomorrow, 9:00am", "Flagged as urgent"). This is not needed for create_linear_task — a description of the proposal is generated automatically.
 
 Also provide an array of 1–3 lowercase tags (e.g. ["shopping"], ["health", "urgent"], ["work"]).`
 
@@ -79,7 +79,19 @@ const TOOL_TO_STATUS = {
   save_to_inbox: 'triaged',
   create_reminder: 'reminder',
   flag_urgent: 'urgent',
-  create_linear_task: 'acted',
+}
+
+// Tools with a real external side effect. Picking one of these doesn't
+// run it — processCapture() only records the proposed call, and it's
+// executeAction() that actually performs it, once approved.
+const ACTING_TOOLS = {
+  create_linear_task: {
+    describe: ({ title }) => `Proposed: create Linear task "${title}"`,
+    execute: async ({ title, description }) => {
+      const issue = await createLinearTask({ apiKey: linearApiKey, teamId: linearTeamId, title, description })
+      return `Linear task created: "${issue.title}" — ${issue.url}`
+    },
+  },
 }
 
 export async function processCapture(text) {
@@ -97,13 +109,26 @@ export async function processCapture(text) {
     return { status: 'triaged', tags: [], action_result: 'Saved to inbox.' }
   }
 
-  if (toolUse.name === 'create_linear_task') {
-    const { title, description, tags } = toolUse.input
-    const issue = await createLinearTask({ apiKey: linearApiKey, teamId: linearTeamId, title, description })
-    return { status: 'acted', tags: tags ?? [], action_result: `Linear task created: "${issue.title}" — ${issue.url}` }
+  const actingTool = ACTING_TOOLS[toolUse.name]
+  if (actingTool) {
+    const { tags, ...input } = toolUse.input
+    return {
+      status: 'awaiting_approval',
+      tags: tags ?? [],
+      action_result: actingTool.describe(input),
+      pending_action: { tool: toolUse.name, input },
+    }
   }
 
   const { action_result, tags } = toolUse.input
   const status = TOOL_TO_STATUS[toolUse.name] ?? 'triaged'
   return { status, tags: tags ?? [], action_result }
+}
+
+// Runs a previously-proposed action after the human has approved it.
+export async function executeAction({ tool, input }) {
+  const actingTool = ACTING_TOOLS[tool]
+  if (!actingTool) throw new Error(`Unknown action tool: ${tool}`)
+  const action_result = await actingTool.execute(input)
+  return { status: 'acted', action_result }
 }

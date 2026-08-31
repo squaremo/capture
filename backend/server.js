@@ -1,7 +1,7 @@
 import Fastify from 'fastify'
 import { fileURLToPath } from 'url'
 import { createItem, getItem, listItems, updateItem } from './db.js'
-import { processCapture } from './integrations/claude.js'
+import { processCapture, executeAction } from './integrations/claude.js'
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10)
 const HOST = process.env.HOST ?? '0.0.0.0'
@@ -39,8 +39,8 @@ app.post('/api/capture', async (req, reply) => {
 
   // Process in background — don't await
   processCapture(item.text)
-    .then(({ status, tags, action_result }) => {
-      updateItem(item.id, { status, tags, action_result })
+    .then(({ status, tags, action_result, pending_action }) => {
+      updateItem(item.id, { status, tags, action_result, pending_action: pending_action ?? null })
     })
     .catch(err => {
       app.log.error({ err, itemId: item.id }, 'Claude processing failed')
@@ -48,6 +48,34 @@ app.post('/api/capture', async (req, reply) => {
     })
 
   return reply.code(201).send(item)
+})
+
+// POST /api/items/:id/approve — run a proposed action
+app.post('/api/items/:id/approve', async (req, reply) => {
+  const item = getItem(req.params.id)
+  if (!item) return reply.code(404).send({ error: 'Not found' })
+  if (item.status !== 'awaiting_approval' || !item.pending_action) {
+    return reply.code(409).send({ error: 'Item has no pending action to approve' })
+  }
+
+  try {
+    const { status, action_result } = await executeAction(item.pending_action)
+    return updateItem(item.id, { status, action_result, pending_action: null })
+  } catch (err) {
+    app.log.error({ err, itemId: item.id }, 'Approved action failed')
+    return updateItem(item.id, { status: 'failed', action_result: 'Action failed.', pending_action: null })
+  }
+})
+
+// POST /api/items/:id/veto — decline a proposed action
+app.post('/api/items/:id/veto', async (req, reply) => {
+  const item = getItem(req.params.id)
+  if (!item) return reply.code(404).send({ error: 'Not found' })
+  if (item.status !== 'awaiting_approval' || !item.pending_action) {
+    return reply.code(409).send({ error: 'Item has no pending action to veto' })
+  }
+
+  return updateItem(item.id, { status: 'vetoed', action_result: 'Cancelled.', pending_action: null })
 })
 
 // GET /api/items — list all items, optional ?status= filter

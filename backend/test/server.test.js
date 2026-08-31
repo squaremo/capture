@@ -1,20 +1,30 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest'
 
-const { mockProcessCapture } = vi.hoisted(() => ({
+const { mockProcessCapture, mockExecuteAction } = vi.hoisted(() => ({
   mockProcessCapture: vi.fn(),
+  mockExecuteAction: vi.fn(),
 }))
 
 vi.mock('../integrations/claude.js', () => ({
   processCapture: mockProcessCapture,
+  executeAction: mockExecuteAction,
 }))
 
 import { app } from '../server.js'
 
 beforeEach(() => {
   mockProcessCapture.mockClear()
+  mockExecuteAction.mockClear()
   mockProcessCapture.mockResolvedValue({ status: 'triaged', tags: [], action_result: 'Saved to inbox.' })
   delete process.env.TAILSCALE_SUBNET
 })
+
+// Waits for POST /api/capture's background processCapture().then() to land.
+async function createResolvedItem(text) {
+  const post = await app.inject({ method: 'POST', url: '/api/capture', payload: { text } })
+  await new Promise(r => setTimeout(r, 20))
+  return post.json()
+}
 
 afterAll(() => app.close())
 
@@ -104,6 +114,88 @@ describe('PATCH /api/items/:id', () => {
     expect(updated.status).toBe('acted')
     expect(updated.action_result).toBe('Done!')
     expect(updated.text).toBe('patch test item')
+  })
+})
+
+describe('POST /api/items/:id/approve', () => {
+  it('404 for unknown id', async () => {
+    const reply = await app.inject({ method: 'POST', url: '/api/items/nonexistent-id/approve' })
+    expect(reply.statusCode).toBe(404)
+  })
+
+  it('409 when item has no pending action', async () => {
+    const created = await createResolvedItem('no action item')
+    const reply = await app.inject({ method: 'POST', url: `/api/items/${created.id}/approve` })
+    expect(reply.statusCode).toBe(409)
+  })
+
+  it('executes the pending action and updates the item', async () => {
+    mockProcessCapture.mockResolvedValue({
+      status: 'awaiting_approval',
+      tags: ['work'],
+      action_result: 'Proposed: create Linear task "Fix bug"',
+      pending_action: { tool: 'create_linear_task', input: { title: 'Fix bug' } },
+    })
+    const created = await createResolvedItem('fix the bug')
+
+    mockExecuteAction.mockResolvedValue({ status: 'acted', action_result: 'Linear task created: "Fix bug" — https://linear.app/x/1' })
+    const reply = await app.inject({ method: 'POST', url: `/api/items/${created.id}/approve` })
+
+    expect(mockExecuteAction).toHaveBeenCalledWith({ tool: 'create_linear_task', input: { title: 'Fix bug' } })
+    expect(reply.statusCode).toBe(200)
+    const updated = reply.json()
+    expect(updated.status).toBe('acted')
+    expect(updated.action_result).toBe('Linear task created: "Fix bug" — https://linear.app/x/1')
+    expect(updated.pending_action).toBeNull()
+  })
+
+  it('marks the item failed if the action throws', async () => {
+    mockProcessCapture.mockResolvedValue({
+      status: 'awaiting_approval',
+      tags: [],
+      action_result: 'Proposed: create Linear task "Fix bug"',
+      pending_action: { tool: 'create_linear_task', input: { title: 'Fix bug' } },
+    })
+    const created = await createResolvedItem('fix the bug')
+
+    mockExecuteAction.mockRejectedValue(new Error('Linear API error: 401'))
+    const reply = await app.inject({ method: 'POST', url: `/api/items/${created.id}/approve` })
+
+    expect(reply.statusCode).toBe(200)
+    const updated = reply.json()
+    expect(updated.status).toBe('failed')
+    expect(updated.pending_action).toBeNull()
+  })
+})
+
+describe('POST /api/items/:id/veto', () => {
+  it('404 for unknown id', async () => {
+    const reply = await app.inject({ method: 'POST', url: '/api/items/nonexistent-id/veto' })
+    expect(reply.statusCode).toBe(404)
+  })
+
+  it('409 when item has no pending action', async () => {
+    const created = await createResolvedItem('no action item')
+    const reply = await app.inject({ method: 'POST', url: `/api/items/${created.id}/veto` })
+    expect(reply.statusCode).toBe(409)
+  })
+
+  it('cancels a pending action without executing it', async () => {
+    mockProcessCapture.mockResolvedValue({
+      status: 'awaiting_approval',
+      tags: [],
+      action_result: 'Proposed: create Linear task "Fix bug"',
+      pending_action: { tool: 'create_linear_task', input: { title: 'Fix bug' } },
+    })
+    const created = await createResolvedItem('fix the bug')
+
+    const reply = await app.inject({ method: 'POST', url: `/api/items/${created.id}/veto` })
+
+    expect(mockExecuteAction).not.toHaveBeenCalled()
+    expect(reply.statusCode).toBe(200)
+    const updated = reply.json()
+    expect(updated.status).toBe('vetoed')
+    expect(updated.pending_action).toBeNull()
   })
 })
 

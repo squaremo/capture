@@ -1,10 +1,12 @@
 const STATUS_LABELS = {
-  pending:  { label: 'pending',  color: 'var(--text-dim)' },
-  triaged:  { label: 'triaged',  color: 'var(--blue)' },
-  reminder: { label: 'reminder', color: 'var(--amber)' },
-  urgent:   { label: 'urgent',   color: 'var(--red)' },
-  acted:    { label: 'acted',    color: 'var(--accent)' },
-  failed:   { label: 'failed',   color: 'var(--red)' },
+  pending:           { label: 'pending',  color: 'var(--text-dim)' },
+  triaged:           { label: 'triaged',  color: 'var(--blue)' },
+  reminder:          { label: 'reminder', color: 'var(--amber)' },
+  urgent:            { label: 'urgent',   color: 'var(--red)' },
+  awaiting_approval: { label: 'review',   color: 'var(--amber)' },
+  acted:             { label: 'acted',    color: 'var(--accent)' },
+  vetoed:            { label: 'vetoed',   color: 'var(--text-dim)' },
+  failed:            { label: 'failed',   color: 'var(--red)' },
 }
 
 export function createItemEl(item) {
@@ -23,6 +25,7 @@ export function updateItemEl(el, item) {
 function renderItem(item) {
   const { label, color } = STATUS_LABELS[item.status] ?? STATUS_LABELS.pending
   const isPending = item.status === 'pending'
+  const isAwaitingApproval = item.status === 'awaiting_approval'
 
   return `
     <div class="item-body">
@@ -34,6 +37,12 @@ function renderItem(item) {
       : item.action_result
         ? `<div class="item-result" style="border-color:${color}">${escHtml(item.action_result)}</div>`
         : ''}
+    ${isAwaitingApproval
+      ? `<div class="item-approval">
+          <button class="btn-approve" data-action="approve">approve</button>
+          <button class="btn-veto" data-action="veto">veto</button>
+        </div>`
+      : ''}
     <time class="item-time">${relativeTime(item.created_at)}</time>
   `
 }

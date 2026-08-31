@@ -16,17 +16,18 @@ The core idea: get a thought out of your head and into the system in under 5 sec
 - Dark utilitarian aesthetic (monospaced Berkeley Mono + Fraunces serif, acid green accent `#c8f060`)
 - Textarea capture input with ⌘↵ keyboard shortcut and voice via Web Speech API
 - **Optimistic UI**: item appears instantly in inbox with a `pending` state + shimmer bar, then resolves in-place ~1.5s later with what was done
-- Item states: `pending` → `triaged` / `reminder` / `urgent` / `acted` / `failed`
+- Item states: `pending` → `triaged` / `reminder` / `urgent` / `awaiting_approval` → `acted` / `vetoed` / `failed`
 - Each resolved item shows a coloured result strip with a natural-language description of the action taken (e.g. "Calendar event created: 'Call dentist' — Tomorrow, 9:00am")
-- Filter tabs: All / Pending / Acted / Done
+- **`awaiting_approval` items show approve/veto buttons** — acting tools (currently just `create_linear_task`) propose the action and wait; nothing external happens until the human approves
+- Filter tabs: All / Pending (includes `awaiting_approval`) / Acted / Done (includes `vetoed`)
 - Stats footer, grain texture overlay, VPN status badge
 
 **Backend** (`backend/`) — Fastify + SQLite, deployed and running:
 
-- `POST /api/capture`, `GET /api/items`, `GET /api/items/:id`, `PATCH /api/items/:id`
+- `POST /api/capture`, `GET /api/items`, `GET /api/items/:id`, `PATCH /api/items/:id`, `POST /api/items/:id/approve`, `POST /api/items/:id/veto`
 - Optimistic flow: item saved immediately as `pending`, Claude processes in background and resolves it
 - Claude intent detection via tool calling (`save_to_inbox` → `triaged`, `create_reminder` → `reminder`, `flag_urgent` → `urgent`) — these three are pure classification, no external side effect
-- **`create_linear_task` → `acted`** — the first tool that actually does something external (creates a real Linear issue via their GraphQL API); only offered to Claude when `LINEAR_API_KEY`/`LINEAR_TEAM_ID` are both set, so it's opt-in
+- **`create_linear_task` → `awaiting_approval`** — the first tool with a real external side effect (creates a Linear issue via their GraphQL API); only offered to Claude when `LINEAR_API_KEY`/`LINEAR_TEAM_ID` are both set. Picking it doesn't run it — `processCapture()` only records the proposed call (`ACTING_TOOLS` in `claude.js`); `POST /api/items/:id/approve` calls `executeAction()` to actually run it (→ `acted`/`failed`), `POST /api/items/:id/veto` cancels it (→ `vetoed`) with no execution. Any future side-effecting tool gets this for free by being added to `ACTING_TOOLS`.
 - Tailscale IP allowlist middleware (optional via `TAILSCALE_SUBNET` env var)
 - Persisted to SQLite (`better-sqlite3`); DB path via `DB_PATH` env var
 - `backend/secrets.js`: any secret env var's value can be a literal, or an `op://vault/item/field` reference resolved at startup via a 1Password Service Account (needs `OP_SERVICE_ACCOUNT_TOKEN`) — falls back to reading the literal value when that token isn't set, so 1Password is optional at the code level
