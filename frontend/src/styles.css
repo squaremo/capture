@@ -260,6 +260,14 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   gap: 16px;
 }
 
+/* ── Version / integrations footer ──────────────────────── */
+.meta {
+  padding: 8px 0 16px;
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 0.02em;
+}
+
 /* ── Empty state ─────────────────────────────────────────── */
 .inbox-empty {
   color: var(--text-dim);

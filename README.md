@@ -15,13 +15,15 @@ The server is created manually (no Terraform) and configures itself on first boo
 
 So: push to `main`, wait a few minutes, the server updates itself.
 
+To confirm a deploy actually landed: `GET /api/version` (also shown in the UI footer) reports the backend/frontend image's commit (baked in at build time) and the config commit capture-sync last synced to (written to `/opt/capture/data/config-version` on each run) — three separate deploy paths, three independently-checkable revisions.
+
 ## Bootstrapping a server from scratch
 
 See [`infra/BOOTSTRAP.md`](infra/BOOTSTRAP.md) for the full ordered checklist (Tailscale, 1Password, Hetzner, verification). Short version: create the server in the Hetzner Console, paste [`infra/cloud-init.yaml.tpl`](infra/cloud-init.yaml.tpl) as its user-data with the placeholders filled in, wait ~2 minutes, open `https://<server_name>.<tailnet>.ts.net`.
 
 ## Optional integrations
 
-`create_linear_task` lets Claude create real Linear issues for capture text that reads as project/engineering work. It's on whenever `LINEAR_API_KEY` and `LINEAR_TEAM_ID` resolve to real values (both required) — delete or comment out those two lines in [`infra/production.env`](infra/production.env) to turn it off.
+`create_linear_task` lets Claude create real Linear issues for capture text that reads as project/engineering work. It's on whenever `LINEAR_API_KEY` and `LINEAR_TEAM_ID` resolve to real values (both required) — delete or comment out those two lines in [`infra/production.env`](infra/production.env) to turn it off. Whether it's currently on is visible in the UI footer / `GET /api/version`, alongside the deployed versions.
 
 Any env var in `infra/production.env` can be a literal value instead of an `op://...` reference if you'd rather not use 1Password for it — `resolveEnv()` (`backend/secrets.js`) passes non-`op://` values through unchanged. Just don't commit a real secret as a literal, since this file is in the (public) repo.
 

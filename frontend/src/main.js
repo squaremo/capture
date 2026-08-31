@@ -1,7 +1,8 @@
 import './styles.css'
 import { createCaptureInput } from './components/capture.js'
 import { createInbox } from './components/inbox.js'
-import { postCapture, getItems, approveItem, vetoItem } from './api.js'
+import { createVersionInfo } from './components/versionInfo.js'
+import { postCapture, getItems, approveItem, vetoItem, getVersion } from './api.js'
 
 const app = document.getElementById('app')
 
@@ -114,6 +115,18 @@ async function loadItems() {
   }
 }
 
+// ── Version / integrations footer ──────────────────────────
+const versionInfo = createVersionInfo()
+
+async function loadVersion() {
+  try {
+    versionInfo.render(await getVersion())
+  } catch {
+    // Backend not available yet — leave it blank rather than showing stale info
+  }
+}
+
 // ── Assemble ──────────────────────────────────────────────
-app.append(header, captureInput, inbox.el, stats)
+app.append(header, captureInput, inbox.el, stats, versionInfo.el)
 loadItems()
+loadVersion()

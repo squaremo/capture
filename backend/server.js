@@ -1,7 +1,8 @@
 import Fastify from 'fastify'
 import { fileURLToPath } from 'url'
 import { createItem, getItem, listItems, updateItem } from './db.js'
-import { processCapture, executeAction } from './integrations/claude.js'
+import { processCapture, executeAction, LINEAR_ENABLED } from './integrations/claude.js'
+import { BACKEND_VERSION, getConfigVersion } from './version.js'
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10)
 const HOST = process.env.HOST ?? '0.0.0.0'
@@ -77,6 +78,14 @@ app.post('/api/items/:id/veto', async (req, reply) => {
 
   return updateItem(item.id, { status: 'vetoed', action_result: 'Cancelled.', pending_action: null })
 })
+
+// GET /api/version — backend/config revisions and enabled integrations,
+// for debugging and confirming a deploy landed
+app.get('/api/version', async () => ({
+  backend: BACKEND_VERSION,
+  config: getConfigVersion(),
+  integrations: { linear: LINEAR_ENABLED },
+}))
 
 // GET /api/items — list all items, optional ?status= filter
 app.get('/api/items', async (req) => {

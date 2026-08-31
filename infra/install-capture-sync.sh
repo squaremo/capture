@@ -19,6 +19,7 @@ Requires=docker.service
 Type=oneshot
 WorkingDirectory=/opt/capture/app
 ExecStart=/usr/bin/git pull --ff-only
+ExecStart=/bin/sh -c 'git rev-parse HEAD > /opt/capture/data/config-version'
 ExecStart=/usr/bin/docker compose up -d --remove-orphans
 EOF
 

@@ -6,7 +6,7 @@ const client = new Anthropic({ apiKey: await resolveEnv('ANTHROPIC_API_KEY') })
 
 const linearApiKey = await resolveEnv('LINEAR_API_KEY')
 const linearTeamId = await resolveEnv('LINEAR_TEAM_ID')
-const LINEAR_ENABLED = Boolean(linearApiKey && linearTeamId)
+export const LINEAR_ENABLED = Boolean(linearApiKey && linearTeamId)
 
 const SYSTEM_PROMPT = `You are the intent processor for a personal quick-capture app. The user has just captured a thought, note, task, or reminder.
 
