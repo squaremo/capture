@@ -51,18 +51,18 @@ acting tool for device control. It takes:
   matching). No match → defaults to the house the capture originated from
   (satellite-of-origin, when known).
 
-## Safety: same-house vs cross-house
+## Safety: approval always required
 
-- **Same house as the capture's origin** (or no house named, captured from
-  that house's own satellite): executes immediately. Being physically
-  present is confirmation enough.
-- **A different house, named explicitly**: always goes through the
-  existing `awaiting_approval` flow (`ACTING_TOOLS` in `claude.js`) —
-  proposes ("play 'X' in the lake house's living room") and waits for
-  `POST /api/items/:id/approve` — same UI, same mechanism already built
-  for `create_linear_task`. Never fires blind.
-- Ambiguous house match (two named, or an unclear alias) also falls back
-  to asking rather than guessing.
+Device-control actions always go through the existing `awaiting_approval`
+flow (`ACTING_TOOLS` in `claude.js`) — propose, then wait for
+`POST /api/items/:id/approve` — same as `create_linear_task`, with no
+same-house exception. Satellite-of-origin only saves you from having to
+*say* which house you mean; it isn't confirmation that the action should
+run. So there's one rule, not a same-house/cross-house branch: never fire
+blind, regardless of target.
+
+Ambiguous house match (two named, or an unclear alias) falls back to
+asking rather than guessing, same as before.
 
 ## Hub → satellite dispatch
 
@@ -96,9 +96,9 @@ Dispatch flow once a capture resolves to an acting tool call:
 2. Look up its address in the house table; unknown house → fail, never guess.
 3. Check the satellite's advertised capabilities support the requested
    action; unsupported → fail with an explanation.
-4. Same house as origin → call it immediately (`executeAction`, as
-   `create_linear_task` does today). Different house → `awaiting_approval`
-   first, call only on `POST /approve`.
+4. Propose the action (`awaiting_approval`); call it (`executeAction`, as
+   `create_linear_task` does today) only once approved via `POST /approve`.
+   Origin house or not, no exception.
 
 ## Running modes
 
@@ -107,16 +107,18 @@ changes between modes is deployment, not code:
 
 - **Permanent kit** (eventual): a Pi or similar, always on, joined to the
   tailnet permanently, house-id baked in once at provisioning. This is the
-  target state — physical fixedness is what makes "same house = fires
-  immediately" (see Safety, above) a reasonable trust assumption.
+  target state — physical fixedness is what makes satellite-of-origin a
+  reliable default for "which house did you mean," even though it's never
+  the thing that authorises an action (see Safety, above).
 - **Bootstrap / laptop**: same process, run directly (`npm run satellite`
   or similar) on a laptop as a stand-in until permanent kit exists. This
   breaks the fixedness assumption a laptop can be at home when started and
-  at the office an hour later, still claiming to be "home." Treat it as
-  **manually armed**: it only *is* that house while you've deliberately
-  started it there, so start it on arrival and stop it on leaving, rather
-  than leaving it running unattended. A laptop-hosted satellite is a
-  deliberate, temporary trust downgrade, not the intended long-term shape.
+  at the office an hour later, still claiming to be "home," which would
+  make its house-of-origin default wrong (though approval still catches a
+  wrong target before anything fires). Treat it as **manually armed**
+  anyway: start it on arrival, stop it on leaving, rather than leaving it
+  running unattended. A laptop-hosted satellite is a deliberate, temporary
+  stand-in, not the intended long-term shape.
 
 ## Open questions
 
