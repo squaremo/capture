@@ -17,7 +17,7 @@ Unstructured thoughts on where this could go, captured as-is — not scoped or c
 
 - **Physical/kiosk input**: a push-to-talk interface, physical or touchscreen, with the UI running in kiosk mode on a Raspberry Pi.
 - **Child and parent modes** — some actions should require parent mode to invoke.
-- **Auditing** — actions taken by the app should be logged/auditable.
+- **Auditing** — actions taken by the app should be logged/auditable. Partial start: `plan_progress` (see `TOL-5` below) persists which read-only steps a plan actually ran, though not yet the acting-step execution itself.
 - **Home automation control**: Spotify, Sonos, a Matter hub (IKEA Dirigera).
 - **Push to external services**: tasks and calendar items into things like Proton Calendar, Linear, possibly Obsidian.
 - **Drive custom-built apps too**, not just third-party services — these would need to be reachable on the same Tailscale network.
@@ -25,5 +25,6 @@ Unstructured thoughts on where this could go, captured as-is — not scoped or c
 - **Proposed flow**: typed or voice input is processed by the LLM into a plan — a schedule of tool calls plus target location/device — along with prose repeating back what was asked. The prose and a description of the plan are played back to the human, who approves or vetoes before anything executes.
   - [x] Implemented for single-tool-call captures: `create_linear_task` now proposes (`awaiting_approval`) rather than executing immediately; `POST /api/items/:id/approve`/`/veto` decide. Any future acting tool gets this by being added to `ACTING_TOOLS` in `backend/integrations/claude.js`.
   - [x] `TOL-5` — multi-step plans: `processCapture()` now asks Claude for one `propose_plan` call (an ordered list of steps) instead of forcing a single tool per capture. Steps are `terminal`/`acting` (end the plan) or `local`/`readonly` (run automatically, output bound for later steps via `${stepId.field}` refs) — one round trip to Claude, then a deterministic interpreter runs the rest. First use case: `search_linear_issues` (read-only) lets a plan check for an existing similar issue before branching to `create_linear_task`, so captures don't create duplicate Linear work. Calendar integration (Google/CalDAV) would be the next real exercise of this — still not implemented (see above).
+  - [x] Readonly plan steps are now visible as they run: `processCapture()`'s `onStep` callback persists a growing `plan_progress` list (per-tool `label` in `TOOL_REGISTRY`) that the frontend renders as a checklist above the shimmer/result, and it stays visible afterward as a small trace of what the plan actually checked. `pollForResolution` resets its backoff whenever `plan_progress` grows, so it keeps polling briskly while a plan is actively making progress rather than backing off on a fixed schedule.
 - **Integrations tab in the UI** — a tab showing which integrations are currently enabled (e.g. Linear on/off based on whether it's configured).
   - [x] Minimal version implemented (`TOL-6`): enabled integrations shown in the version footer, not a dedicated tab. A fuller tab (with per-integration detail/config links) is still open if wanted later.
