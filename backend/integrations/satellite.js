@@ -25,10 +25,10 @@ export function getHouses() {
 // the house the config claims (catches a stale/mistyped satellites.json
 // entry or a satellite started with the wrong HOUSE_ID — never trust the
 // config's label over what the satellite itself reports), and supports
-// Sonos, then dispatches a play request. Finding the actual best-matching
-// track/speaker from the given query is the satellite's job, not ours —
-// see designs/satellites.md.
-export async function controlPlayback({ houses, house, room, title, artist, album }) {
+// Sonos. Shared by resolvePlayback and commitPlayback below — both need
+// the same checks, done independently since approval can land a while
+// after proposal and either could have changed in between.
+async function verifySatellite(houses, house) {
   const address = houses[house]
   if (!address) throw new Error(`Unknown house: "${house}"`)
 
@@ -41,11 +41,38 @@ export async function controlPlayback({ houses, house, room, title, artist, albu
   if (!status.capabilities?.includes('sonos')) {
     throw new Error(`"${house}" has no Sonos capability configured`)
   }
+  return address
+}
+
+// Looks up the actual matching track and speaker for a rich query —
+// doesn't play anything. This is what gets shown for approval, so a human
+// approves the exact resolved particulars, not a raw request that then
+// gets (re-)interpreted after the fact. See designs/satellites.md.
+export async function resolvePlayback({ houses, house, room, title, artist, album }) {
+  const address = await verifySatellite(houses, house)
+
+  const res = await fetch(`${address}/api/search`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, artist, album, room }),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.error ?? `Satellite search failed: ${res.status}`)
+  }
+  return res.json()
+}
+
+// Commits playback of an already-resolved track/speaker (from a prior
+// resolvePlayback call) — never re-searches, so this can't land on a
+// different result than whatever was approved.
+export async function commitPlayback({ houses, house, track, speaker }) {
+  const address = await verifySatellite(houses, house)
 
   const res = await fetch(`${address}/api/play`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, artist, album, room }),
+    body: JSON.stringify({ track, speaker }),
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))

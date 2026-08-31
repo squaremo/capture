@@ -18,14 +18,21 @@ right satellite and that it supports what's about to be asked of it (see
 `designs/satellites.md`); `playing`/`track`/`speaker` mirror the last
 `/api/play` result.
 
-`POST /api/play` — body `{ title, artist?, album?, room }`. `title` is
+Playback is a deliberate two-call **search, then play** protocol — not
+one call that both resolves and commits — so a caller (the hub) can show
+a human exactly what's about to happen and only actually play *that*,
+never a fresh re-interpretation of the same free text. Real systems shape
+this the same way (Spotify: search returns a track URI, you play the
+URI — you don't re-search at play time).
+
+`POST /api/search` — body `{ title, artist?, album?, room }`. `title` is
 required; the rest are optional. This is a **rich query**, not one opaque
 track string, and `room` is free text ("bedroom") — matching either
 against a real catalog/device list is this satellite's job, not the
-caller's (never ask an LLM to guess at data it hasn't seen). On success:
+caller's (never ask an LLM to guess at data it hasn't seen). Doesn't play
+anything or change state. On success:
 
     {
-      "playing": true,
       "track":   { "id": "trk_...", "title", "artist", "album", "matchConfidence": "exact" | "approximate" },
       "speaker": { "name": "Living Room", "requested": "living room", "confidence": "exact" | "approximate" | "default" }
     }
@@ -36,8 +43,13 @@ fuzzy matching to resolve (a real search integration would set these from
 actual search-relevance/similarity scores), `default` when `room` was
 omitted and the first configured speaker was used. If `room` doesn't
 match any configured speaker closely enough, the request fails outright
-(`422 { "error": "No speaker matching \"...\"" }`) rather than guessing —
-state isn't changed, nothing plays anywhere.
+(`422 { "error": "No speaker matching \"...\"" }`) rather than guessing.
+
+`POST /api/play` — body `{ track, speaker }`: exactly the object a prior
+`/api/search` returned, passed back verbatim. No free text accepted here
+and no re-matching happens — this can't land on a different result than
+what `/api/search` already resolved. Response is the same shape plus
+`"playing": true`.
 
 `POST /api/pause` — no body.
 

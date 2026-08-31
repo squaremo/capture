@@ -1,6 +1,6 @@
 # Satellites: local control per house
 
-Status: hub-side dispatch (`control_playback` in `claude.js`, `backend/integrations/satellite.js`) and the satellite controller (`satellite/`) are implemented and tested. Track search and room/speaker matching are still stubs (see Open questions). The satellite frontend doesn't yet tag captures with its house — `house` has to be passed to `POST /api/capture` directly for now.
+Status: hub-side dispatch (`resolve_playback`/`control_playback` in `claude.js`, `backend/integrations/satellite.js`) and the satellite controller (`satellite/`) are implemented and tested. Track search and room/speaker matching are still stubs (see Open questions). The satellite frontend doesn't yet tag captures with its house — `house` has to be passed to `POST /api/capture` directly for now.
 
 ## Problem
 
@@ -41,25 +41,32 @@ trust level as everything else in this single-user, Tailscale-only system.
 ## Room / house targeting
 
 Reuses the existing Claude tool-calling pattern (`save_to_inbox`,
-`create_reminder`, etc in `backend/integrations/claude.js`) with a new
-acting tool for device control. It takes:
+`create_reminder`, etc in `backend/integrations/claude.js`), but as
+**two** chained steps rather than one tool, per the reasoning in Safety
+below — a `readonly` step that resolves, then the `acting` step that
+proposes exactly what got resolved:
 
-- `room` — free text ("living room"), resolved locally by the target
-  satellite's own device config (which Sonos speaker, which light group).
-- `target_house` — only populated when the capture text unambiguously
-  names one of a known set of house aliases (an enum, not free text
-  matching). No match → defaults to the house the capture originated from
-  (satellite-of-origin, when known).
-- For playback specifically, a **rich query** rather than one opaque
-  string — `title`/`artist`/`album` etc, extracted from the capture text
-  by Claude the same way it already extracts `title`/`description` for
-  `create_linear_task`. No round-trip needed for this: it's one-shot NL→
-  structured-args extraction, not matching against live data. Finding the
-  actual best-matching track from that query is the satellite's job (see
-  Open questions) — same "resolve locally, don't make the LLM guess
-  against data it hasn't seen" principle as `room`.
+- `resolve_playback` (`readonly`) — takes the rich query (`title`/
+  `artist`/`album`, extracted from the capture text by Claude one-shot,
+  the same way it already extracts `title`/`description` for
+  `create_linear_task`), plus `room` (free text, "living room") and
+  `target_house`. Runs automatically, calling out to the satellite to
+  actually resolve `room` and the track — never the LLM's job to guess
+  against data it hasn't seen. Outputs `{ target_house, track, speaker }`.
+- `control_playback` (`acting`) — always follows `resolve_playback` in
+  the same plan, referencing its whole output by reference
+  (`"track": "${s1.track}"`, etc — the interpreter's existing
+  `${stepId.field}` mechanism already supports a whole nested object as a
+  single arg value, not just string interpolation) rather than
+  re-stating anything. Takes no free text of its own.
+- `target_house` — only populated (on `resolve_playback`) when the
+  capture text unambiguously names one of a known set of house aliases
+  (an enum, not free text matching). No match → defaults to the house the
+  capture originated from (satellite-of-origin, when known); this
+  defaulting happens once, on `resolve_playback`, and flows through to
+  `control_playback` by reference rather than being reapplied.
 
-## Safety: approval always required
+## Safety: approval always required, on the resolved particulars
 
 Device-control actions always go through the existing `awaiting_approval`
 flow (`kind: 'acting'` in `TOOL_REGISTRY`, `claude.js`) — propose, then wait for
@@ -71,6 +78,25 @@ blind, regardless of target.
 
 Ambiguous house match (two named, or an unclear alias) falls back to
 asking rather than guessing, same as before.
+
+**What gets approved is the resolved match, not the raw request.** An
+earlier version of this ran track search and speaker matching *inside*
+`control_playback.execute()` — after approval — so a human approved "play
+'Silver Machine' in bedroom" without knowing what track or speaker that
+would actually resolve to; a plausible-but-wrong match had no gate to
+catch it. Splitting resolution into its own `readonly` step
+(`resolve_playback`) that runs *before* the acting step is proposed fixes
+this: `describe()` builds the proposal text from the resolved
+`track`/`speaker`, so the human sees "play 'Silver Machine' by Hawkwind
+on Bedroom" — the literal thing about to happen — not the free text that
+produced it. And because `control_playback.execute()` only ever commits
+that already-resolved object (never re-searches, see Hub → satellite
+dispatch), what's approved is guaranteed to be what plays, not a fresh
+interpretation that could land somewhere else. A `resolve_playback`
+failure (no matching speaker, satellite unreachable, ...) fails the whole
+capture immediately rather than proposing something that would only fail
+later — a bad match not caught by the (now much stronger) approval gate
+means the resolution failed loudly before it ever reached a human.
 
 ## Hub → satellite dispatch
 
@@ -149,22 +175,29 @@ when did we last hear from it) — an unreachable satellite (laptop not
 currently running, say) just fails the request, no stale registration to
 clean up. Capabilities are service names for now, not per-verb granularity,
 since there's only one local service; doesn't need to feed Claude's tool
-schema dynamically either — the tool definition in `claude.js` stays
+schema dynamically either — the tool definitions in `claude.js` stay
 static, capabilities are only used to validate at dispatch time (fail
 explicitly — "the lake house doesn't have Sonos configured" — rather than
 firing blind into a 404).
 
-Dispatch flow once a capture resolves to an acting tool call:
+The house/capability/name checks (`verifySatellite()` in
+`backend/integrations/satellite.js`) run **twice**, independently, once
+per call below — not once for the whole flow — since approval can land a
+while after proposal and either the address or the satellite's state
+could have changed in between:
 
-1. Resolve `target_house` (explicit) or the capture's origin house.
-2. Look up its address in the house table; unknown house → fail, never guess.
-3. Confirm the satellite at that address reports the same house name;
-   mismatch → fail, never dispatch to the wrong house.
-4. Check the satellite's advertised capabilities support the requested
-   action; unsupported → fail with an explanation.
-5. Propose the action (`awaiting_approval`); call it (`executeAction`, as
-   `create_linear_task` does today) only once approved via `POST /approve`.
-   Origin house or not, no exception.
+1. **Resolve** (`resolve_playback`, runs automatically as part of
+   planning): resolve `target_house` (explicit) or the capture's origin
+   house → look up its address in the house table (unknown → fail, never
+   guess) → verify the satellite there reports the same house name and
+   supports the requested capability → `POST /api/search` with the rich
+   query → propose the exact resolved `track`/`speaker` for approval
+   (never the raw request — see Safety, above).
+2. **Commit** (`control_playback.execute()`, only on `POST /approve`):
+   the same house/name/capability verification again → `POST /api/play`
+   with exactly the already-resolved `track`/`speaker`, no re-search. A
+   house/satellite that became unavailable between propose and approve
+   fails cleanly here rather than silently playing on whatever answers.
 
 ## Running modes
 
@@ -206,12 +239,19 @@ explicitly if that's ever genuinely needed.
 - Satellite-side track search and room/speaker matching are implemented
   as stubs (`satellite/services/sonos.js`, documented in
   `satellite/README.md`'s Protocol section) — both plain code, not an LLM
-  decision, per the reasoning above. Speaker matching is real (exact →
-  substring → bounded edit-distance, against a hardcoded speaker list,
-  refusing to guess wildly and failing the request rather than the LLM's
-  plan); track search fabricates a plausible-shaped result (an id, a
-  `matchConfidence`) without querying an actual catalog. TODO: swap in a
-  real catalog search (Spotify's, or Sonos's own) behind `searchTrack()` —
-  the protocol shape is designed to survive that swap unchanged. TODO:
-  swap the hardcoded speaker list for real per-house device config once
-  that provisioning story (above) exists.
+  decision, per the reasoning above, and run concurrently (`Promise.all`)
+  since they're independent lookups — trivial today with no real I/O, but
+  the shape a real implementation (independent catalog search vs device
+  discovery) needs anyway. Speaker matching is real (exact → substring →
+  bounded edit-distance, against a hardcoded speaker list, refusing to
+  guess wildly and failing the request rather than the LLM's plan); track
+  search fabricates a plausible-shaped result (an id, a `matchConfidence`)
+  without querying an actual catalog. `search`/`play` are already split
+  into separate calls (`/api/search` resolves without committing,
+  `/api/play` commits an already-resolved result verbatim) specifically
+  so the hub can show a human the *exact* resolved match before anything
+  plays — see Safety, above. TODO: swap in a real catalog search
+  (Spotify's, or Sonos's own) behind `searchTrack()` — the protocol shape
+  is designed to survive that swap unchanged. TODO: swap the hardcoded
+  speaker list for real per-house device config once that provisioning
+  story (above) exists.

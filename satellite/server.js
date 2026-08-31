@@ -40,13 +40,16 @@ app.get('/api/status', async () => ({
   ...sonos.getStatus(),
 }))
 
-app.post('/api/play', async (req, reply) => {
+// Resolves a rich query into a specific track + speaker, without playing
+// anything — the caller (the hub, or the UI below) shows this exact
+// result for approval before ever calling /api/play with it.
+app.post('/api/search', async (req, reply) => {
   const { title, artist, album, room } = req.body ?? {}
   if (!title || typeof title !== 'string' || !title.trim()) {
     return reply.code(400).send({ error: 'title is required' })
   }
   try {
-    return sonos.play({
+    return await sonos.search({
       title: title.trim(),
       artist: typeof artist === 'string' ? artist.trim() : undefined,
       album: typeof album === 'string' ? album.trim() : undefined,
@@ -55,6 +58,20 @@ app.post('/api/play', async (req, reply) => {
   } catch (err) {
     return reply.code(422).send({ error: err.message })
   }
+})
+
+// Commits playback of an already-resolved track/speaker (from a prior
+// /api/search) — deliberately does not accept a free-text query, so this
+// can't land on a different match than whatever was searched/approved.
+app.post('/api/play', async (req, reply) => {
+  const { track, speaker } = req.body ?? {}
+  if (!track?.title || typeof track.title !== 'string') {
+    return reply.code(400).send({ error: 'track.title is required' })
+  }
+  if (!speaker?.name || typeof speaker.name !== 'string') {
+    return reply.code(400).send({ error: 'speaker.name is required' })
+  }
+  return sonos.play({ track, speaker })
 })
 
 app.post('/api/pause', async () => sonos.pause())

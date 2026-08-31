@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { resolveEnv } from '../secrets.js'
 import { createLinearTask, searchLinearIssues } from './linear.js'
-import { controlPlayback, getHouses } from './satellite.js'
+import { resolvePlayback, commitPlayback, getHouses } from './satellite.js'
 
 const client = new Anthropic({ apiKey: await resolveEnv('ANTHROPIC_API_KEY') })
 
@@ -48,13 +48,24 @@ if (LINEAR_ENABLED) {
 }
 
 if (SATELLITES_ENABLED) {
+  TOOL_REGISTRY.resolve_playback = {
+    kind: 'readonly',
+    label: 'Finding matching track and speaker',
+    execute: async ({ target_house, room, title, artist, album }) => {
+      const { track, speaker } = await resolvePlayback({ houses: getHouses(), house: target_house, room, title, artist, album })
+      return { target_house, track, speaker }
+    },
+  }
   TOOL_REGISTRY.control_playback = {
     kind: 'acting',
-    describe: ({ title, artist, room, target_house }) =>
-      `Proposed: play "${title}"${artist ? ` by ${artist}` : ''} in ${room}${target_house ? ` (${target_house})` : ' (house unknown)'}`,
-    execute: async ({ target_house, room, title, artist, album }) => {
-      const { track, speaker } = await controlPlayback({ houses: getHouses(), house: target_house, room, title, artist, album })
-      return `Played "${track.title}"${track.artist ? ` by ${track.artist}` : ''} on ${speaker.name}`
+    // Shows the *resolved* track/speaker, not the raw request — a human
+    // approves exactly what's about to play, not a guess that gets
+    // (re-)interpreted after the fact. See designs/satellites.md.
+    describe: ({ track, speaker, target_house }) =>
+      `Proposed: play "${track.title}"${track.artist ? ` by ${track.artist}` : ''} on ${speaker.name}${target_house ? ` (${target_house})` : ''}`,
+    execute: async ({ target_house, track, speaker }) => {
+      const result = await commitPlayback({ houses: getHouses(), house: target_house, track, speaker })
+      return `Played "${result.track.title}"${result.track.artist ? ` by ${result.track.artist}` : ''} on ${result.speaker.name}`
     },
   }
 }
@@ -73,13 +84,14 @@ Resolve it by calling propose_plan with an ordered list of steps. Available tool
 - flag_urgent (terminal): args { action_result, tags }. Something that needs immediate attention.${LINEAR_ENABLED ? `
 - search_linear_issues (read-only — runs automatically, no approval needed): args { query }. Searches existing Linear issues for a similar title. Outputs: { duplicate_found: boolean, matching_issue: { title, url } | null }.
 - create_linear_task (acting — only proposes; a human must approve before anything is actually created): args { title, description?, tags }. Real project/engineering work that should be tracked in Linear (e.g. "fix the login bug", "add dark mode").` : ''}${SATELLITES_ENABLED ? `
-- control_playback (acting — only proposes; a human must approve before anything plays): args { title, artist?, album?, room, target_house?, tags }. Plays music at a house over Sonos. room is free text like "living room" or "bedroom" — pass it through as written, the satellite works out which speaker that means, don't guess a specific speaker name. target_house should only be set when the capture text unambiguously names one of these houses: ${houseNames.join(', ')}. Leave it unset otherwise — the app fills in the house the capture came from.` : ''}
+- resolve_playback (read-only — runs automatically, no approval needed): args { title, artist?, album?, room, target_house? }. Looks up the actual matching track and speaker for a Sonos playback request — never guess a specific speaker name or track yourself, this does the matching. room is free text like "living room" or "bedroom", passed through as written. target_house should only be set when the capture text unambiguously names one of these houses: ${houseNames.join(', ')}. Leave it unset otherwise — the app fills in the house the capture came from. Outputs: { target_house, track: { title, artist, album, matchConfidence }, speaker: { name, confidence } }.
+- control_playback (acting — proposes the exact resolved track and speaker; a human must approve before anything plays): args { target_house, track, speaker, tags }. Always follows resolve_playback in the same plan, referencing its whole output rather than re-stating anything: target_house: "\${s1.target_house}", track: "\${s1.track}", speaker: "\${s1.speaker}" (using whichever step id you gave resolve_playback). Never call control_playback without a resolve_playback step earlier in the same plan.` : ''}
 
 action_result is a short natural-language description of what was done, e.g. "Saved to inbox", "Reminder set: 'Call dentist' — Tomorrow, 9:00am", "Flagged as urgent". Not needed for create_linear_task or control_playback — their descriptions are generated automatically. tags is an array of 1–3 lowercase tags.
 
 Steps run in the order given. A read-only step's output is not shown to you before you finish planning — you only see it by referencing it later, so cover both outcomes of a boolean output using "if"/"unless" on separate steps rather than guessing which one will happen.
 
-Reference an earlier step's output as \${stepId.field} — either as a whole argument value or interpolated inside a string, e.g. "action_result": "Already tracked: \${s1.matching_issue.title} — \${s1.matching_issue.url}".
+Reference an earlier step's output as \${stepId.field} — either as a whole argument value (which can be an entire object, e.g. "track": "\${s1.track}") or interpolated inside a string, e.g. "action_result": "Already tracked: \${s1.matching_issue.title} — \${s1.matching_issue.url}".
 
 The plan finishes at the first terminal or acting step it reaches — nothing after it runs, so only one acting step will ever actually execute even if different branches each propose one.${LINEAR_ENABLED ? ` For a capture that might duplicate existing Linear work: search_linear_issues first, then "if" duplicate_found go to a terminal step referencing the match, "unless" duplicate_found go to create_linear_task.` : ''}`
 }
@@ -168,6 +180,14 @@ export async function processCapture(text, { onStep, house } = {}) {
     if (!def) throw new Error(`Plan referenced unknown tool: ${step.tool}`)
     const args = resolveArgs(step.args, bindings)
 
+    // resolve_playback defaults to the house the capture came from when
+    // the text didn't unambiguously name one — never guessed by Claude.
+    // control_playback always gets target_house forwarded from
+    // resolve_playback's output rather than defaulting independently.
+    if (step.tool === 'resolve_playback' && !args.target_house) {
+      args.target_house = house ?? null
+    }
+
     if (def.kind === 'terminal') {
       const { action_result = 'Saved to inbox.', tags = [] } = args
       return { status: def.status, tags, action_result }
@@ -175,11 +195,6 @@ export async function processCapture(text, { onStep, house } = {}) {
 
     if (def.kind === 'acting') {
       const { tags = [], ...input } = args
-      // control_playback defaults to the house the capture came from when
-      // the text didn't unambiguously name one — never guessed by Claude.
-      if (step.tool === 'control_playback' && !input.target_house) {
-        input.target_house = house ?? null
-      }
       return {
         status: 'awaiting_approval',
         tags,
