@@ -39,7 +39,13 @@ app.post('/api/capture', async (req, reply) => {
   const item = createItem(text.trim())
 
   // Process in background — don't await
-  processCapture(item.text)
+  const planProgress = []
+  processCapture(item.text, {
+    onStep: (step) => {
+      planProgress.push(step)
+      updateItem(item.id, { plan_progress: planProgress })
+    },
+  })
     .then(({ status, tags, action_result, pending_action }) => {
       updateItem(item.id, { status, tags, action_result, pending_action: pending_action ?? null })
     })

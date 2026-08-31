@@ -93,19 +93,27 @@ const captureInput = createCaptureInput({
 // previously it stopped polling for good on the first hiccup, which is how
 // an item could end up stuck showing "pending" indefinitely even though it
 // had actually resolved on the server.
-function pollForResolution(id, attempts = 0) {
+//
+// The attempt count backs off (1s, 2s, 3s...) to tolerate genuinely slow or
+// stalled resolution, but that backoff resets whenever plan_progress grows —
+// a multi-step plan checking things off should keep polling briskly for as
+// long as it's actually making progress, and only ease off once it goes quiet.
+function pollForResolution(id, attempts = 0, lastProgress = 0) {
   if (attempts >= 40) return
   const delay = Math.min(1000 * (attempts + 1), 5000)
   setTimeout(async () => {
     try {
       const res = await fetch(`/api/items/${id}`)
-      if (!res.ok) return pollForResolution(id, attempts + 1)
+      if (!res.ok) return pollForResolution(id, attempts + 1, lastProgress)
       const item = await res.json()
       inbox.updateItem(item)
       updateStats()
-      if (item.status === 'pending') pollForResolution(id, attempts + 1)
+      const progress = item.plan_progress?.length ?? 0
+      if (item.status === 'pending') {
+        pollForResolution(id, progress > lastProgress ? 0 : attempts + 1, progress)
+      }
     } catch {
-      pollForResolution(id, attempts + 1)
+      pollForResolution(id, attempts + 1, lastProgress)
     }
   }, delay)
 }

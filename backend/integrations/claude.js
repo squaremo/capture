@@ -23,6 +23,7 @@ const TOOL_REGISTRY = {
 if (LINEAR_ENABLED) {
   TOOL_REGISTRY.search_linear_issues = {
     kind: 'readonly',
+    label: 'Checking Linear for duplicates',
     execute: ({ query }) => searchLinearIssues({ apiKey: linearApiKey, teamId: linearTeamId, query }),
   }
   TOOL_REGISTRY.create_linear_task = {
@@ -113,7 +114,7 @@ function conditionHolds(step, bindings) {
   return true
 }
 
-export async function processCapture(text) {
+export async function processCapture(text, { onStep } = {}) {
   const response = await client.messages.create({
     model: 'claude-opus-4-6',
     max_tokens: 1024,
@@ -154,6 +155,7 @@ export async function processCapture(text) {
 
     // readonly: run it now, bind its output for later steps to reference
     bindings[step.id] = await def.execute(args)
+    onStep?.({ label: def.label ?? step.tool })
   }
 
   throw new Error('Plan finished without reaching a terminal or acting step')

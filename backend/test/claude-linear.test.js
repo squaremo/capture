@@ -73,6 +73,20 @@ describe('processCapture with Linear enabled', () => {
     expect(result.pending_action).toEqual({ tool: 'create_linear_task', input: { title: 'Fix bug' } })
   })
 
+  it('reports each readonly step via onStep as it completes', async () => {
+    mockSearchLinearIssues.mockResolvedValue({ duplicate_found: false, matching_issue: null })
+    respondWithPlan([
+      { id: 's1', tool: 'search_linear_issues', args: { query: 'login bug' } },
+      { id: 's2', tool: 'create_linear_task', args: { title: 'Fix bug', tags: [] }, unless: '${s1.duplicate_found}' },
+    ])
+
+    const onStep = vi.fn()
+    await processCapture('fix the login bug', { onStep })
+
+    expect(onStep).toHaveBeenCalledTimes(1)
+    expect(onStep).toHaveBeenCalledWith({ label: 'Checking Linear for duplicates' })
+  })
+
   it('branches to a terminal step and interpolates the matched issue when a duplicate is found', async () => {
     mockSearchLinearIssues.mockResolvedValue({
       duplicate_found: true,

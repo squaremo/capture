@@ -26,12 +26,16 @@ function renderItem(item) {
   const { label, color } = STATUS_LABELS[item.status] ?? STATUS_LABELS.pending
   const isPending = item.status === 'pending'
   const isAwaitingApproval = item.status === 'awaiting_approval'
+  const steps = item.plan_progress ?? []
 
   return `
     <div class="item-body">
       <span class="item-text">${escHtml(item.text)}</span>
       <span class="item-status" style="color:${color}">${label}</span>
     </div>
+    ${steps.length
+      ? `<ul class="item-steps">${steps.map(s => `<li><span class="item-step-check">✓</span>${escHtml(s.label)}</li>`).join('')}</ul>`
+      : ''}
     ${isPending
       ? `<div class="item-shimmer"></div>`
       : item.action_result

@@ -281,6 +281,20 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   padding-left: 8px;
 }
 
+.item-steps {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.item-step-check {
+  color: var(--accent);
+  margin-right: 6px;
+}
+
 .item-time {
   font-size: 11px;
   color: var(--text-dim);

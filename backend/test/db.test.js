@@ -10,6 +10,7 @@ describe('createItem', () => {
     expect(item.tags).toEqual([])
     expect(item.action_result).toBeNull()
     expect(item.pending_action).toBeNull()
+    expect(item.plan_progress).toEqual([])
     expect(item.created_at).toBeTruthy()
   })
 })
@@ -89,5 +90,16 @@ describe('updateItem', () => {
 
     const cleared = updateItem(item.id, { status: 'acted', pending_action: null })
     expect(cleared.pending_action).toBeNull()
+  })
+
+  it('plan_progress round-trips as an array and grows in place', () => {
+    const item = createItem('multi-step capture')
+    const withOneStep = updateItem(item.id, { plan_progress: [{ label: 'Checking Linear for duplicates' }] })
+    expect(withOneStep.plan_progress).toEqual([{ label: 'Checking Linear for duplicates' }])
+
+    const withTwoSteps = updateItem(item.id, {
+      plan_progress: [{ label: 'Checking Linear for duplicates' }, { label: 'Second step' }],
+    })
+    expect(withTwoSteps.plan_progress).toHaveLength(2)
   })
 })
