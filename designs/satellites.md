@@ -12,8 +12,8 @@ devices.
 
 ## Shape
 
-One **satellite** per house: a small always-on box (Pi or similar), joined
-to the tailnet permanently, with two responsibilities:
+One **satellite** per house: a small box (Pi or similar, eventually), joined
+to the tailnet, with two responsibilities:
 
 - **Frontend** — runs its own instance of the existing PWA, for local/kiosk
   use at that house.
@@ -63,6 +63,24 @@ acting tool for device control. It takes:
   for `create_linear_task`. Never fires blind.
 - Ambiguous house match (two named, or an unclear alias) also falls back
   to asking rather than guessing.
+
+## Running modes
+
+The satellite is just a Node process (frontend + controller) — what
+changes between modes is deployment, not code:
+
+- **Permanent kit** (eventual): a Pi or similar, always on, joined to the
+  tailnet permanently, house-id baked in once at provisioning. This is the
+  target state — physical fixedness is what makes "same house = fires
+  immediately" (see Safety, above) a reasonable trust assumption.
+- **Bootstrap / laptop**: same process, run directly (`npm run satellite`
+  or similar) on a laptop as a stand-in until permanent kit exists. This
+  breaks the fixedness assumption a laptop can be at home when started and
+  at the office an hour later, still claiming to be "home." Treat it as
+  **manually armed**: it only *is* that house while you've deliberately
+  started it there, so start it on arrival and stop it on leaving, rather
+  than leaving it running unattended. A laptop-hosted satellite is a
+  deliberate, temporary trust downgrade, not the intended long-term shape.
 
 ## Open questions
 
