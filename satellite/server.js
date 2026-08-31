@@ -45,12 +45,16 @@ app.post('/api/play', async (req, reply) => {
   if (!title || typeof title !== 'string' || !title.trim()) {
     return reply.code(400).send({ error: 'title is required' })
   }
-  return sonos.play({
-    title: title.trim(),
-    artist: typeof artist === 'string' ? artist.trim() : undefined,
-    album: typeof album === 'string' ? album.trim() : undefined,
-    room: typeof room === 'string' ? room.trim() : undefined,
-  })
+  try {
+    return sonos.play({
+      title: title.trim(),
+      artist: typeof artist === 'string' ? artist.trim() : undefined,
+      album: typeof album === 'string' ? album.trim() : undefined,
+      room: typeof room === 'string' ? room.trim() : undefined,
+    })
+  } catch (err) {
+    return reply.code(422).send({ error: err.message })
+  }
 })
 
 app.post('/api/pause', async () => sonos.pause())

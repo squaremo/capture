@@ -10,6 +10,43 @@ real Sonos UPnP control until there's hardware to test against; it exposes
 the same shape a real implementation would, so it can be swapped in later
 without changing `server.js`'s controller API.
 
+## Protocol
+
+`GET /api/status` — `{ house, capabilities, playing, track, speaker }`.
+`house` and `capabilities` are used by the hub to verify it reached the
+right satellite and that it supports what's about to be asked of it (see
+`designs/satellites.md`); `playing`/`track`/`speaker` mirror the last
+`/api/play` result.
+
+`POST /api/play` — body `{ title, artist?, album?, room }`. `title` is
+required; the rest are optional. This is a **rich query**, not one opaque
+track string, and `room` is free text ("bedroom") — matching either
+against a real catalog/device list is this satellite's job, not the
+caller's (never ask an LLM to guess at data it hasn't seen). On success:
+
+    {
+      "playing": true,
+      "track":   { "id": "trk_...", "title", "artist", "album", "matchConfidence": "exact" | "approximate" },
+      "speaker": { "name": "Living Room", "requested": "living room", "confidence": "exact" | "approximate" | "default" }
+    }
+
+`matchConfidence`/`confidence` are honest about how sure the match is —
+`exact` when the query matched precisely, `approximate` when it took
+fuzzy matching to resolve (a real search integration would set these from
+actual search-relevance/similarity scores), `default` when `room` was
+omitted and the first configured speaker was used. If `room` doesn't
+match any configured speaker closely enough, the request fails outright
+(`422 { "error": "No speaker matching \"...\"" }`) rather than guessing —
+state isn't changed, nothing plays anywhere.
+
+`POST /api/pause` — no body.
+
+Today's speaker list and catalog are stubs (`services/sonos.js`) — a
+fixed name list and a search that fabricates a plausible-looking result
+rather than querying anything real. Real Sonos/catalog integration is a
+tracked TODO in the design doc; this protocol shape is meant to survive
+that swap unchanged.
+
 ## Run
 
     cd satellite

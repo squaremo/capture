@@ -95,7 +95,11 @@ describe('processCapture with satellites enabled', () => {
 
 describe('executeAction with satellites enabled', () => {
   it('dispatches to the resolved house and returns status acted', async () => {
-    mockControlPlayback.mockResolvedValue({ playing: true, track: 'Silver Machine by Hawkwind', room: 'living room' })
+    mockControlPlayback.mockResolvedValue({
+      playing: true,
+      track: { id: 'trk_abc123', title: 'Silver Machine', artist: 'Hawkwind', album: null, matchConfidence: 'exact' },
+      speaker: { name: 'Living Room', requested: 'living room', confidence: 'exact' },
+    })
 
     const result = await executeAction({
       tool: 'control_playback',
@@ -113,7 +117,7 @@ describe('executeAction with satellites enabled', () => {
     })
     expect(result).toEqual({
       status: 'acted',
-      action_result: 'Played "Silver Machine by Hawkwind" in living room',
+      action_result: 'Played "Silver Machine" by Hawkwind on Living Room',
     })
   })
 

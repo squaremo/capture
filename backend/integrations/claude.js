@@ -53,8 +53,8 @@ if (SATELLITES_ENABLED) {
     describe: ({ title, artist, room, target_house }) =>
       `Proposed: play "${title}"${artist ? ` by ${artist}` : ''} in ${room}${target_house ? ` (${target_house})` : ' (house unknown)'}`,
     execute: async ({ target_house, room, title, artist, album }) => {
-      const result = await controlPlayback({ houses: getHouses(), house: target_house, room, title, artist, album })
-      return `Played "${result.track}"${result.room ? ` in ${result.room}` : ''}`
+      const { track, speaker } = await controlPlayback({ houses: getHouses(), house: target_house, room, title, artist, album })
+      return `Played "${track.title}"${track.artist ? ` by ${track.artist}` : ''} on ${speaker.name}`
     },
   }
 }
