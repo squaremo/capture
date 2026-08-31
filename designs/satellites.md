@@ -50,11 +50,19 @@ acting tool for device control. It takes:
   names one of a known set of house aliases (an enum, not free text
   matching). No match → defaults to the house the capture originated from
   (satellite-of-origin, when known).
+- For playback specifically, a **rich query** rather than one opaque
+  string — `title`/`artist`/`album` etc, extracted from the capture text
+  by Claude the same way it already extracts `title`/`description` for
+  `create_linear_task`. No round-trip needed for this: it's one-shot NL→
+  structured-args extraction, not matching against live data. Finding the
+  actual best-matching track from that query is the satellite's job (see
+  Open questions) — same "resolve locally, don't make the LLM guess
+  against data it hasn't seen" principle as `room`.
 
 ## Safety: approval always required
 
 Device-control actions always go through the existing `awaiting_approval`
-flow (`ACTING_TOOLS` in `claude.js`) — propose, then wait for
+flow (`kind: 'acting'` in `TOOL_REGISTRY`, `claude.js`) — propose, then wait for
 `POST /api/items/:id/approve` — same as `create_linear_task`, with no
 same-house exception. Satellite-of-origin only saves you from having to
 *say* which house you mean; it isn't confirmation that the action should
@@ -128,7 +136,15 @@ changes between modes is deployment, not code:
   used for the main server, not yet written.
 - First concrete integration to build against: Sonos, given where this
   design started.
-- TODO: LLM needs to be able to search for the track (not just take a
-  literal string).
-- TODO: LLM needs to be able to ask what speakers/rooms exist at a
-  location.
+- TODO: satellite-side track search — given a rich query (`title`/
+  `artist`/etc, see Room/house targeting), find and play the best-matching
+  track. Any retry/fallback strategy (stripping the artist and retrying,
+  alternate spellings, ...) is ordinary code in the satellite's search
+  integration, not an LLM decision — the interpreter's single-round-trip
+  plan can't loop back to Claude mid-search anyway. A genuinely bad match
+  is caught at approval, same as everything else, not by getting the
+  search itself perfect.
+- TODO: satellite-side room/speaker matching — fuzzy-match the `room`
+  arg ("bedroom") against the satellite's actual configured device names
+  ("Master bedroom"). Same reasoning: plain code, not something Claude
+  resolves mid-plan (see the dispatch discussion above).
