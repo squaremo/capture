@@ -128,3 +128,7 @@ changes between modes is deployment, not code:
   used for the main server, not yet written.
 - First concrete integration to build against: Sonos, given where this
   design started.
+- TODO: LLM needs to be able to search for the track (not just take a
+  literal string).
+- TODO: LLM needs to be able to ask what speakers/rooms exist at a
+  location.
