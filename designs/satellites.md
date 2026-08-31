@@ -1,6 +1,6 @@
 # Satellites: local control per house
 
-Status: design sketch, not yet implemented.
+Status: hub-side dispatch (`control_playback` in `claude.js`, `backend/integrations/satellite.js`) and the satellite controller (`satellite/`) are implemented and tested. Track search and room/speaker matching are still stubs (see Open questions). The satellite frontend doesn't yet tag captures with its house — `house` has to be passed to `POST /api/capture` directly for now.
 
 ## Problem
 
@@ -134,8 +134,6 @@ changes between modes is deployment, not code:
 - Provisioning story for a new satellite (how house-id and local device
   config get onto the box) — likely follows the same cloud-init pattern
   used for the main server, not yet written.
-- First concrete integration to build against: Sonos, given where this
-  design started.
 - TODO: satellite-side track search — given a rich query (`title`/
   `artist`/etc, see Room/house targeting), find and play the best-matching
   track. Any retry/fallback strategy (stripping the artist and retrying,

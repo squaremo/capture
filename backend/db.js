@@ -16,13 +16,14 @@ db.exec(`
     action_result TEXT,
     pending_action TEXT,
     plan_progress TEXT,
+    house        TEXT,
     created_at   TEXT NOT NULL
   )
 `)
-// Migrations for existing databases created before these columns existed.
-for (const column of ['pending_action', 'plan_progress']) {
+// Migrations for columns added after the table already existed elsewhere.
+for (const column of ['pending_action TEXT', 'plan_progress TEXT', 'house TEXT']) {
   try {
-    db.exec(`ALTER TABLE items ADD COLUMN ${column} TEXT`)
+    db.exec(`ALTER TABLE items ADD COLUMN ${column}`)
   } catch (err) {
     if (!/duplicate column name/.test(err.message)) throw err
   }
@@ -41,12 +42,12 @@ function parseItem(row) {
   }
 }
 
-export function createItem(text) {
+export function createItem(text, house = null) {
   const id = newId()
   const created_at = new Date().toISOString()
   db.prepare(
-    'INSERT INTO items (id, text, status, tags, action_result, pending_action, plan_progress, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(id, text, 'pending', '[]', null, null, null, created_at)
+    'INSERT INTO items (id, text, status, tags, action_result, pending_action, plan_progress, house, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, text, 'pending', '[]', null, null, null, house, created_at)
   return getItem(id)
 }
 

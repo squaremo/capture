@@ -9,6 +9,7 @@ vi.mock('../integrations/claude.js', () => ({
   processCapture: mockProcessCapture,
   executeAction: mockExecuteAction,
   LINEAR_ENABLED: true,
+  SATELLITES_ENABLED: false,
 }))
 
 import { app } from '../server.js'
@@ -72,7 +73,7 @@ describe('GET /api/version', () => {
     expect(reply.json()).toEqual({
       backend: 'dev',
       config: null,
-      integrations: { linear: true },
+      integrations: { linear: true, satellite: false },
     })
   })
 })

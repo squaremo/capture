@@ -34,11 +34,16 @@ app.get('/api/status', async () => ({
 }))
 
 app.post('/api/play', async (req, reply) => {
-  const { track, room } = req.body ?? {}
-  if (!track || typeof track !== 'string' || !track.trim()) {
-    return reply.code(400).send({ error: 'track is required' })
+  const { title, artist, album, room } = req.body ?? {}
+  if (!title || typeof title !== 'string' || !title.trim()) {
+    return reply.code(400).send({ error: 'title is required' })
   }
-  return sonos.play(track.trim(), typeof room === 'string' ? room.trim() : undefined)
+  return sonos.play({
+    title: title.trim(),
+    artist: typeof artist === 'string' ? artist.trim() : undefined,
+    album: typeof album === 'string' ? album.trim() : undefined,
+    room: typeof room === 'string' ? room.trim() : undefined,
+  })
 })
 
 app.post('/api/pause', async () => sonos.pause())

@@ -1,7 +1,7 @@
 import Fastify from 'fastify'
 import { fileURLToPath } from 'url'
 import { createItem, getItem, listItems, updateItem } from './db.js'
-import { processCapture, executeAction, LINEAR_ENABLED } from './integrations/claude.js'
+import { processCapture, executeAction, LINEAR_ENABLED, SATELLITES_ENABLED } from './integrations/claude.js'
 import { BACKEND_VERSION, getConfigVersion } from './version.js'
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10)
@@ -31,16 +31,17 @@ app.options('*', async () => ({}))
 
 // POST /api/capture — save item as pending, process async
 app.post('/api/capture', async (req, reply) => {
-  const { text } = req.body ?? {}
+  const { text, house } = req.body ?? {}
   if (!text || typeof text !== 'string' || !text.trim()) {
     return reply.code(400).send({ error: 'text is required' })
   }
 
-  const item = createItem(text.trim())
+  const item = createItem(text.trim(), house ?? null)
 
   // Process in background — don't await
   const planProgress = []
   processCapture(item.text, {
+    house: item.house,
     onStep: (step) => {
       planProgress.push(step)
       updateItem(item.id, { plan_progress: planProgress })
@@ -90,7 +91,7 @@ app.post('/api/items/:id/veto', async (req, reply) => {
 app.get('/api/version', async () => ({
   backend: BACKEND_VERSION,
   config: getConfigVersion(),
-  integrations: { linear: LINEAR_ENABLED },
+  integrations: { linear: LINEAR_ENABLED, satellite: SATELLITES_ENABLED },
 }))
 
 // GET /api/items — list all items, optional ?status= filter
