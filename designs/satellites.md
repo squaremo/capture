@@ -64,6 +64,42 @@ acting tool for device control. It takes:
 - Ambiguous house match (two named, or an unclear alias) also falls back
   to asking rather than guessing.
 
+## Hub → satellite dispatch
+
+Plain HTTPS from the central backend to the satellite's MagicDNS hostname
+(`https://satellite-home.<tailnet>.ts.net`), not MCP. MCP earns its keep
+when a client needs to discover an unknown set of tools across many
+servers at runtime; here the backend already has to wrap every satellite
+call in its own safety logic (room resolution, same-house-vs-approval
+gating), so a discovery protocol wouldn't remove any of that — it'd just
+sit on top of it. Revisit only if satellites end up numerous/varied enough
+that hand-maintaining "what can each one do" stops scaling.
+
+Which houses exist and where is static config on the backend (a house-id →
+satellite-address table, same shape as other deployed config) — not
+auto-discovered. What a given satellite can currently *do* is queried live:
+`GET /api/status` includes a `capabilities` list (e.g. `["sonos"]`) — pulled
+by the hub before/at dispatch time, not pushed by the satellite on startup.
+Pull avoids the hub having to track liveness (is this satellite still up,
+when did we last hear from it) — an unreachable satellite (laptop not
+currently running, say) just fails the request, no stale registration to
+clean up. Capabilities are service names for now, not per-verb granularity,
+since there's only one local service; doesn't need to feed Claude's tool
+schema dynamically either — the tool definition in `claude.js` stays
+static, capabilities are only used to validate at dispatch time (fail
+explicitly — "the lake house doesn't have Sonos configured" — rather than
+firing blind into a 404).
+
+Dispatch flow once a capture resolves to an acting tool call:
+
+1. Resolve `target_house` (explicit) or the capture's origin house.
+2. Look up its address in the house table; unknown house → fail, never guess.
+3. Check the satellite's advertised capabilities support the requested
+   action; unsupported → fail with an explanation.
+4. Same house as origin → call it immediately (`executeAction`, as
+   `create_linear_task` does today). Different house → `awaiting_approval`
+   first, call only on `POST /approve`.
+
 ## Running modes
 
 The satellite is just a Node process (frontend + controller) — what
@@ -84,8 +120,6 @@ changes between modes is deployment, not code:
 
 ## Open questions
 
-- Controller API shape (how the backend addresses a satellite — plain
-  HTTPS to its MagicDNS hostname is the obvious default) not yet designed.
 - Whether the satellite frontend is a distinct build/config or the same
   build with house-id supplied at deploy time.
 - Provisioning story for a new satellite (how house-id and local device
