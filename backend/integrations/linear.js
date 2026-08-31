@@ -10,7 +10,7 @@ const CREATE_ISSUE_MUTATION = `
 `
 
 const SEARCH_ISSUES_QUERY = `
-  query SearchIssues($teamId: String!, $query: String!) {
+  query SearchIssues($teamId: ID!, $query: String!) {
     issues(filter: { team: { id: { eq: $teamId } }, title: { containsIgnoreCase: $query } }, first: 1) {
       nodes { title url }
     }
@@ -25,11 +25,13 @@ async function linearRequest({ apiKey, query, variables }) {
     body: JSON.stringify({ query, variables }),
   })
 
+  // Read the body even on a non-2xx response — Linear's GraphQL errors (bad
+  // query, bad variable type) land here with a real message, and throwing
+  // on res.status alone was hiding it behind a bare "400".
+  const body = await res.json().catch(() => null)
+  if (body?.errors?.length) throw new Error(`Linear API error: ${body.errors[0].message}`)
   if (!res.ok) throw new Error(`Linear API error: ${res.status}`)
-
-  const { data, errors } = await res.json()
-  if (errors?.length) throw new Error(`Linear API error: ${errors[0].message}`)
-  return data
+  return body.data
 }
 
 export async function createLinearTask({ apiKey, teamId, title, description }) {
