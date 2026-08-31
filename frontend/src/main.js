@@ -15,7 +15,14 @@ logo.textContent = 'capture'
 const vpnBadge = document.createElement('span')
 vpnBadge.className = 'vpn-badge'
 vpnBadge.textContent = 'tailscale'
-header.append(logo, vpnBadge)
+
+const versionInfo = createVersionInfo()
+
+const headerBadges = document.createElement('div')
+headerBadges.className = 'header-badges'
+headerBadges.append(versionInfo.pillEl, vpnBadge)
+
+header.append(logo, headerBadges)
 
 // ── Inbox ─────────────────────────────────────────────────
 const inFlight = new Set() // item ids currently being approved/vetoed
@@ -115,9 +122,7 @@ async function loadItems() {
   }
 }
 
-// ── Version / integrations footer ──────────────────────────
-const versionInfo = createVersionInfo()
-
+// ── Version / integrations info (header pill + footer) ─────
 async function loadVersion() {
   try {
     versionInfo.render(await getVersion())
@@ -127,6 +132,6 @@ async function loadVersion() {
 }
 
 // ── Assemble ──────────────────────────────────────────────
-app.append(header, captureInput, inbox.el, stats, versionInfo.el)
+app.append(header, captureInput, inbox.el, stats, versionInfo.footerEl)
 loadItems()
 loadVersion()
