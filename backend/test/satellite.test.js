@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { controlPlayback } from '../integrations/satellite.js'
+import { controlPlayback, listSatellites } from '../integrations/satellite.js'
 
 const mockFetch = vi.fn()
 vi.stubGlobal('fetch', mockFetch)
@@ -60,5 +60,53 @@ describe('controlPlayback', () => {
       .mockResolvedValueOnce(jsonResponse({ error: 'title is required' }, false, 400))
 
     await expect(controlPlayback({ houses, house: 'home', title: '' })).rejects.toThrow('title is required')
+  })
+})
+
+describe('listSatellites', () => {
+  it('reports capabilities for a reachable house', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ house: 'home', capabilities: ['sonos'] }))
+
+    const result = await listSatellites({ home: 'http://localhost:4000' })
+
+    expect(result).toEqual([
+      { house: 'home', address: 'http://localhost:4000', reachable: true, capabilities: ['sonos'] },
+    ])
+  })
+
+  it('reports unreachable rather than throwing when the fetch fails', async () => {
+    mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'))
+
+    const result = await listSatellites({ home: 'http://localhost:4000' })
+
+    expect(result).toEqual([
+      { house: 'home', address: 'http://localhost:4000', reachable: false, capabilities: [] },
+    ])
+  })
+
+  it('reports unreachable on a non-ok status response', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({}, false, 503))
+
+    const result = await listSatellites({ home: 'http://localhost:4000' })
+
+    expect(result[0]).toEqual({ house: 'home', address: 'http://localhost:4000', reachable: false, capabilities: [] })
+  })
+
+  it('reports each configured house independently', async () => {
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse({ capabilities: ['sonos'] }))
+      .mockRejectedValueOnce(new Error('ECONNREFUSED'))
+
+    const result = await listSatellites({ home: 'http://localhost:4000', lake: 'http://localhost:4001' })
+
+    expect(result).toEqual([
+      { house: 'home', address: 'http://localhost:4000', reachable: true, capabilities: ['sonos'] },
+      { house: 'lake', address: 'http://localhost:4001', reachable: false, capabilities: [] },
+    ])
+  })
+
+  it('returns an empty array when no houses are configured', async () => {
+    expect(await listSatellites({})).toEqual([])
+    expect(mockFetch).not.toHaveBeenCalled()
   })
 })

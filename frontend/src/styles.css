@@ -143,6 +143,39 @@ header {
 }
 .integration-tag--on { border-color: var(--accent); color: var(--accent); }
 
+.info-satellites {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+}
+
+.info-satellites-heading {
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+.satellite-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 3px 0;
+}
+
+.satellite-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--red);
+  flex-shrink: 0;
+}
+.satellite-dot--up { background: var(--accent); }
+
+.satellite-name { flex-shrink: 0; }
+
+.satellite-none { color: var(--text-dim); }
+
 /* ── Capture ─────────────────────────────────────────────── */
 .capture {
   padding: 20px 0;

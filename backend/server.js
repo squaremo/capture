@@ -1,7 +1,8 @@
 import Fastify from 'fastify'
 import { fileURLToPath } from 'url'
 import { createItem, getItem, listItems, updateItem } from './db.js'
-import { processCapture, executeAction, LINEAR_ENABLED, SATELLITES_ENABLED } from './integrations/claude.js'
+import { processCapture, executeAction, LINEAR_ENABLED, SATELLITES_ENABLED, SATELLITE_HOUSES } from './integrations/claude.js'
+import { listSatellites } from './integrations/satellite.js'
 import { BACKEND_VERSION, getConfigVersion } from './version.js'
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10)
@@ -93,6 +94,10 @@ app.get('/api/version', async () => ({
   config: getConfigVersion(),
   integrations: { linear: LINEAR_ENABLED, satellite: SATELLITES_ENABLED },
 }))
+
+// GET /api/satellites — configured houses and their live capabilities,
+// for the UI (an unreachable satellite just reports reachable: false)
+app.get('/api/satellites', async () => listSatellites(SATELLITE_HOUSES))
 
 // GET /api/items — list all items, optional ?status= filter
 app.get('/api/items', async (req) => {

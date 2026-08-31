@@ -2,7 +2,7 @@ import './styles.css'
 import { createCaptureInput } from './components/capture.js'
 import { createInbox } from './components/inbox.js'
 import { createVersionInfo } from './components/versionInfo.js'
-import { postCapture, getItems, approveItem, vetoItem, getVersion } from './api.js'
+import { postCapture, getItems, approveItem, vetoItem, getVersion, getSatellites } from './api.js'
 
 const app = document.getElementById('app')
 
@@ -139,7 +139,17 @@ async function loadVersion() {
   }
 }
 
+// ── Satellites info (header pill) ──────────────────────────
+async function loadSatellites() {
+  try {
+    versionInfo.renderSatellites(await getSatellites())
+  } catch {
+    // Backend not available yet, or no satellites configured — leave blank
+  }
+}
+
 // ── Assemble ──────────────────────────────────────────────
 app.append(header, captureInput, inbox.el, stats, versionInfo.footerEl)
 loadItems()
 loadVersion()
+loadSatellites()

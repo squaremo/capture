@@ -12,7 +12,7 @@ export const LINEAR_ENABLED = Boolean(linearApiKey && linearTeamId)
 // house-id -> satellite base URL, e.g. {"home":"http://localhost:4000"}.
 // Static config, not auto-discovered — see designs/satellites.md.
 const satelliteHousesJson = await resolveEnv('SATELLITE_HOUSES')
-const SATELLITE_HOUSES = satelliteHousesJson ? JSON.parse(satelliteHousesJson) : {}
+export const SATELLITE_HOUSES = satelliteHousesJson ? JSON.parse(satelliteHousesJson) : {}
 export const SATELLITES_ENABLED = Object.keys(SATELLITE_HOUSES).length > 0
 
 // Every tool the plan can call. `kind` decides how the interpreter treats a step:

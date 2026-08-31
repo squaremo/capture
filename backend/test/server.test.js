@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest'
 
-const { mockProcessCapture, mockExecuteAction } = vi.hoisted(() => ({
+const { mockProcessCapture, mockExecuteAction, mockListSatellites } = vi.hoisted(() => ({
   mockProcessCapture: vi.fn(),
   mockExecuteAction: vi.fn(),
+  mockListSatellites: vi.fn(),
 }))
 
 vi.mock('../integrations/claude.js', () => ({
@@ -10,6 +11,11 @@ vi.mock('../integrations/claude.js', () => ({
   executeAction: mockExecuteAction,
   LINEAR_ENABLED: true,
   SATELLITES_ENABLED: false,
+  SATELLITE_HOUSES: {},
+}))
+
+vi.mock('../integrations/satellite.js', () => ({
+  listSatellites: mockListSatellites,
 }))
 
 import { app } from '../server.js'
@@ -17,7 +23,9 @@ import { app } from '../server.js'
 beforeEach(() => {
   mockProcessCapture.mockClear()
   mockExecuteAction.mockClear()
+  mockListSatellites.mockClear()
   mockProcessCapture.mockResolvedValue({ status: 'triaged', tags: [], action_result: 'Saved to inbox.' })
+  mockListSatellites.mockResolvedValue([])
   delete process.env.TAILSCALE_SUBNET
 })
 
@@ -75,6 +83,25 @@ describe('GET /api/version', () => {
       config: null,
       integrations: { linear: true, satellite: false },
     })
+  })
+})
+
+describe('GET /api/satellites', () => {
+  it('returns what listSatellites reports', async () => {
+    mockListSatellites.mockResolvedValue([
+      { house: 'home', address: 'http://localhost:4000', reachable: true, capabilities: ['sonos'] },
+    ])
+    const reply = await app.inject({ method: 'GET', url: '/api/satellites' })
+    expect(reply.statusCode).toBe(200)
+    expect(reply.json()).toEqual([
+      { house: 'home', address: 'http://localhost:4000', reachable: true, capabilities: ['sonos'] },
+    ])
+  })
+
+  it('returns an empty array when no houses are configured', async () => {
+    const reply = await app.inject({ method: 'GET', url: '/api/satellites' })
+    expect(reply.statusCode).toBe(200)
+    expect(reply.json()).toEqual([])
   })
 })
 
