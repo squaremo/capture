@@ -1,11 +1,18 @@
 import Fastify from 'fastify'
 import { readFileSync } from 'fs'
+import { networkInterfaces } from 'os'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
 import * as sonos from './services/sonos.js'
 
 const PORT = parseInt(process.env.PORT ?? '4000', 10)
-const HOST = process.env.HOST ?? '0.0.0.0'
+// Only the backend ever calls this, over Tailscale — bind to the tailnet
+// interface specifically rather than 0.0.0.0, so the controller isn't
+// reachable from the LAN or any other interface on the box. Falls back to
+// localhost-only (not 0.0.0.0) when no Tailscale interface is up, e.g. for
+// local dev — still restrictive, never "listen everywhere" by default.
+// HOST always overrides, if you really need something else.
+const HOST = process.env.HOST ?? findTailscaleAddress() ?? '127.0.0.1'
 const HOUSE_ID = process.env.HOUSE_ID ?? 'unnamed-house'
 
 // Which local services this satellite can currently reach. Only Sonos is
@@ -57,4 +64,34 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     app.log.error(err)
     process.exit(1)
   }
+}
+
+// ── Helpers ────────────────────────────────────────────────
+// Same 100.64.0.0/10 (Tailscale's CGNAT range) check the backend already
+// uses for its own allowlist — here applied to the box's own interfaces
+// rather than an incoming request's IP.
+function findTailscaleAddress() {
+  for (const addrs of Object.values(networkInterfaces())) {
+    for (const addr of addrs ?? []) {
+      if (addr.family === 'IPv4' && isInSubnet(addr.address, '100.64.0.0/10')) {
+        return addr.address
+      }
+    }
+  }
+  return null
+}
+
+function isInSubnet(ip, subnet) {
+  try {
+    const [subnetIp, prefixLen] = subnet.split('/')
+    const prefix = parseInt(prefixLen, 10)
+    const mask = ~((1 << (32 - prefix)) - 1) >>> 0
+    return (ipToInt(ip) & mask) === (ipToInt(subnetIp) & mask)
+  } catch {
+    return false
+  }
+}
+
+function ipToInt(ip) {
+  return ip.split('.').reduce((acc, oct) => (acc << 8) + parseInt(oct, 10), 0) >>> 0
 }

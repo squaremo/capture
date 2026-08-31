@@ -104,7 +104,7 @@ function createPill() {
       panel.appendChild(satellitesEl)
     },
 
-    // satellites: [{ house, address, reachable, capabilities }]
+    // satellites: [{ house, address, reachable, capabilities, houseMismatch }]
     renderSatellites(satellites) {
       satellitesEl.innerHTML = ''
 
@@ -119,13 +119,17 @@ function createPill() {
       heading.textContent = 'satellites'
       satellitesEl.appendChild(heading)
 
-      satellites.forEach(({ house, reachable, capabilities }) => {
+      satellites.forEach(({ house, reachable, capabilities, houseMismatch }) => {
         const row = document.createElement('div')
         row.className = 'satellite-row'
 
+        // houseMismatch is a distinct state from reachable — the satellite
+        // answered, it's just not who this config entry claims (a
+        // satellites.json/HOUSE_ID bug), worth a different signal than
+        // "just currently offline" so it's obvious which one to go fix.
         const dot = document.createElement('span')
-        dot.className = `satellite-dot${reachable ? ' satellite-dot--up' : ''}`
-        dot.title = reachable ? 'reachable' : 'unreachable'
+        dot.className = `satellite-dot${houseMismatch ? ' satellite-dot--mismatch' : reachable ? ' satellite-dot--up' : ''}`
+        dot.title = houseMismatch ? 'house name mismatch' : reachable ? 'reachable' : 'unreachable'
         row.appendChild(dot)
 
         const name = document.createElement('span')
@@ -133,7 +137,12 @@ function createPill() {
         name.textContent = house
         row.appendChild(name)
 
-        if (capabilities.length) {
+        if (houseMismatch) {
+          const note = document.createElement('span')
+          note.className = 'satellite-none'
+          note.textContent = 'house mismatch'
+          row.appendChild(note)
+        } else if (capabilities.length) {
           capabilities.forEach(cap => {
             const tag = document.createElement('span')
             tag.className = 'integration-tag integration-tag--on'

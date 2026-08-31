@@ -171,6 +171,7 @@ header {
   flex-shrink: 0;
 }
 .satellite-dot--up { background: var(--accent); }
+.satellite-dot--mismatch { background: var(--amber); }
 
 .satellite-name { flex-shrink: 0; }
 
