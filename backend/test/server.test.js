@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest'
 
-const { mockProcessCapture, mockExecuteAction, mockListSatellites } = vi.hoisted(() => ({
+const { mockProcessCapture, mockExecuteAction, mockListSatellites, mockGetHouses } = vi.hoisted(() => ({
   mockProcessCapture: vi.fn(),
   mockExecuteAction: vi.fn(),
   mockListSatellites: vi.fn(),
+  mockGetHouses: vi.fn(),
 }))
 
 vi.mock('../integrations/claude.js', () => ({
@@ -11,11 +12,11 @@ vi.mock('../integrations/claude.js', () => ({
   executeAction: mockExecuteAction,
   LINEAR_ENABLED: true,
   SATELLITES_ENABLED: false,
-  SATELLITE_HOUSES: {},
 }))
 
 vi.mock('../integrations/satellite.js', () => ({
   listSatellites: mockListSatellites,
+  getHouses: mockGetHouses,
 }))
 
 import { app } from '../server.js'
@@ -24,8 +25,10 @@ beforeEach(() => {
   mockProcessCapture.mockClear()
   mockExecuteAction.mockClear()
   mockListSatellites.mockClear()
+  mockGetHouses.mockClear()
   mockProcessCapture.mockResolvedValue({ status: 'triaged', tags: [], action_result: 'Saved to inbox.' })
   mockListSatellites.mockResolvedValue([])
+  mockGetHouses.mockReturnValue({})
   delete process.env.TAILSCALE_SUBNET
 })
 
@@ -87,12 +90,14 @@ describe('GET /api/version', () => {
 })
 
 describe('GET /api/satellites', () => {
-  it('returns what listSatellites reports', async () => {
+  it('returns what listSatellites reports for the current houses file', async () => {
+    mockGetHouses.mockReturnValue({ home: 'http://localhost:4000' })
     mockListSatellites.mockResolvedValue([
       { house: 'home', address: 'http://localhost:4000', reachable: true, capabilities: ['sonos'] },
     ])
     const reply = await app.inject({ method: 'GET', url: '/api/satellites' })
     expect(reply.statusCode).toBe(200)
+    expect(mockListSatellites).toHaveBeenCalledWith({ home: 'http://localhost:4000' })
     expect(reply.json()).toEqual([
       { house: 'home', address: 'http://localhost:4000', reachable: true, capabilities: ['sonos'] },
     ])

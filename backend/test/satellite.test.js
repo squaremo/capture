@@ -1,5 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { controlPlayback, listSatellites } from '../integrations/satellite.js'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { mkdtempSync, writeFileSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { controlPlayback, listSatellites, getHouses } from '../integrations/satellite.js'
 
 const mockFetch = vi.fn()
 vi.stubGlobal('fetch', mockFetch)
@@ -108,5 +111,50 @@ describe('listSatellites', () => {
   it('returns an empty array when no houses are configured', async () => {
     expect(await listSatellites({})).toEqual([])
     expect(mockFetch).not.toHaveBeenCalled()
+  })
+})
+
+describe('getHouses', () => {
+  let dir
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'satellites-test-'))
+  })
+
+  afterEach(() => {
+    delete process.env.SATELLITE_HOUSES_PATH
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('parses the configured file', () => {
+    const path = join(dir, 'satellites.json')
+    writeFileSync(path, JSON.stringify({ home: 'http://localhost:4000' }))
+    process.env.SATELLITE_HOUSES_PATH = path
+
+    expect(getHouses()).toEqual({ home: 'http://localhost:4000' })
+  })
+
+  it('returns an empty object when the file does not exist, rather than throwing', () => {
+    process.env.SATELLITE_HOUSES_PATH = join(dir, 'nonexistent.json')
+    expect(getHouses()).toEqual({})
+  })
+
+  it('returns an empty object for malformed JSON, rather than throwing', () => {
+    const path = join(dir, 'satellites.json')
+    writeFileSync(path, 'not valid json')
+    process.env.SATELLITE_HOUSES_PATH = path
+
+    expect(getHouses()).toEqual({})
+  })
+
+  it('re-reads the file on every call — no caching', () => {
+    const path = join(dir, 'satellites.json')
+    writeFileSync(path, JSON.stringify({ home: 'http://localhost:4000' }))
+    process.env.SATELLITE_HOUSES_PATH = path
+
+    expect(getHouses()).toEqual({ home: 'http://localhost:4000' })
+
+    writeFileSync(path, JSON.stringify({ home: 'http://localhost:4000', lake: 'http://localhost:4001' }))
+    expect(getHouses()).toEqual({ home: 'http://localhost:4000', lake: 'http://localhost:4001' })
   })
 })

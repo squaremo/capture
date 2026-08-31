@@ -82,9 +82,42 @@ call in its own safety logic (room resolution, approval gating), so a
 discovery protocol wouldn't remove any of that — it'd just sit on top of it. Revisit only if satellites end up numerous/varied enough
 that hand-maintaining "what can each one do" stops scaling.
 
-Which houses exist and where is static config on the backend (a house-id →
-satellite-address table, same shape as other deployed config) — not
-auto-discovered. What a given satellite can currently *do* is queried live:
+Which houses exist and where is a house-id → satellite-address map, still
+hand-maintained rather than auto-discovered — but **not** committed
+config. It lives in a local JSON file on the backend server, outside git,
+in the same already-mounted `/data` volume `DB_PATH` already uses
+(`SATELLITE_HOUSES_PATH`, defaulting next to the backend code for local
+dev). `backend/integrations/satellite.js`'s `getHouses()` re-reads it on
+every call rather than caching, so editing the file takes effect on the
+next request — no git commit, no `capture-sync` wait, no restart.
+
+Rejected: committing the address map (via `SATELLITE_HOUSES` as deployed
+env-var config, the first version of this). Works fine for permanent kit
+with a stable Tailscale hostname, but is real friction for the
+laptop-bootstrap running mode (below) where you're pointing at a satellite
+that comes and goes — every address change became a git push and a
+five-minute wait. Also rejected: satellite self-registration on startup
+(a `POST` announcing "I'm house X, here's my address"). It would remove
+even the manual file edit, but costs a registry that has to survive a
+backend restart (so, persisted state, not free) and doesn't remove the
+need for a live reachability check at dispatch time anyway — Tailscale
+MagicDNS hostnames are stable per-device across restarts, so in practice
+the file only needs hand-editing once per new device, not once per
+session, which didn't justify that cost. Nothing here rules out adding
+self-registration later as a convenience that writes into this same file,
+if it turns out to be worth it.
+
+Whether the `control_playback` tool exists at all (`SATELLITES_ENABLED`)
+is still decided once at backend startup, from whether the file had any
+houses in it at boot — so going from zero houses to a first house needs a
+restart (matches how enabling Linear needs one), but every other edit
+(repointing or adding to an already-nonempty file) doesn't. That split
+exists on purpose, not just as a shortcut: always offering the tool even
+when zero houses are configured would let Claude propose device-control
+for ordinary captures that happen to mention a song, with no way to ever
+act on it — worth a restart to avoid.
+
+What a given satellite can currently *do* is queried live:
 `GET /api/status` includes a `capabilities` list (e.g. `["sonos"]`) — pulled
 by the hub before/at dispatch time, not pushed by the satellite on startup.
 Pull avoids the hub having to track liveness (is this satellite still up,

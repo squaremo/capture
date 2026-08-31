@@ -1,3 +1,26 @@
+import { readFileSync } from 'fs'
+import { fileURLToPath } from 'url'
+import { dirname, join } from 'path'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const DEFAULT_HOUSES_PATH = join(__dirname, '..', 'satellites.json')
+
+// house-id -> satellite base URL, e.g. {"home":"http://localhost:4000"}.
+// Deliberately NOT committed config — this is server-local, mutable state
+// (which houses exist right now, and where), same volume/pattern as
+// DB_PATH. Re-read on every call rather than cached, so hand-editing the
+// file takes effect on the next request, no restart needed. Missing or
+// malformed file just means no houses known yet, not an error — see
+// designs/satellites.md.
+export function getHouses() {
+  const path = process.env.SATELLITE_HOUSES_PATH ?? DEFAULT_HOUSES_PATH
+  try {
+    return JSON.parse(readFileSync(path, 'utf8'))
+  } catch {
+    return {}
+  }
+}
+
 // Resolves a house to its satellite, confirms it's reachable and supports
 // Sonos, then dispatches a play request. Finding the actual best-matching
 // track/speaker from the given query is the satellite's job, not ours —

@@ -1,8 +1,8 @@
 import Fastify from 'fastify'
 import { fileURLToPath } from 'url'
 import { createItem, getItem, listItems, updateItem } from './db.js'
-import { processCapture, executeAction, LINEAR_ENABLED, SATELLITES_ENABLED, SATELLITE_HOUSES } from './integrations/claude.js'
-import { listSatellites } from './integrations/satellite.js'
+import { processCapture, executeAction, LINEAR_ENABLED, SATELLITES_ENABLED } from './integrations/claude.js'
+import { listSatellites, getHouses } from './integrations/satellite.js'
 import { BACKEND_VERSION, getConfigVersion } from './version.js'
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10)
@@ -96,8 +96,11 @@ app.get('/api/version', async () => ({
 }))
 
 // GET /api/satellites — configured houses and their live capabilities,
-// for the UI (an unreachable satellite just reports reachable: false)
-app.get('/api/satellites', async () => listSatellites(SATELLITE_HOUSES))
+// for the UI (an unreachable satellite just reports reachable: false).
+// Always reads the current houses file, regardless of SATELLITES_ENABLED
+// (a startup snapshot) — this endpoint should reflect hand-edits to the
+// file immediately, not just after a restart.
+app.get('/api/satellites', async () => listSatellites(getHouses()))
 
 // GET /api/items — list all items, optional ?status= filter
 app.get('/api/items', async (req) => {

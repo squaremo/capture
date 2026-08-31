@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const { mockCreate, mockControlPlayback } = vi.hoisted(() => ({
+const { mockCreate, mockControlPlayback, mockGetHouses } = vi.hoisted(() => ({
   mockCreate: vi.fn(),
   mockControlPlayback: vi.fn(),
+  mockGetHouses: vi.fn(),
 }))
 
 vi.mock('@anthropic-ai/sdk', () => ({
@@ -11,18 +12,21 @@ vi.mock('@anthropic-ai/sdk', () => ({
 
 vi.mock('../integrations/satellite.js', () => ({
   controlPlayback: mockControlPlayback,
+  getHouses: mockGetHouses,
 }))
 
-// SATELLITES_ENABLED is decided at module load time, so this must be set
-// before importing claude.js. This file exists separately from
-// claude.test.js so the two module-load configurations don't collide.
-process.env.SATELLITE_HOUSES = JSON.stringify({ home: 'http://localhost:4000' })
+// SATELLITES_ENABLED is decided at module load time from getHouses(), so
+// this must be set before importing claude.js. This file exists separately
+// from claude.test.js so the two module-load configurations don't collide.
+mockGetHouses.mockReturnValue({ home: 'http://localhost:4000' })
 
 const { processCapture, executeAction } = await import('../integrations/claude.js')
 
 beforeEach(() => {
   mockCreate.mockClear()
   mockControlPlayback.mockClear()
+  mockGetHouses.mockClear()
+  mockGetHouses.mockReturnValue({ home: 'http://localhost:4000' })
 })
 
 function respondWithPlan(steps) {
@@ -74,6 +78,19 @@ describe('processCapture with satellites enabled', () => {
 
     expect(result.pending_action.input.target_house).toBe('lake')
   })
+
+  it('reflects a house added to getHouses() since startup, without re-importing', async () => {
+    // SATELLITES_ENABLED was decided at import time from the original
+    // mock (just "home") — this only checks the *house name list* fed
+    // into the prompt is re-read per call, not the enabled/disabled gate.
+    mockGetHouses.mockReturnValue({ home: 'http://localhost:4000', lake: 'http://localhost:4001' })
+    respondWithPlan([{ id: 's1', tool: 'save_to_inbox', args: { action_result: 'ok', tags: [] } }])
+
+    await processCapture('anything')
+
+    const prompt = mockCreate.mock.calls[0][0].system
+    expect(prompt).toContain('home, lake')
+  })
 })
 
 describe('executeAction with satellites enabled', () => {
@@ -85,6 +102,7 @@ describe('executeAction with satellites enabled', () => {
       input: { title: 'Silver Machine', artist: 'Hawkwind', room: 'living room', target_house: 'home' },
     })
 
+    expect(mockGetHouses).toHaveBeenCalled()
     expect(mockControlPlayback).toHaveBeenCalledWith({
       houses: { home: 'http://localhost:4000' },
       house: 'home',
