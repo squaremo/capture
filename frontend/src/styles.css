@@ -144,26 +144,27 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   50% { opacity: 0.5; }
 }
 
-/* ── Filters ─────────────────────────────────────────────── */
-.filters {
-  display: flex;
-  gap: 2px;
-  padding: 16px 0 8px;
+/* ── Inbox sections ──────────────────────────────────────── */
+.inbox-group {
+  padding-top: 16px;
 }
 
-.filter-tab {
-  background: none;
+.inbox-group-title {
+  font-size: 11px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
   color: var(--text-dim);
-  padding: 4px 12px;
-  border-radius: 99px;
-  font-size: 12px;
-  text-transform: lowercase;
-  border: 1px solid transparent;
+  margin: 0 0 8px;
 }
-.filter-tab:hover { color: var(--text); }
-.filter-tab.active {
-  color: var(--accent);
-  border-color: var(--accent);
+
+.inbox-group--attention .inbox-group-title { color: var(--accent); }
+
+.inbox-group--resolved {
+  opacity: 0.7;
+}
+.inbox-group--resolved .item {
+  padding: 8px 12px;
 }
 
 /* ── Item list ───────────────────────────────────────────── */

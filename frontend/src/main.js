@@ -77,13 +77,19 @@ const captureInput = createCaptureInput({
 })
 
 // ── Poll until item leaves pending state ──────────────────
+// A generous budget: ~40 attempts at up to 5s apart is a few minutes total,
+// comfortably covering slow LLM responses. A single failed/non-ok fetch
+// (e.g. the backend restarting mid-poll) retries rather than giving up —
+// previously it stopped polling for good on the first hiccup, which is how
+// an item could end up stuck showing "pending" indefinitely even though it
+// had actually resolved on the server.
 function pollForResolution(id, attempts = 0) {
-  if (attempts > 10) return
-  const delay = Math.min(500 * (attempts + 1), 3000)
+  if (attempts >= 40) return
+  const delay = Math.min(1000 * (attempts + 1), 5000)
   setTimeout(async () => {
     try {
       const res = await fetch(`/api/items/${id}`)
-      if (!res.ok) return
+      if (!res.ok) return pollForResolution(id, attempts + 1)
       const item = await res.json()
       inbox.updateItem(item)
       updateStats()

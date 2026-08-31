@@ -1,39 +1,32 @@
 import { createItemEl, updateItemEl } from './item.js'
 
-const FILTERS = ['all', 'pending', 'acted', 'done']
+// "Needs attention": still processing, classified but no action decided
+// yet, or an acting tool proposed something waiting on approve/veto.
+// "Resolved": an action was taken, declined, or failed — audit trail.
+const NEEDS_ATTENTION = ['pending', 'triaged', 'reminder', 'urgent', 'awaiting_approval']
+const RESOLVED = ['acted', 'vetoed', 'failed']
 
 export function createInbox({ onApprove, onVeto } = {}) {
   const section = document.createElement('section')
   section.className = 'inbox'
 
-  const tabs = document.createElement('nav')
-  tabs.className = 'filters'
-  FILTERS.forEach((f, i) => {
-    const btn = document.createElement('button')
-    btn.className = 'filter-tab' + (i === 0 ? ' active' : '')
-    btn.textContent = f
-    btn.dataset.filter = f
-    tabs.appendChild(btn)
-  })
+  const needsAttention = createGroup('needs attention', 'attention')
+  const resolved = createGroup('resolved', 'resolved')
+  section.append(needsAttention.el, resolved.el)
 
-  const list = document.createElement('ul')
-  list.className = 'item-list'
-
-  section.append(tabs, list)
-
-  let activeFilter = 'all'
   let items = []
 
-  tabs.addEventListener('click', (e) => {
-    const btn = e.target.closest('.filter-tab')
-    if (!btn) return
-    tabs.querySelectorAll('.filter-tab').forEach(b => b.classList.remove('active'))
-    btn.classList.add('active')
-    activeFilter = btn.dataset.filter
-    render()
-  })
+  function groupFor(status) {
+    return RESOLVED.includes(status) ? resolved : needsAttention
+  }
 
-  list.addEventListener('click', (e) => {
+  function render() {
+    needsAttention.list.innerHTML = ''
+    resolved.list.innerHTML = ''
+    items.forEach(item => groupFor(item.status).list.appendChild(createItemEl(item)))
+  }
+
+  section.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-action]')
     if (!btn) return
     const id = btn.closest('.item')?.dataset.id
@@ -42,32 +35,24 @@ export function createInbox({ onApprove, onVeto } = {}) {
     if (btn.dataset.action === 'veto') onVeto?.(id)
   })
 
-  function visible(item) {
-    if (activeFilter === 'all') return true
-    if (activeFilter === 'pending') return ['pending', 'awaiting_approval'].includes(item.status)
-    if (activeFilter === 'acted') return ['acted', 'reminder', 'urgent'].includes(item.status)
-    if (activeFilter === 'done') return ['triaged', 'acted', 'reminder', 'urgent', 'failed', 'vetoed'].includes(item.status)
-    return true
-  }
-
-  function render() {
-    list.innerHTML = ''
-    items.filter(visible).forEach(item => list.appendChild(createItemEl(item)))
-  }
-
   return {
     el: section,
 
     addItem(item) {
       items.unshift(item)
-      if (visible(item)) list.prepend(createItemEl(item))
+      groupFor(item.status).list.prepend(createItemEl(item))
     },
 
     updateItem(updated) {
       const idx = items.findIndex(i => i.id === updated.id)
       if (idx === -1) return
+      const movedGroup = groupFor(items[idx].status) !== groupFor(updated.status)
       items[idx] = updated
-      const el = list.querySelector(`[data-id="${updated.id}"]`)
+      if (movedGroup) {
+        render() // crossed from needs-attention to resolved (or back) — relocate it
+        return
+      }
+      const el = section.querySelector(`[data-id="${updated.id}"]`)
       if (el) updateItemEl(el, updated)
       else render()
     },
@@ -78,6 +63,18 @@ export function createInbox({ onApprove, onVeto } = {}) {
     },
 
     get itemCount() { return items.length },
-    get pendingCount() { return items.filter(i => i.status === 'pending').length },
+    get pendingCount() { return items.filter(i => NEEDS_ATTENTION.includes(i.status)).length },
   }
+}
+
+function createGroup(title, modifier) {
+  const el = document.createElement('div')
+  el.className = `inbox-group inbox-group--${modifier}`
+  const heading = document.createElement('h2')
+  heading.className = 'inbox-group-title'
+  heading.textContent = title
+  const list = document.createElement('ul')
+  list.className = 'item-list'
+  el.append(heading, list)
+  return { el, list }
 }
