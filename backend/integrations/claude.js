@@ -6,7 +6,7 @@ const client = new Anthropic({ apiKey: await resolveEnv('ANTHROPIC_API_KEY') })
 
 const linearApiKey = await resolveEnv('LINEAR_API_KEY')
 const linearTeamId = await resolveEnv('LINEAR_TEAM_ID')
-const LINEAR_ENABLED = Boolean(linearApiKey && linearTeamId)
+export const LINEAR_ENABLED = Boolean(linearApiKey && linearTeamId)
 
 // Every tool the plan can call. `kind` decides how the interpreter treats a step:
 // - terminal: ends the plan immediately with a resolved status (no external effect)

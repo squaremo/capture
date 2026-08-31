@@ -8,6 +8,7 @@ const { mockProcessCapture, mockExecuteAction } = vi.hoisted(() => ({
 vi.mock('../integrations/claude.js', () => ({
   processCapture: mockProcessCapture,
   executeAction: mockExecuteAction,
+  LINEAR_ENABLED: true,
 }))
 
 import { app } from '../server.js'
@@ -61,6 +62,18 @@ describe('POST /api/capture', () => {
 
     const poll = await app.inject({ method: 'GET', url: `/api/items/${item.id}` })
     expect(poll.json().status).toBe('reminder')
+  })
+})
+
+describe('GET /api/version', () => {
+  it('reports backend/config versions and enabled integrations', async () => {
+    const reply = await app.inject({ method: 'GET', url: '/api/version' })
+    expect(reply.statusCode).toBe(200)
+    expect(reply.json()).toEqual({
+      backend: 'dev',
+      config: null,
+      integrations: { linear: true },
+    })
   })
 })
 

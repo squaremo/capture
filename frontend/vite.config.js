@@ -2,6 +2,12 @@ import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
+  // The commit this bundle was built from (set via Dockerfile ARG/ENV);
+  // 'dev' outside Docker. Shown in the UI alongside the backend/config
+  // versions from GET /api/version.
+  define: {
+    __GIT_SHA__: JSON.stringify(process.env.GIT_SHA ?? 'dev'),
+  },
   plugins: [
     VitePWA({
       registerType: 'autoUpdate',

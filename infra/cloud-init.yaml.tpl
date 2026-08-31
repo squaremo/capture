@@ -64,6 +64,7 @@ write_files:
       Type=oneshot
       WorkingDirectory=/opt/capture/app
       ExecStart=/usr/bin/git pull --ff-only
+      ExecStart=/bin/sh -c 'git rev-parse HEAD > /opt/capture/data/config-version'
       ExecStart=/usr/bin/docker compose up -d --remove-orphans
 
   - path: /etc/systemd/system/capture-sync.timer
@@ -109,5 +110,8 @@ runcmd:
   - mkdir -p /opt/capture
   - git clone "${repo_url}" /opt/capture/app
   - mkdir -p /opt/capture/data
+  # So GET /api/version reports the real config revision from the first
+  # boot, instead of "unknown" until capture-sync's first run (up to 5min).
+  - git -C /opt/capture/app rev-parse HEAD > /opt/capture/data/config-version
   - systemctl enable --now capture.service
   - systemctl enable --now capture-sync.timer

@@ -1,7 +1,8 @@
 import './styles.css'
 import { createCaptureInput } from './components/capture.js'
 import { createInbox } from './components/inbox.js'
-import { postCapture, getItems, approveItem, vetoItem } from './api.js'
+import { createVersionInfo } from './components/versionInfo.js'
+import { postCapture, getItems, approveItem, vetoItem, getVersion } from './api.js'
 
 const app = document.getElementById('app')
 
@@ -14,7 +15,14 @@ logo.textContent = 'capture'
 const vpnBadge = document.createElement('span')
 vpnBadge.className = 'vpn-badge'
 vpnBadge.textContent = 'tailscale'
-header.append(logo, vpnBadge)
+
+const versionInfo = createVersionInfo()
+
+const headerBadges = document.createElement('div')
+headerBadges.className = 'header-badges'
+headerBadges.append(versionInfo.pillEl, vpnBadge)
+
+header.append(logo, headerBadges)
 
 // ── Inbox ─────────────────────────────────────────────────
 const inFlight = new Set() // item ids currently being approved/vetoed
@@ -114,6 +122,16 @@ async function loadItems() {
   }
 }
 
+// ── Version / integrations info (header pill + footer) ─────
+async function loadVersion() {
+  try {
+    versionInfo.render(await getVersion())
+  } catch {
+    // Backend not available yet — leave it blank rather than showing stale info
+  }
+}
+
 // ── Assemble ──────────────────────────────────────────────
-app.append(header, captureInput, inbox.el, stats)
+app.append(header, captureInput, inbox.el, stats, versionInfo.footerEl)
 loadItems()
+loadVersion()

@@ -10,6 +10,12 @@ export async function postCapture(text) {
   return res.json()
 }
 
+export async function getVersion() {
+  const res = await fetch(`${BASE}/version`)
+  if (!res.ok) throw new Error(`fetch version failed: ${res.status}`)
+  return res.json()
+}
+
 export async function getItems(filter) {
   const url = filter && filter !== 'all'
     ? `${BASE}/items?status=${filter}`

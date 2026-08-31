@@ -68,6 +68,12 @@ header {
   letter-spacing: -0.02em;
 }
 
+.header-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .vpn-badge {
   font-size: 11px;
   padding: 3px 8px;
@@ -76,6 +82,66 @@ header {
   color: var(--text-dim);
 }
 .vpn-badge.connected { border-color: var(--accent); color: var(--accent); }
+
+/* ── Info pill (header) ─────────────────────────────────── */
+.info-pill { position: relative; }
+
+.info-pill-btn {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.info-pill-btn:hover,
+.info-pill-btn[aria-expanded="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.info-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 10;
+  min-width: 200px;
+  padding: 12px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.info-versions {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  font-size: 11px;
+}
+.info-versions dt { color: var(--text-dim); }
+.info-versions dd { text-align: right; }
+
+.info-integrations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.integration-tag {
+  padding: 2px 7px;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.integration-tag--on { border-color: var(--accent); color: var(--accent); }
 
 /* ── Capture ─────────────────────────────────────────────── */
 .capture {
@@ -258,6 +324,14 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   color: var(--text-dim);
   display: flex;
   gap: 16px;
+}
+
+/* ── Version / integrations footer ──────────────────────── */
+.meta {
+  padding: 8px 0 16px;
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 0.02em;
 }
 
 /* ── Empty state ─────────────────────────────────────────── */
