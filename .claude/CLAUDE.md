@@ -101,6 +101,7 @@ See `TODO.md` for the current list.
 - **One thing per branch** — keep branches focused; don't bundle unrelated changes
 - **Commit subjects ≤ 50 chars** — so they don't wrap in git log
 - **Commit and push before handing back** — leave the branch in a state that can be reviewed and merged
+- **Merge with `--no-ff`** — keep a merge commit marking where a branch landed, rather than fast-forwarding `main`
 - **End-of-task memory review** — after finishing a piece of work, review what was done and what the user said, and suggest any new things worth adding to this file
 
 ## wishlist
