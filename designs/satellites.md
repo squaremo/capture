@@ -74,13 +74,26 @@ asking rather than guessing, same as before.
 
 ## Hub → satellite dispatch
 
-Plain HTTPS from the central backend to the satellite's MagicDNS hostname
-(`https://satellite-home.<tailnet>.ts.net`), not MCP. MCP earns its keep
-when a client needs to discover an unknown set of tools across many
-servers at runtime; here the backend already has to wrap every satellite
-call in its own safety logic (room resolution, approval gating), so a
-discovery protocol wouldn't remove any of that — it'd just sit on top of it. Revisit only if satellites end up numerous/varied enough
-that hand-maintaining "what can each one do" stops scaling.
+Plain HTTP from the central backend to the satellite's MagicDNS hostname
+(`http://satellite-home.<tailnet>.ts.net`) — not HTTPS, and not MCP.
+
+Not HTTPS: Tailscale already encrypts this at the WireGuard layer, so TLS
+on top would be redundant — same reasoning that already lets the backend
+itself skip TLS internally. Only nginx terminates real TLS in this stack,
+and only because it's browser-facing (padlock, PWA installability), which
+doesn't apply to satellite traffic since nothing but the backend ever
+calls it. (A real cert is available cheaply if ever needed — `tailscale
+cert` mints one per-device, same mechanism nginx already uses — but
+there's no confidentiality gain here to justify the added
+issuance/renewal upkeep.)
+
+Not MCP: it earns its keep when a client needs to discover an unknown set
+of tools across many servers at runtime; here the backend already has to
+wrap every satellite call in its own safety logic (room resolution,
+approval gating), so a discovery protocol wouldn't remove any of that —
+it'd just sit on top of it. Revisit only if satellites end up
+numerous/varied enough that hand-maintaining "what can each one do" stops
+scaling.
 
 Which houses exist and where is a house-id → satellite-address map, still
 hand-maintained rather than auto-discovered — but **not** committed
