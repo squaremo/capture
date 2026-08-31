@@ -117,6 +117,17 @@ when zero houses are configured would let Claude propose device-control
 for ordinary captures that happen to mention a song, with no way to ever
 act on it — worth a restart to avoid.
 
+Before trusting any of that, the hub confirms the satellite it reached
+actually **is** the house the config says — `/api/status`'s `house` field
+(already `HOUSE_ID` on the satellite side, needed nothing new there) is
+checked against the config key that was used to look up its address. A
+mismatch (stale/mistyped `satellites.json` entry, or a satellite started
+with the wrong `HOUSE_ID`) fails the same way an unreachable satellite
+does — never dispatches to whichever house happens to answer — but is
+reported as a distinct `houseMismatch` in `GET /api/satellites`/the UI
+rather than folded into "unreachable," since it's a different thing to go
+fix (a config typo, not a down satellite).
+
 What a given satellite can currently *do* is queried live:
 `GET /api/status` includes a `capabilities` list (e.g. `["sonos"]`) — pulled
 by the hub before/at dispatch time, not pushed by the satellite on startup.
@@ -134,9 +145,11 @@ Dispatch flow once a capture resolves to an acting tool call:
 
 1. Resolve `target_house` (explicit) or the capture's origin house.
 2. Look up its address in the house table; unknown house → fail, never guess.
-3. Check the satellite's advertised capabilities support the requested
+3. Confirm the satellite at that address reports the same house name;
+   mismatch → fail, never dispatch to the wrong house.
+4. Check the satellite's advertised capabilities support the requested
    action; unsupported → fail with an explanation.
-4. Propose the action (`awaiting_approval`); call it (`executeAction`, as
+5. Propose the action (`awaiting_approval`); call it (`executeAction`, as
    `create_linear_task` does today) only once approved via `POST /approve`.
    Origin house or not, no exception.
 
@@ -159,6 +172,16 @@ changes between modes is deployment, not code:
   anyway: start it on arrival, stop it on leaving, rather than leaving it
   running unattended. A laptop-hosted satellite is a deliberate, temporary
   stand-in, not the intended long-term shape.
+
+The satellite process binds to its host's Tailscale interface specifically
+(detected via the same 100.64.0.0/10 CGNAT-range check the backend already
+uses for its own allowlist), not `0.0.0.0` — the only thing that's ever
+supposed to call it is the backend, over Tailscale, so there's no reason
+for the controller API to be reachable from the LAN or any other interface
+on the box. Falls back to `127.0.0.1` (not `0.0.0.0`) when no Tailscale
+interface is up, e.g. local dev without Tailscale running — still
+restrictive by default, never "listen everywhere." `HOST` overrides it
+explicitly if that's ever genuinely needed.
 
 ## Open questions
 

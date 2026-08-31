@@ -28,14 +28,19 @@ describe('controlPlayback', () => {
     await expect(controlPlayback({ houses, house: 'home', title: 'x' })).rejects.toThrow('503')
   })
 
+  it('throws when the satellite reports a different house than the config expects', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ house: 'lake', capabilities: ['sonos'] }))
+    await expect(controlPlayback({ houses, house: 'home', title: 'x' })).rejects.toThrow('mismatch')
+  })
+
   it('throws when the satellite has no sonos capability', async () => {
-    mockFetch.mockResolvedValueOnce(jsonResponse({ capabilities: ['lights'] }))
+    mockFetch.mockResolvedValueOnce(jsonResponse({ house: 'home', capabilities: ['lights'] }))
     await expect(controlPlayback({ houses, house: 'home', title: 'x' })).rejects.toThrow('no Sonos capability')
   })
 
   it('posts the rich query and returns the play result', async () => {
     mockFetch
-      .mockResolvedValueOnce(jsonResponse({ capabilities: ['sonos'] }))
+      .mockResolvedValueOnce(jsonResponse({ house: 'home', capabilities: ['sonos'] }))
       .mockResolvedValueOnce(jsonResponse({ playing: true, track: 'Silver Machine by Hawkwind', room: 'living room' }))
 
     const result = await controlPlayback({
@@ -59,7 +64,7 @@ describe('controlPlayback', () => {
 
   it('throws with the satellite-reported error on a failed play', async () => {
     mockFetch
-      .mockResolvedValueOnce(jsonResponse({ capabilities: ['sonos'] }))
+      .mockResolvedValueOnce(jsonResponse({ house: 'home', capabilities: ['sonos'] }))
       .mockResolvedValueOnce(jsonResponse({ error: 'title is required' }, false, 400))
 
     await expect(controlPlayback({ houses, house: 'home', title: '' })).rejects.toThrow('title is required')
@@ -73,7 +78,7 @@ describe('listSatellites', () => {
     const result = await listSatellites({ home: 'http://localhost:4000' })
 
     expect(result).toEqual([
-      { house: 'home', address: 'http://localhost:4000', reachable: true, capabilities: ['sonos'] },
+      { house: 'home', address: 'http://localhost:4000', reachable: true, capabilities: ['sonos'], houseMismatch: false },
     ])
   })
 
@@ -83,7 +88,7 @@ describe('listSatellites', () => {
     const result = await listSatellites({ home: 'http://localhost:4000' })
 
     expect(result).toEqual([
-      { house: 'home', address: 'http://localhost:4000', reachable: false, capabilities: [] },
+      { house: 'home', address: 'http://localhost:4000', reachable: false, capabilities: [], houseMismatch: false },
     ])
   })
 
@@ -92,19 +97,29 @@ describe('listSatellites', () => {
 
     const result = await listSatellites({ home: 'http://localhost:4000' })
 
-    expect(result[0]).toEqual({ house: 'home', address: 'http://localhost:4000', reachable: false, capabilities: [] })
+    expect(result[0]).toEqual({ house: 'home', address: 'http://localhost:4000', reachable: false, capabilities: [], houseMismatch: false })
+  })
+
+  it('reports houseMismatch: true, distinct from unreachable, when the satellite answers as a different house', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ house: 'lake', capabilities: ['sonos'] }))
+
+    const result = await listSatellites({ home: 'http://localhost:4000' })
+
+    expect(result).toEqual([
+      { house: 'home', address: 'http://localhost:4000', reachable: false, capabilities: [], houseMismatch: true },
+    ])
   })
 
   it('reports each configured house independently', async () => {
     mockFetch
-      .mockResolvedValueOnce(jsonResponse({ capabilities: ['sonos'] }))
+      .mockResolvedValueOnce(jsonResponse({ house: 'home', capabilities: ['sonos'] }))
       .mockRejectedValueOnce(new Error('ECONNREFUSED'))
 
     const result = await listSatellites({ home: 'http://localhost:4000', lake: 'http://localhost:4001' })
 
     expect(result).toEqual([
-      { house: 'home', address: 'http://localhost:4000', reachable: true, capabilities: ['sonos'] },
-      { house: 'lake', address: 'http://localhost:4001', reachable: false, capabilities: [] },
+      { house: 'home', address: 'http://localhost:4000', reachable: true, capabilities: ['sonos'], houseMismatch: false },
+      { house: 'lake', address: 'http://localhost:4001', reachable: false, capabilities: [], houseMismatch: false },
     ])
   })
 

@@ -21,7 +21,10 @@ export function getHouses() {
   }
 }
 
-// Resolves a house to its satellite, confirms it's reachable and supports
+// Resolves a house to its satellite, confirms it's reachable, actually is
+// the house the config claims (catches a stale/mistyped satellites.json
+// entry or a satellite started with the wrong HOUSE_ID — never trust the
+// config's label over what the satellite itself reports), and supports
 // Sonos, then dispatches a play request. Finding the actual best-matching
 // track/speaker from the given query is the satellite's job, not ours —
 // see designs/satellites.md.
@@ -32,6 +35,9 @@ export async function controlPlayback({ houses, house, room, title, artist, albu
   const statusRes = await fetch(`${address}/api/status`)
   if (!statusRes.ok) throw new Error(`Satellite at "${house}" returned ${statusRes.status}`)
   const status = await statusRes.json()
+  if (status.house !== house) {
+    throw new Error(`Satellite at "${house}"'s address reports house "${status.house}" — config/satellite mismatch`)
+  }
   if (!status.capabilities?.includes('sonos')) {
     throw new Error(`"${house}" has no Sonos capability configured`)
   }
@@ -65,12 +71,22 @@ async function fetchStatus(address, timeoutMs = 3000) {
 
 // Reports what's configured (houses) and what's actually reachable right
 // now (capabilities) — for the UI. Each house is queried independently so
-// one down satellite doesn't block reporting on the others.
+// one down satellite doesn't block reporting on the others. houseMismatch
+// is a distinct signal from reachable: false — the satellite answered, it
+// just isn't the house this config entry claims it is (a config-side bug,
+// worth surfacing differently from "just offline" so it's obvious which
+// one to go fix).
 export async function listSatellites(houses) {
   return Promise.all(
     Object.entries(houses).map(async ([house, address]) => {
       const status = await fetchStatus(address)
-      return { house, address, reachable: status !== null, capabilities: status?.capabilities ?? [] }
+      if (status === null) {
+        return { house, address, reachable: false, capabilities: [], houseMismatch: false }
+      }
+      if (status.house !== house) {
+        return { house, address, reachable: false, capabilities: [], houseMismatch: true }
+      }
+      return { house, address, reachable: true, capabilities: status.capabilities ?? [], houseMismatch: false }
     })
   )
 }
