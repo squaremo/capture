@@ -6,7 +6,8 @@
 - [ ] Deploy smoke test — a post-deploy health check hitting `GET /api/items` over Tailscale, to confirm a rollout actually landed
 - [ ] Revisit Terraform/IaC for server provisioning once the app itself is further along (tried and abandoned once already — see git history around the `claude/*-RKHeR` branches for what went wrong)
 - [x] Create the 1Password items referenced in `infra/production.env` (anthropic api_key, linear api_key + team_id), then set `OP_SERVICE_ACCOUNT_TOKEN` on the server (`/opt/capture/.env.secret`) to turn everything on — confirmed working end-to-end, first real Linear ticket created via the app
-- [ ] UI bug: after a capture resolves, the frontend was seen still showing it as pending/deciding instead of updating in place. Not yet diagnosed — worth re-checking now that `create_linear_task` resolves to `awaiting_approval` (a new, faster-arriving status) rather than `acted`, in case that changes what's observed.
+- [x] UI bug: items resolving to an action stayed stuck showing pending. Two real causes found in `frontend/src/main.js`'s `pollForResolution`: a single non-ok fetch response permanently stopped the poll loop (rather than retrying — likely hit often given how frequently this app's containers restart), and the ~25s total polling budget was tight enough for a real network round-trip to exceed it. Widened the budget to a few minutes and made it retry through transient failures instead of giving up on the first one.
+- [x] `TOL-4` — inbox split into "needs attention" (pending/triaged/reminder/urgent/awaiting_approval) and "resolved" (acted/vetoed/failed) sections, always both visible instead of tab-switching. Verified in a browser — see the screenshots sent alongside this.
 
 ## ideas (freeform)
 
