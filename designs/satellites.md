@@ -70,9 +70,8 @@ Plain HTTPS from the central backend to the satellite's MagicDNS hostname
 (`https://satellite-home.<tailnet>.ts.net`), not MCP. MCP earns its keep
 when a client needs to discover an unknown set of tools across many
 servers at runtime; here the backend already has to wrap every satellite
-call in its own safety logic (room resolution, same-house-vs-approval
-gating), so a discovery protocol wouldn't remove any of that — it'd just
-sit on top of it. Revisit only if satellites end up numerous/varied enough
+call in its own safety logic (room resolution, approval gating), so a
+discovery protocol wouldn't remove any of that — it'd just sit on top of it. Revisit only if satellites end up numerous/varied enough
 that hand-maintaining "what can each one do" stops scaling.
 
 Which houses exist and where is static config on the backend (a house-id →
