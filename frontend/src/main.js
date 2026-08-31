@@ -62,14 +62,16 @@ const captureInput = createCaptureInput({
 
     try {
       const saved = await postCapture(text)
-      // Replace optimistic item with real one
-      inbox.updateItem({ ...optimistic, ...saved })
+      // Replace optimistic item with the real one — saved.id is the
+      // server-assigned id, different from optimistic.id, so the lookup
+      // needs to match on the old id while storing/rendering the new one.
+      inbox.updateItem(saved, optimistic.id)
       updateStats()
 
       // Poll for resolution (backend processes async)
       pollForResolution(saved.id)
     } catch (err) {
-      inbox.updateItem({ ...optimistic, status: 'failed', action_result: 'Failed to reach server.' })
+      inbox.updateItem({ ...optimistic, status: 'failed', action_result: 'Failed to reach server.' }, optimistic.id)
       updateStats()
       console.error(err)
     }

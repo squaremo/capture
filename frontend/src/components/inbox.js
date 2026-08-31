@@ -43,8 +43,11 @@ export function createInbox({ onApprove, onVeto } = {}) {
       groupFor(item.status).list.prepend(createItemEl(item))
     },
 
-    updateItem(updated) {
-      const idx = items.findIndex(i => i.id === updated.id)
+    // matchId lets a caller replace an item stored under one id (e.g. a
+    // client-side optimistic id) with the server's version, which may have
+    // a different id. Defaults to updated.id for the common in-place case.
+    updateItem(updated, matchId = updated.id) {
+      const idx = items.findIndex(i => i.id === matchId)
       if (idx === -1) return
       const movedGroup = groupFor(items[idx].status) !== groupFor(updated.status)
       items[idx] = updated
@@ -52,9 +55,13 @@ export function createInbox({ onApprove, onVeto } = {}) {
         render() // crossed from needs-attention to resolved (or back) — relocate it
         return
       }
-      const el = section.querySelector(`[data-id="${updated.id}"]`)
-      if (el) updateItemEl(el, updated)
-      else render()
+      const el = section.querySelector(`[data-id="${matchId}"]`)
+      if (el) {
+        el.dataset.id = updated.id
+        updateItemEl(el, updated)
+      } else {
+        render()
+      }
     },
 
     setItems(newItems) {
