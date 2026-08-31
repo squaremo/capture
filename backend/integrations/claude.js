@@ -1,12 +1,19 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { resolveEnv } from '../secrets.js'
 import { createLinearTask, searchLinearIssues } from './linear.js'
+import { controlPlayback } from './satellite.js'
 
 const client = new Anthropic({ apiKey: await resolveEnv('ANTHROPIC_API_KEY') })
 
 const linearApiKey = await resolveEnv('LINEAR_API_KEY')
 const linearTeamId = await resolveEnv('LINEAR_TEAM_ID')
 export const LINEAR_ENABLED = Boolean(linearApiKey && linearTeamId)
+
+// house-id -> satellite base URL, e.g. {"home":"http://localhost:4000"}.
+// Static config, not auto-discovered — see designs/satellites.md.
+const satelliteHousesJson = await resolveEnv('SATELLITE_HOUSES')
+export const SATELLITE_HOUSES = satelliteHousesJson ? JSON.parse(satelliteHousesJson) : {}
+export const SATELLITES_ENABLED = Object.keys(SATELLITE_HOUSES).length > 0
 
 // Every tool the plan can call. `kind` decides how the interpreter treats a step:
 // - terminal: ends the plan immediately with a resolved status (no external effect)
@@ -36,6 +43,18 @@ if (LINEAR_ENABLED) {
   }
 }
 
+if (SATELLITES_ENABLED) {
+  TOOL_REGISTRY.control_playback = {
+    kind: 'acting',
+    describe: ({ title, artist, room, target_house }) =>
+      `Proposed: play "${title}"${artist ? ` by ${artist}` : ''} in ${room}${target_house ? ` (${target_house})` : ' (house unknown)'}`,
+    execute: async ({ target_house, room, title, artist, album }) => {
+      const result = await controlPlayback({ houses: SATELLITE_HOUSES, house: target_house, room, title, artist, album })
+      return `Played "${result.track}"${result.room ? ` in ${result.room}` : ''}`
+    },
+  }
+}
+
 const SYSTEM_PROMPT = `You are the intent processor for a personal quick-capture app. The user has just captured a thought, note, task, or reminder.
 
 Resolve it by calling propose_plan with an ordered list of steps. Available tools:
@@ -44,9 +63,10 @@ Resolve it by calling propose_plan with an ordered list of steps. Available tool
 - create_reminder (terminal): args { action_result, tags }. Something time-sensitive that should become a calendar event or reminder.
 - flag_urgent (terminal): args { action_result, tags }. Something that needs immediate attention.${LINEAR_ENABLED ? `
 - search_linear_issues (read-only — runs automatically, no approval needed): args { query }. Searches existing Linear issues for a similar title. Outputs: { duplicate_found: boolean, matching_issue: { title, url } | null }.
-- create_linear_task (acting — only proposes; a human must approve before anything is actually created): args { title, description?, tags }. Real project/engineering work that should be tracked in Linear (e.g. "fix the login bug", "add dark mode").` : ''}
+- create_linear_task (acting — only proposes; a human must approve before anything is actually created): args { title, description?, tags }. Real project/engineering work that should be tracked in Linear (e.g. "fix the login bug", "add dark mode").` : ''}${SATELLITES_ENABLED ? `
+- control_playback (acting — only proposes; a human must approve before anything plays): args { title, artist?, album?, room, target_house?, tags }. Plays music at a house over Sonos. room is free text like "living room" or "bedroom" — pass it through as written, the satellite works out which speaker that means, don't guess a specific speaker name. target_house should only be set when the capture text unambiguously names one of these houses: ${Object.keys(SATELLITE_HOUSES).join(', ')}. Leave it unset otherwise — the app fills in the house the capture came from.` : ''}
 
-action_result is a short natural-language description of what was done, e.g. "Saved to inbox", "Reminder set: 'Call dentist' — Tomorrow, 9:00am", "Flagged as urgent". Not needed for create_linear_task — its description is generated automatically. tags is an array of 1–3 lowercase tags.
+action_result is a short natural-language description of what was done, e.g. "Saved to inbox", "Reminder set: 'Call dentist' — Tomorrow, 9:00am", "Flagged as urgent". Not needed for create_linear_task or control_playback — their descriptions are generated automatically. tags is an array of 1–3 lowercase tags.
 
 Steps run in the order given. A read-only step's output is not shown to you before you finish planning — you only see it by referencing it later, so cover both outcomes of a boolean output using "if"/"unless" on separate steps rather than guessing which one will happen.
 
@@ -114,7 +134,7 @@ function conditionHolds(step, bindings) {
   return true
 }
 
-export async function processCapture(text, { onStep } = {}) {
+export async function processCapture(text, { onStep, house } = {}) {
   const response = await client.messages.create({
     model: 'claude-opus-4-6',
     max_tokens: 1024,
@@ -145,6 +165,11 @@ export async function processCapture(text, { onStep } = {}) {
 
     if (def.kind === 'acting') {
       const { tags = [], ...input } = args
+      // control_playback defaults to the house the capture came from when
+      // the text didn't unambiguously name one — never guessed by Claude.
+      if (step.tool === 'control_playback' && !input.target_house) {
+        input.target_house = house ?? null
+      }
       return {
         status: 'awaiting_approval',
         tags,

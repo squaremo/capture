@@ -16,6 +16,12 @@ export async function getVersion() {
   return res.json()
 }
 
+export async function getSatellites() {
+  const res = await fetch(`${BASE}/satellites`)
+  if (!res.ok) throw new Error(`fetch satellites failed: ${res.status}`)
+  return res.json()
+}
+
 export async function getItems(filter) {
   const url = filter && filter !== 'all'
     ? `${BASE}/items?status=${filter}`
