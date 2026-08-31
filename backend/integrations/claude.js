@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { resolveEnv } from '../secrets.js'
-import { createLinearTask } from './linear.js'
+import { createLinearTask, searchLinearIssues } from './linear.js'
 
 const client = new Anthropic({ apiKey: await resolveEnv('ANTHROPIC_API_KEY') })
 
@@ -8,90 +8,109 @@ const linearApiKey = await resolveEnv('LINEAR_API_KEY')
 const linearTeamId = await resolveEnv('LINEAR_TEAM_ID')
 const LINEAR_ENABLED = Boolean(linearApiKey && linearTeamId)
 
-const SYSTEM_PROMPT = `You are the intent processor for a personal quick-capture app. The user has just captured a thought, note, task, or reminder.
-
-Your job is to classify and act on it by calling exactly one tool:
-- save_to_inbox: a general note or task to triage later
-- create_reminder: something time-sensitive that should become a calendar event or reminder
-- flag_urgent: something that needs immediate attention${LINEAR_ENABLED ? `
-- create_linear_task: real project/engineering work that should be tracked in Linear (e.g. "fix the login bug", "add dark mode") — this proposes the task; it isn't created until the human approves it` : ''}
-
-Always include a short, natural-language action_result string describing what you did (e.g. "Saved to inbox", "Reminder set: 'Call dentist' — Tomorrow, 9:00am", "Flagged as urgent"). This is not needed for create_linear_task — a description of the proposal is generated automatically.
-
-Also provide an array of 1–3 lowercase tags (e.g. ["shopping"], ["health", "urgent"], ["work"]).`
-
-const TOOLS = [
-  {
-    name: 'save_to_inbox',
-    description: 'Save a general note, thought, or task to the inbox for later triage.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        action_result: { type: 'string', description: 'Short natural-language description of what was done.' },
-        tags: { type: 'array', items: { type: 'string' }, description: '1–3 lowercase tags.' },
-      },
-      required: ['action_result', 'tags'],
-    },
-  },
-  {
-    name: 'create_reminder',
-    description: 'Create a reminder or calendar event for a time-sensitive capture.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        action_result: { type: 'string', description: 'Short natural-language description, e.g. "Reminder set: \'Call dentist\' — Tomorrow, 9:00am"' },
-        tags: { type: 'array', items: { type: 'string' }, description: '1–3 lowercase tags.' },
-      },
-      required: ['action_result', 'tags'],
-    },
-  },
-  {
-    name: 'flag_urgent',
-    description: 'Flag something as urgent that needs immediate attention.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        action_result: { type: 'string', description: 'Short natural-language description of the urgent item.' },
-        tags: { type: 'array', items: { type: 'string' }, description: '1–3 lowercase tags.' },
-      },
-      required: ['action_result', 'tags'],
-    },
-  },
-]
+// Every tool the plan can call. `kind` decides how the interpreter treats a step:
+// - terminal: ends the plan immediately with a resolved status (no external effect)
+// - acting: ends the plan immediately as a proposal — nothing runs until a human
+//   approves it via POST /api/items/:id/approve, which calls `execute` directly
+// - readonly: has real (non-mutating) external effects; runs automatically and
+//   its output is bound to the step's id for later steps to reference
+const TOOL_REGISTRY = {
+  save_to_inbox: { kind: 'terminal', status: 'triaged' },
+  create_reminder: { kind: 'terminal', status: 'reminder' },
+  flag_urgent: { kind: 'terminal', status: 'urgent' },
+}
 
 if (LINEAR_ENABLED) {
-  TOOLS.push({
-    name: 'create_linear_task',
-    description: 'Create a task in Linear for real project or engineering work — not a personal note or reminder.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        title: { type: 'string', description: 'Short task title.' },
-        description: { type: 'string', description: 'Optional longer description.' },
-        tags: { type: 'array', items: { type: 'string' }, description: '1–3 lowercase tags.' },
-      },
-      required: ['title', 'tags'],
-    },
-  })
-}
-
-const TOOL_TO_STATUS = {
-  save_to_inbox: 'triaged',
-  create_reminder: 'reminder',
-  flag_urgent: 'urgent',
-}
-
-// Tools with a real external side effect. Picking one of these doesn't
-// run it — processCapture() only records the proposed call, and it's
-// executeAction() that actually performs it, once approved.
-const ACTING_TOOLS = {
-  create_linear_task: {
+  TOOL_REGISTRY.search_linear_issues = {
+    kind: 'readonly',
+    execute: ({ query }) => searchLinearIssues({ apiKey: linearApiKey, teamId: linearTeamId, query }),
+  }
+  TOOL_REGISTRY.create_linear_task = {
+    kind: 'acting',
     describe: ({ title }) => `Proposed: create Linear task "${title}"`,
     execute: async ({ title, description }) => {
       const issue = await createLinearTask({ apiKey: linearApiKey, teamId: linearTeamId, title, description })
       return `Linear task created: "${issue.title}" — ${issue.url}`
     },
-  },
+  }
+}
+
+const SYSTEM_PROMPT = `You are the intent processor for a personal quick-capture app. The user has just captured a thought, note, task, or reminder.
+
+Resolve it by calling propose_plan with an ordered list of steps. Available tools:
+
+- save_to_inbox (terminal — ends the plan): args { action_result, tags }. A general note or task to triage later.
+- create_reminder (terminal): args { action_result, tags }. Something time-sensitive that should become a calendar event or reminder.
+- flag_urgent (terminal): args { action_result, tags }. Something that needs immediate attention.${LINEAR_ENABLED ? `
+- search_linear_issues (read-only — runs automatically, no approval needed): args { query }. Searches existing Linear issues for a similar title. Outputs: { duplicate_found: boolean, matching_issue: { title, url } | null }.
+- create_linear_task (acting — only proposes; a human must approve before anything is actually created): args { title, description?, tags }. Real project/engineering work that should be tracked in Linear (e.g. "fix the login bug", "add dark mode").` : ''}
+
+action_result is a short natural-language description of what was done, e.g. "Saved to inbox", "Reminder set: 'Call dentist' — Tomorrow, 9:00am", "Flagged as urgent". Not needed for create_linear_task — its description is generated automatically. tags is an array of 1–3 lowercase tags.
+
+Steps run in the order given. A read-only step's output is not shown to you before you finish planning — you only see it by referencing it later, so cover both outcomes of a boolean output using "if"/"unless" on separate steps rather than guessing which one will happen.
+
+Reference an earlier step's output as \${stepId.field} — either as a whole argument value or interpolated inside a string, e.g. "action_result": "Already tracked: \${s1.matching_issue.title} — \${s1.matching_issue.url}".
+
+The plan finishes at the first terminal or acting step it reaches — nothing after it runs, so only one acting step will ever actually execute even if different branches each propose one.${LINEAR_ENABLED ? ` For a capture that might duplicate existing Linear work: search_linear_issues first, then "if" duplicate_found go to a terminal step referencing the match, "unless" duplicate_found go to create_linear_task.` : ''}`
+
+function buildProposePlanTool() {
+  return {
+    name: 'propose_plan',
+    description: 'Propose an ordered plan of tool-call steps that resolves this capture.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        steps: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 8,
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'Unique short id for this step, e.g. "s1".' },
+              tool: { type: 'string', enum: Object.keys(TOOL_REGISTRY) },
+              args: { type: 'object', description: 'Arguments for the tool. Use "${stepId.field}" to reference an earlier step\'s output.' },
+              if: { type: 'string', description: 'Only run this step if this earlier boolean output is true, e.g. "${s1.duplicate_found}".' },
+              unless: { type: 'string', description: 'Only run this step if this earlier boolean output is false.' },
+            },
+            required: ['id', 'tool', 'args'],
+          },
+        },
+      },
+      required: ['steps'],
+    },
+  }
+}
+
+// Looks up a (possibly nested) field on an earlier step's bound output, e.g.
+// path "matching_issue.title" against bindings.s1 = { matching_issue: { title } }.
+function lookupRef(stepId, path, bindings) {
+  if (!(stepId in bindings)) throw new Error(`Plan referenced unknown step: ${stepId}`)
+  let value = bindings[stepId]
+  for (const key of path.split('.')) {
+    if (value == null || !(key in value)) throw new Error(`Plan referenced unknown field: ${stepId}.${path}`)
+    value = value[key]
+  }
+  return value
+}
+
+const REF_RE = /\$\{([^.}]+)\.([^}]+)\}/g
+
+function resolveValue(value, bindings) {
+  if (typeof value !== 'string') return value
+  const whole = value.match(/^\$\{([^.}]+)\.([^}]+)\}$/)
+  if (whole) return lookupRef(whole[1], whole[2], bindings)
+  return value.replace(REF_RE, (_, stepId, path) => String(lookupRef(stepId, path, bindings)))
+}
+
+function resolveArgs(args, bindings) {
+  return Object.fromEntries(Object.entries(args ?? {}).map(([k, v]) => [k, resolveValue(v, bindings)]))
+}
+
+function conditionHolds(step, bindings) {
+  if (step.if) return Boolean(resolveValue(step.if, bindings))
+  if (step.unless) return !resolveValue(step.unless, bindings)
+  return true
 }
 
 export async function processCapture(text) {
@@ -99,36 +118,51 @@ export async function processCapture(text) {
     model: 'claude-opus-4-6',
     max_tokens: 1024,
     system: SYSTEM_PROMPT,
-    tools: TOOLS,
-    tool_choice: { type: 'any' },
+    tools: [buildProposePlanTool()],
+    tool_choice: { type: 'tool', name: 'propose_plan' },
     messages: [{ role: 'user', content: text }],
   })
 
   const toolUse = response.content.find(b => b.type === 'tool_use')
-  if (!toolUse) {
-    return { status: 'triaged', tags: [], action_result: 'Saved to inbox.' }
+  const steps = toolUse?.input?.steps
+  if (!Array.isArray(steps) || steps.length === 0) {
+    throw new Error('Claude proposed an empty plan')
   }
 
-  const actingTool = ACTING_TOOLS[toolUse.name]
-  if (actingTool) {
-    const { tags, ...input } = toolUse.input
-    return {
-      status: 'awaiting_approval',
-      tags: tags ?? [],
-      action_result: actingTool.describe(input),
-      pending_action: { tool: toolUse.name, input },
+  const bindings = {}
+  for (const step of steps) {
+    if (!conditionHolds(step, bindings)) continue
+
+    const def = TOOL_REGISTRY[step.tool]
+    if (!def) throw new Error(`Plan referenced unknown tool: ${step.tool}`)
+    const args = resolveArgs(step.args, bindings)
+
+    if (def.kind === 'terminal') {
+      const { action_result = 'Saved to inbox.', tags = [] } = args
+      return { status: def.status, tags, action_result }
     }
+
+    if (def.kind === 'acting') {
+      const { tags = [], ...input } = args
+      return {
+        status: 'awaiting_approval',
+        tags,
+        action_result: def.describe(input),
+        pending_action: { tool: step.tool, input },
+      }
+    }
+
+    // readonly: run it now, bind its output for later steps to reference
+    bindings[step.id] = await def.execute(args)
   }
 
-  const { action_result, tags } = toolUse.input
-  const status = TOOL_TO_STATUS[toolUse.name] ?? 'triaged'
-  return { status, tags: tags ?? [], action_result }
+  throw new Error('Plan finished without reaching a terminal or acting step')
 }
 
 // Runs a previously-proposed action after the human has approved it.
 export async function executeAction({ tool, input }) {
-  const actingTool = ACTING_TOOLS[tool]
-  if (!actingTool) throw new Error(`Unknown action tool: ${tool}`)
-  const action_result = await actingTool.execute(input)
+  const def = TOOL_REGISTRY[tool]
+  if (!def || def.kind !== 'acting') throw new Error(`Unknown action tool: ${tool}`)
+  const action_result = await def.execute(input)
   return { status: 'acted', action_result }
 }
