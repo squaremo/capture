@@ -1,9 +1,12 @@
 import Fastify from 'fastify'
-import { readFileSync } from 'fs'
+import fastifyStatic from '@fastify/static'
+import { readFileSync, existsSync } from 'fs'
 import { networkInterfaces } from 'os'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
 import * as sonos from './services/sonos.js'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
 
 const PORT = parseInt(process.env.PORT ?? '4000', 10)
 // Only the backend ever calls this, over Tailscale — bind to the tailnet
@@ -11,24 +14,65 @@ const PORT = parseInt(process.env.PORT ?? '4000', 10)
 // reachable from the LAN or any other interface on the box. Falls back to
 // localhost-only (not 0.0.0.0) when no Tailscale interface is up, e.g. for
 // local dev — still restrictive, never "listen everywhere" by default.
-// HOST always overrides, if you really need something else.
+// HOST always overrides, if you really need something else. Note this
+// now also gates who can load the UI below, not just the controller API
+// — see designs/satellites.md's Satellite-served frontend section.
 const HOST = process.env.HOST ?? findTailscaleAddress() ?? '127.0.0.1'
 const HOUSE_ID = process.env.HOUSE_ID ?? 'unnamed-house'
+
+// Where the served frontend should send capture/inbox calls — an
+// absolute origin, since the frontend is no longer same-origin with the
+// central backend once this satellite is the one serving it. Required
+// for the real UI to actually work here; left unset, the served
+// frontend falls back to a relative /api (which 404s on this server) —
+// see /config.json below.
+const BACKEND_URL = process.env.BACKEND_URL ?? null
+
+// Where the built frontend lives — a sibling directory in a repo
+// checkout by default, since that's how this is actually run today (see
+// Running modes in the design doc). Needs `npm run build` in frontend/
+// first; falls back to the manual test page below if that hasn't
+// happened, so this still boots usefully for Sonos-only testing without
+// a frontend build nearby.
+const FRONTEND_DIST = process.env.FRONTEND_DIST_PATH ?? join(__dirname, '../frontend/dist')
 
 // Which local services this satellite can currently reach. Only Sonos is
 // wired up so far; the hub checks this before dispatching an action rather
 // than firing blind into an unsupported house.
 const CAPABILITIES = ['sonos']
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const indexHtml = readFileSync(join(__dirname, 'public/index.html'), 'utf8')
+const testPageHtml = readFileSync(join(__dirname, 'public/index.html'), 'utf8')
 
 export const app = Fastify({ logger: true })
 
+// ── Runtime config for the frontend ─────────────────────────
+// Replaces what used to be a frontend build-time constant (DEFAULT_HOUSE)
+// — see designs/satellites.md's House attribution. Generated fresh per
+// request from this process's own env vars, not baked in anywhere, so
+// the same frontend build works here unmodified.
+app.get('/config.json', async () => ({
+  defaultHouse: HOUSE_ID,
+  backendUrl: BACKEND_URL,
+}))
+
 // ── UI ─────────────────────────────────────────────────────
-app.get('/', async (req, reply) => {
-  reply.type('text/html').send(indexHtml)
-})
+// The real capture frontend, once built — same build as everywhere else,
+// configured via /config.json above rather than anything satellite-
+// specific baked into it.
+if (existsSync(join(FRONTEND_DIST, 'index.html'))) {
+  app.register(fastifyStatic, { root: FRONTEND_DIST })
+} else {
+  app.log.warn(
+    `No frontend build found at ${FRONTEND_DIST} — set FRONTEND_DIST_PATH ` +
+    'or run "npm run build" in frontend/. Serving the manual test page at / instead.'
+  )
+  app.get('/', async (req, reply) => reply.type('text/html').send(testPageHtml))
+}
+// Kept at a fixed path regardless of whether the real frontend is being
+// served at / — useful for exercising /api/search + /api/play directly
+// without a full capture round-trip. Superseded once the real frontend
+// gets its own local now-playing panel (see Open questions).
+app.get('/test', async (req, reply) => reply.type('text/html').send(testPageHtml))
 
 // ── Controller API ─────────────────────────────────────────
 // The central backend (or, for now, the UI above) calls these to reach

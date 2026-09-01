@@ -1,10 +1,9 @@
-// __DEFAULT_HOUSE__ is a build-time constant (see vite.config.js) — which
-// house this build "is," empty for the general frontend.
-/* global __DEFAULT_HOUSE__ */
-
 const STORAGE_KEY = 'captureHouse'
 
-export function createCaptureInput({ onSubmit }) {
+// defaultHouse comes from runtime config (see config.js) — which house
+// this deployment "is," empty for the general frontend, set when a
+// satellite is the one serving this page.
+export function createCaptureInput({ onSubmit, defaultHouse }) {
   const section = document.createElement('section')
   section.className = 'capture'
 
@@ -94,16 +93,16 @@ export function createCaptureInput({ onSubmit }) {
 
   houseSelect.addEventListener('change', () => {
     updateHouseDot()
-    // Only persist a sticky choice when this build has no default — when
-    // it does, the default should win again next load (it describes where
-    // this box physically is); a change here is just for this capture.
-    if (!__DEFAULT_HOUSE__) {
+    // Only persist a sticky choice when this deployment has no default —
+    // when it does, the default should win again next load (it describes
+    // where this box physically is); a change here is just for this capture.
+    if (!defaultHouse) {
       try { localStorage.setItem(STORAGE_KEY, houseSelect.value) } catch {}
     }
   })
 
   function updateHouseDot() {
-    houseDot.hidden = !(__DEFAULT_HOUSE__ && houseSelect.value === __DEFAULT_HOUSE__)
+    houseDot.hidden = !(defaultHouse && houseSelect.value === defaultHouse)
   }
 
   function submit() {
@@ -145,8 +144,8 @@ export function createCaptureInput({ onSubmit }) {
     let sticky = ''
     try { sticky = localStorage.getItem(STORAGE_KEY) ?? '' } catch { /* ignore */ }
 
-    const initial = __DEFAULT_HOUSE__ && known.has(__DEFAULT_HOUSE__)
-      ? __DEFAULT_HOUSE__
+    const initial = defaultHouse && known.has(defaultHouse)
+      ? defaultHouse
       : (known.has(sticky) ? sticky : '')
 
     houseSelect.value = initial

@@ -1,4 +1,13 @@
-const BASE = '/api'
+// The central backend's origin, plus '/api' — relative ('/api') by
+// default, matching the general deployment where nginx and the backend
+// are same-origin. configureApi() overrides this once, at startup, from
+// runtime config (see config.js) — needed when this frontend is served
+// by something that isn't the backend itself, e.g. a satellite.
+let BASE = '/api'
+
+export function configureApi({ backendUrl } = {}) {
+  BASE = backendUrl ? `${backendUrl.replace(/\/$/, '')}/api` : '/api'
+}
 
 export async function postCapture(text, house) {
   const res = await fetch(`${BASE}/capture`, {
@@ -19,6 +28,12 @@ export async function getVersion() {
 export async function getSatellites() {
   const res = await fetch(`${BASE}/satellites`)
   if (!res.ok) throw new Error(`fetch satellites failed: ${res.status}`)
+  return res.json()
+}
+
+export async function getItem(id) {
+  const res = await fetch(`${BASE}/items/${id}`)
+  if (!res.ok) throw new Error(`fetch item failed: ${res.status}`)
   return res.json()
 }
 
