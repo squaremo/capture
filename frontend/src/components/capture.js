@@ -1,3 +1,9 @@
+// __DEFAULT_HOUSE__ is a build-time constant (see vite.config.js) — which
+// house this build "is," empty for the general frontend.
+/* global __DEFAULT_HOUSE__ */
+
+const STORAGE_KEY = 'captureHouse'
+
 export function createCaptureInput({ onSubmit }) {
   const section = document.createElement('section')
   section.className = 'capture'
@@ -10,6 +16,28 @@ export function createCaptureInput({ onSubmit }) {
   const controls = document.createElement('div')
   controls.className = 'capture-controls'
 
+  // ── House chooser ────────────────────────────────────────
+  // Hidden until setHouses() is told about at least one configured house
+  // (GET /api/satellites) — most deployments have none, and there's no
+  // reason to show a picker with nothing to pick.
+  const houseRow = document.createElement('div')
+  houseRow.className = 'house-row'
+  houseRow.hidden = true
+
+  const houseDot = document.createElement('span')
+  houseDot.className = 'house-dot'
+  houseDot.title = 'this is where you are'
+  houseDot.hidden = true
+
+  const houseSelect = document.createElement('select')
+  houseSelect.className = 'house-select'
+  houseSelect.setAttribute('aria-label', 'House')
+
+  houseRow.append(houseDot, houseSelect)
+
+  const buttonGroup = document.createElement('div')
+  buttonGroup.className = 'button-group'
+
   const voiceBtn = document.createElement('button')
   voiceBtn.className = 'btn-voice'
   voiceBtn.setAttribute('aria-label', 'Voice input')
@@ -19,7 +47,8 @@ export function createCaptureInput({ onSubmit }) {
   submitBtn.className = 'btn-submit'
   submitBtn.textContent = 'capture'
 
-  controls.append(voiceBtn, submitBtn)
+  buttonGroup.append(voiceBtn, submitBtn)
+  controls.append(houseRow, buttonGroup)
   section.append(textarea, controls)
 
   // ⌘↵ / Ctrl↵ to submit
@@ -63,15 +92,62 @@ export function createCaptureInput({ onSubmit }) {
     }
   })
 
+  houseSelect.addEventListener('change', () => {
+    updateHouseDot()
+    // Only persist a sticky choice when this build has no default — when
+    // it does, the default should win again next load (it describes where
+    // this box physically is); a change here is just for this capture.
+    if (!__DEFAULT_HOUSE__) {
+      try { localStorage.setItem(STORAGE_KEY, houseSelect.value) } catch {}
+    }
+  })
+
+  function updateHouseDot() {
+    houseDot.hidden = !(__DEFAULT_HOUSE__ && houseSelect.value === __DEFAULT_HOUSE__)
+  }
+
   function submit() {
     const text = textarea.value.trim()
     if (!text) return
-    onSubmit(text)
+    onSubmit(text, houseSelect.value || undefined)
     textarea.value = ''
     textarea.focus()
   }
 
-  return section
+  // satellites: [{ house, ... }] from GET /api/satellites
+  function setHouses(satellites) {
+    houseSelect.innerHTML = ''
+
+    const blank = document.createElement('option')
+    blank.value = ''
+    blank.textContent = '—'
+    houseSelect.appendChild(blank)
+
+    satellites.forEach(({ house }) => {
+      const opt = document.createElement('option')
+      opt.value = house
+      opt.textContent = house
+      houseSelect.appendChild(opt)
+    })
+
+    const hasHouses = satellites.length > 0
+    houseRow.hidden = !hasHouses
+    controls.classList.toggle('capture-controls--with-house', hasHouses)
+    if (!hasHouses) return
+
+    const known = new Set(satellites.map(s => s.house))
+    let sticky = ''
+    try { sticky = localStorage.getItem(STORAGE_KEY) ?? '' } catch { /* ignore */ }
+
+    const initial = __DEFAULT_HOUSE__ && known.has(__DEFAULT_HOUSE__)
+      ? __DEFAULT_HOUSE__
+      : (known.has(sticky) ? sticky : '')
+
+    houseSelect.value = initial
+    updateHouseDot()
+  }
+
+  return { el: section, setHouses }
 }
 
 function micIcon() {

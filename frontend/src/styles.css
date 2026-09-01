@@ -208,6 +208,43 @@ header {
   gap: 8px;
   margin-top: 8px;
 }
+.capture-controls--with-house { justify-content: space-between; }
+
+.button-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.house-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* An unconditional `display` on a class beats the UA [hidden] rule at
+   equal specificity (author styles win over UA styles) — without this,
+   houseRow.hidden = true would silently stop hiding anything. */
+.house-row[hidden] { display: none; }
+
+.house-select {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  color: var(--text-dim);
+}
+
+/* Shown only when the selected house matches this build's __DEFAULT_HOUSE__
+   — "this is where you physically are," not just a remembered preference. */
+.house-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
 
 /* ── Buttons ─────────────────────────────────────────────── */
 button {

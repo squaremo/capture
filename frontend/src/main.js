@@ -56,7 +56,7 @@ function updateStats() {
 
 // ── Capture input ─────────────────────────────────────────
 const captureInput = createCaptureInput({
-  onSubmit: async (text) => {
+  onSubmit: async (text, house) => {
     // Optimistic: add pending item immediately
     const optimistic = {
       id: `pending-${Date.now()}`,
@@ -69,7 +69,7 @@ const captureInput = createCaptureInput({
     updateStats()
 
     try {
-      const saved = await postCapture(text)
+      const saved = await postCapture(text, house)
       // Replace optimistic item with the real one — saved.id is the
       // server-assigned id, different from optimistic.id, so the lookup
       // needs to match on the old id while storing/rendering the new one.
@@ -139,17 +139,19 @@ async function loadVersion() {
   }
 }
 
-// ── Satellites info (header pill) ──────────────────────────
+// ── Satellites info (header pill + capture house chooser) ──
 async function loadSatellites() {
   try {
-    versionInfo.renderSatellites(await getSatellites())
+    const satellites = await getSatellites()
+    versionInfo.renderSatellites(satellites)
+    captureInput.setHouses(satellites)
   } catch {
     // Backend not available yet, or no satellites configured — leave blank
   }
 }
 
 // ── Assemble ──────────────────────────────────────────────
-app.append(header, captureInput, inbox.el, stats, versionInfo.footerEl)
+app.append(header, captureInput.el, inbox.el, stats, versionInfo.footerEl)
 loadItems()
 loadVersion()
 loadSatellites()

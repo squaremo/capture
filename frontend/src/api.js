@@ -1,10 +1,10 @@
 const BASE = '/api'
 
-export async function postCapture(text) {
+export async function postCapture(text, house) {
   const res = await fetch(`${BASE}/capture`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify(house ? { text, house } : { text }),
   })
   if (!res.ok) throw new Error(`capture failed: ${res.status}`)
   return res.json()

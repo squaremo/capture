@@ -1,6 +1,6 @@
 # Satellites: local control per house
 
-Status: hub-side dispatch (`resolve_playback`/`control_playback` in `claude.js`, `backend/integrations/satellite.js`) and the satellite controller (`satellite/`) are implemented and tested. Track search and room/speaker matching are still stubs (see Open questions). The satellite frontend doesn't yet tag captures with its house — `house` has to be passed to `POST /api/capture` directly for now.
+Status: hub-side dispatch (`resolve_playback`/`control_playback` in `claude.js`, `backend/integrations/satellite.js`) and the satellite controller (`satellite/`) are implemented and tested. Track search and room/speaker matching are still stubs (see Open questions). The frontend's house chooser (`capture.js`) is implemented — sticky by default, or defaulting to `DEFAULT_HOUSE` with a "here" indicator when a build has one set (see House attribution) — but no satellite has an actual instance of the frontend deployed on it yet, so `DEFAULT_HOUSE` isn't exercised outside dev.
 
 ## Problem
 
@@ -37,6 +37,33 @@ moot given this app already has no auth layer beyond tailnet membership.
 Instead, each satellite's frontend build carries a house-id (baked in at
 provisioning), sent as an ordinary field on the capture request — same
 trust level as everything else in this single-user, Tailscale-only system.
+
+**Implemented**, and answers what was an open question here (distinct
+build per satellite, or the same build parameterized): the **same**
+frontend build for everyone, with an optional `DEFAULT_HOUSE` build-time
+constant (`vite.config.js` → `__DEFAULT_HOUSE__`, same mechanism as
+`__GIT_SHA__`; `frontend/Dockerfile` takes it as a build `ARG`). A house
+chooser (`capture.js`) sends `house` on every capture:
+
+- **No `DEFAULT_HOUSE`** (the general frontend — phone, laptop): the
+  chooser is plain and **sticky** — remembers your last pick via
+  `localStorage`, defaults to none.
+- **`DEFAULT_HOUSE` set** (a satellite's own build, once one is deployed):
+  pre-selects it and shows a small "this is where you are" dot — a
+  visibly different, stronger signal than a remembered preference. You
+  can still override for one capture (e.g. controlling a different house
+  from this kiosk), but the override doesn't persist — the default wins
+  again next load, since it describes where the box physically is, not a
+  choice that should drift.
+
+The chooser is hidden entirely (both modes) when `GET /api/satellites`
+reports no configured houses — most deployments have none, and a picker
+with nothing to pick is just noise.
+
+Actually running a `DEFAULT_HOUSE`-configured instance of this frontend
+*on* a satellite device is still unbuilt (no serving/deploy mechanism
+there yet) — see Open questions — but the frontend itself no longer
+blocks on that; setting the build arg is now the whole story.
 
 ## Room / house targeting
 
@@ -231,11 +258,11 @@ explicitly if that's ever genuinely needed.
 
 ## Open questions
 
-- Whether the satellite frontend is a distinct build/config or the same
-  build with house-id supplied at deploy time.
 - Provisioning story for a new satellite (how house-id and local device
-  config get onto the box) — likely follows the same cloud-init pattern
-  used for the main server, not yet written.
+  config get onto the box, and how/where an instance of the frontend with
+  `DEFAULT_HOUSE` set actually gets served there — see House attribution)
+  — likely follows the same cloud-init pattern used for the main server,
+  not yet written.
 - Satellite-side track search and room/speaker matching are implemented
   as stubs (`satellite/services/sonos.js`, documented in
   `satellite/README.md`'s Protocol section) — both plain code, not an LLM
