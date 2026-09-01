@@ -1,6 +1,6 @@
 # Satellites: local control per house
 
-Status: hub-side dispatch (`resolve_playback`/`control_playback` in `claude.js`, `backend/integrations/satellite.js`) and the satellite controller (`satellite/`) are implemented and tested. Room/speaker matching and Sonos transport control (`satellite/services/sonos.js`) are real — discovery and playback via `sonos-discovery` against actual hardware — but track search is still a stub, always resolving to one fixed, known-good Spotify track rather than searching a real catalog (see Open questions); this hasn't yet been exercised against real Sonos hardware since that requires being on the same LAN, which this sandbox never is. The frontend's house chooser (`capture.js`) is implemented — sticky by default, or defaulting to `DEFAULT_HOUSE` with a "here" indicator when a build has one set (see House attribution) — but no satellite has an actual instance of the frontend deployed on it yet, so `DEFAULT_HOUSE` isn't exercised outside dev.
+Status: hub-side dispatch (`resolve_playback`/`control_playback` in `claude.js`, `backend/integrations/satellite.js`) and the satellite controller (`satellite/`) are implemented and tested. Room/speaker matching and Sonos transport control (`satellite/services/sonos.js`) are real — discovery and playback via `sonos-discovery` against actual hardware — and confirmed working against a real Sonos system: discovery found the real speakers, and search + play produced real audio, including the previously-unverified `x-sonos-spotify` URI/DIDL construction. Track search is still a stub, always resolving to one fixed, known-good Spotify track rather than searching a real catalog (see Open questions). The frontend's house chooser (`capture.js`) is implemented — sticky by default, or defaulting to `DEFAULT_HOUSE` with a "here" indicator when a build has one set (see House attribution) — but no satellite has an actual instance of the frontend deployed on it yet, so `DEFAULT_HOUSE` isn't exercised outside dev.
 
 ## Problem
 
@@ -274,10 +274,9 @@ explicitly if that's ever genuinely needed.
   rather than the LLM's plan) now runs against the live discovered room
   list instead of a hardcoded one. `play()`/`pause()` issue real
   `SetAVTransportURI`/`Play`/`Pause` UPnP calls against the matched
-  speaker. None of this has been exercised against real hardware yet —
-  it needs to run on the same LAN as the Sonos system, which no sandbox
-  this was built in ever is; first real test is on whichever machine
-  actually ends up on that network.
+  speaker. **Verified against real hardware**: run on a laptop on the
+  home LAN, discovery found the actual speakers (e.g. "Living Room"),
+  and a search + play round-trip produced real audio.
 - Track search is still a stub: `searchTrack()` always resolves to one
   fixed, known-good, actually-playable Spotify track
   (`matchConfidence: "placeholder"`) rather than querying a real catalog
@@ -292,14 +291,15 @@ explicitly if that's ever genuinely needed.
   search (Spotify's Web API, Client Credentials auth) behind
   `searchTrack()` — the protocol shape is designed to survive that swap
   unchanged.
-- Playing a *real* (non-placeholder) Spotify track through Sonos needs
-  the `x-sonos-spotify:` URI + DIDL-Lite metadata scheme already
-  implemented in `spotifyPlayable()` — an undocumented protocol, adapted
-  from `node-sonos-http-api`'s `spotifyDef.js` (the reference
-  reverse-engineering of it) rather than guessed from scratch. The one
-  piece with no discoverable value is the Spotify "account serial
-  number" (`SPOTIFY_ACCOUNT_SN` env var, currently defaulting to a
-  guessed `1`) — even the reference implementation hardcodes this per
-  household with a comment calling it a hack. Determining the right
-  value, and whether the DIDL shape holds up at all, needs live testing
-  against real hardware.
+- Playing that placeholder Spotify track through Sonos uses the
+  `x-sonos-spotify:` URI + DIDL-Lite metadata scheme in
+  `spotifyPlayable()` — an undocumented protocol, adapted from
+  `node-sonos-http-api`'s `spotifyDef.js` (the reference
+  reverse-engineering of it) rather than guessed from scratch. **Verified
+  against real hardware**: the guessed default `SPOTIFY_ACCOUNT_SN=1`
+  worked first try and produced real audio on a real speaker — so this
+  household at least needs no override, though the env var stays
+  available since the reference implementation treats this value as
+  genuinely per-household. Swapping the fixed placeholder id for a real
+  Spotify Web API search result should be a drop-in change to
+  `searchTrack()`, since `spotifyPlayable()` only depends on `track.id`.

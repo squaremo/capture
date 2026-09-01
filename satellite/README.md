@@ -81,7 +81,9 @@ linked as a music service in the Sonos app (same as for normal use) —
 system, but the "account serial number" piece of the protocol
 (`SPOTIFY_ACCOUNT_SN` env var, defaults to `1`) is an
 empirically-determined per-household value with no way to discover it
-automatically; if playback fails, this is the first thing to try
+automatically. Confirmed working end to end (real discovery, real
+speaker, real audio) with the default `1` on at least one real household
+— but if playback ever fails elsewhere, this is the first thing to try
 adjusting. See the comments in `services/sonos.js` and Open questions in
 `designs/satellites.md`.
 
