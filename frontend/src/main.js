@@ -2,6 +2,7 @@ import './styles.css'
 import { createCaptureInput } from './components/capture.js'
 import { createInbox } from './components/inbox.js'
 import { createVersionInfo } from './components/versionInfo.js'
+import { createLocalActivity } from './components/localActivity.js'
 import { loadConfig } from './config.js'
 import { configureApi, postCapture, getItem, getItems, approveItem, vetoItem, getVersion, getSatellites } from './api.js'
 
@@ -163,8 +164,11 @@ async function init() {
     }
   }
 
+  // ── Local device activity (satellite-served pages only) ────
+  const localActivity = createLocalActivity()
+
   // ── Assemble ──────────────────────────────────────────────
-  app.append(header, captureInput.el, inbox.el, stats, versionInfo.footerEl)
+  app.append(header, localActivity.el, captureInput.el, inbox.el, stats, versionInfo.footerEl)
   loadItems()
   loadVersion()
   loadSatellites()
