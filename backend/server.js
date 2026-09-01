@@ -1,6 +1,6 @@
 import Fastify from 'fastify'
 import { fileURLToPath } from 'url'
-import { createItem, getItem, listItems, updateItem } from './db.js'
+import { createItem, getItem, listItems, updateItem, createFavourite, getFavourite, listFavourites, deleteFavourite } from './db.js'
 import { processCapture, executeAction, LINEAR_ENABLED, SATELLITES_ENABLED, SPOTIFY_ENABLED } from './integrations/claude.js'
 import { listSatellites, getHouses } from './integrations/satellite.js'
 import { BACKEND_VERSION, getConfigVersion } from './version.js'
@@ -23,7 +23,7 @@ app.addHook('onRequest', async (req, reply) => {
 // ── CORS (dev) ─────────────────────────────────────────────
 app.addHook('onSend', async (req, reply) => {
   reply.header('Access-Control-Allow-Origin', '*')
-  reply.header('Access-Control-Allow-Methods', 'GET,POST,PATCH,OPTIONS')
+  reply.header('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS')
   reply.header('Access-Control-Allow-Headers', 'Content-Type')
 })
 app.options('*', async () => ({}))
@@ -69,7 +69,12 @@ app.post('/api/items/:id/approve', async (req, reply) => {
 
   try {
     const { status, action_result } = await executeAction(item.pending_action)
-    return updateItem(item.id, { status, action_result, pending_action: null })
+    // executed_action persists the exact { tool, input } that actually ran
+    // (unlike pending_action, which is cleared here) — it's what makes the
+    // item favouritable afterwards. Only set on success: an item whose
+    // action failed never actually did anything, so it has nothing to
+    // replay.
+    return updateItem(item.id, { status, action_result, pending_action: null, executed_action: item.pending_action })
   } catch (err) {
     app.log.error({ err, itemId: item.id }, 'Approved action failed')
     return updateItem(item.id, { status: 'failed', action_result: 'Action failed.', pending_action: null })
@@ -85,6 +90,63 @@ app.post('/api/items/:id/veto', async (req, reply) => {
   }
 
   return updateItem(item.id, { status: 'vetoed', action_result: 'Cancelled.', pending_action: null })
+})
+
+// POST /api/items/:id/favourite — save a completed item's executed action
+// as a replayable favourite. Only items that actually ran an acting-tool
+// call (status 'acted', with executed_action recorded on approval) qualify
+// — terminal items (triaged/reminder/urgent) never had a tool call to
+// replay, and a vetoed/failed item never executed one either.
+app.post('/api/items/:id/favourite', async (req, reply) => {
+  const item = getItem(req.params.id)
+  if (!item) return reply.code(404).send({ error: 'Not found' })
+  if (item.status !== 'acted' || !item.executed_action) {
+    return reply.code(409).send({ error: 'Item has no executed action to favourite' })
+  }
+  const favourite = createFavourite({
+    label: item.action_result,
+    tool: item.executed_action.tool,
+    input: item.executed_action.input,
+    tags: item.tags,
+  })
+  return reply.code(201).send(favourite)
+})
+
+// GET /api/favourites — list saved favourites
+app.get('/api/favourites', async () => listFavourites())
+
+// DELETE /api/favourites/:id — remove a favourite
+app.delete('/api/favourites/:id', async (req, reply) => {
+  if (!getFavourite(req.params.id)) return reply.code(404).send({ error: 'Not found' })
+  deleteFavourite(req.params.id)
+  return { ok: true }
+})
+
+// POST /api/favourites/:id/run — replay a favourite's saved tool call
+// exactly as recorded (its resolved args, frozen at favourite time) — no
+// re-planning, no re-resolution, and no new approval step: the human
+// already approved this exact resolved action once, when it was first
+// favourited. Creates a new item so the replay shows up in the inbox like
+// any other capture (audit trail, consistent with everything else the app
+// does), resolved directly to acted/failed rather than passing through
+// pending/awaiting_approval.
+app.post('/api/favourites/:id/run', async (req, reply) => {
+  const favourite = getFavourite(req.params.id)
+  if (!favourite) return reply.code(404).send({ error: 'Not found' })
+
+  const item = createItem(favourite.label)
+  try {
+    const { status, action_result } = await executeAction({ tool: favourite.tool, input: favourite.input })
+    return updateItem(item.id, {
+      status,
+      action_result,
+      tags: favourite.tags,
+      executed_action: { tool: favourite.tool, input: favourite.input },
+    })
+  } catch (err) {
+    app.log.error({ err, favouriteId: favourite.id }, 'Favourite replay failed')
+    return updateItem(item.id, { status: 'failed', action_result: 'Replay failed.' })
+  }
 })
 
 // GET /api/version — backend/config revisions and enabled integrations,

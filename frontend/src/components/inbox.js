@@ -6,7 +6,7 @@ import { createItemEl, updateItemEl } from './item.js'
 const NEEDS_ATTENTION = ['pending', 'triaged', 'reminder', 'urgent', 'awaiting_approval']
 const RESOLVED = ['acted', 'vetoed', 'failed']
 
-export function createInbox({ onApprove, onVeto } = {}) {
+export function createInbox({ onApprove, onVeto, onFavourite } = {}) {
   const section = document.createElement('section')
   section.className = 'inbox'
 
@@ -33,6 +33,7 @@ export function createInbox({ onApprove, onVeto } = {}) {
     if (!id) return
     if (btn.dataset.action === 'approve') onApprove?.(id)
     if (btn.dataset.action === 'veto') onVeto?.(id)
+    if (btn.dataset.action === 'favourite') onFavourite?.(id)
   })
 
   return {
@@ -67,6 +68,21 @@ export function createInbox({ onApprove, onVeto } = {}) {
     setItems(newItems) {
       items = newItems
       render()
+    },
+
+    // Called after a successful POST .../favourite — swaps that one item's
+    // star to a filled, disabled state so a second click can't silently
+    // create a duplicate favourite. Doesn't touch the underlying item data
+    // (there's no "is this favourited" field on an item — a favourite is
+    // its own independent, deletable record), so a fresh render() (e.g. the
+    // next setItems()) reverts to a plain clickable star, which is fine:
+    // favouriting the same acted item again just adds another favourite.
+    markFavourited(itemId) {
+      const btn = section.querySelector(`[data-id="${itemId}"] .btn-favourite`)
+      if (!btn) return
+      btn.textContent = '★'
+      btn.disabled = true
+      btn.title = 'Saved as favourite'
     },
 
     get itemCount() { return items.length },

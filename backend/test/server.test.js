@@ -246,6 +246,158 @@ describe('POST /api/items/:id/veto', () => {
   })
 })
 
+describe('POST /api/items/:id/approve', () => {
+  it('records executed_action on success, alongside clearing pending_action', async () => {
+    mockProcessCapture.mockResolvedValue({
+      status: 'awaiting_approval',
+      tags: [],
+      action_result: 'Proposed: create Linear task "Fix bug"',
+      pending_action: { tool: 'create_linear_task', input: { title: 'Fix bug' } },
+    })
+    const created = await createResolvedItem('fix the bug')
+
+    mockExecuteAction.mockResolvedValue({ status: 'acted', action_result: 'Linear task created: "Fix bug" — https://linear.app/x/1' })
+    const reply = await app.inject({ method: 'POST', url: `/api/items/${created.id}/approve` })
+
+    expect(reply.json().executed_action).toEqual({ tool: 'create_linear_task', input: { title: 'Fix bug' } })
+  })
+
+  it('leaves executed_action unset when the action throws', async () => {
+    mockProcessCapture.mockResolvedValue({
+      status: 'awaiting_approval',
+      tags: [],
+      action_result: 'Proposed: create Linear task "Fix bug"',
+      pending_action: { tool: 'create_linear_task', input: { title: 'Fix bug' } },
+    })
+    const created = await createResolvedItem('fix the bug')
+
+    mockExecuteAction.mockRejectedValue(new Error('Linear API error: 401'))
+    const reply = await app.inject({ method: 'POST', url: `/api/items/${created.id}/approve` })
+
+    expect(reply.json().executed_action).toBeNull()
+  })
+})
+
+// Approves a pending action end-to-end so the resulting item has an
+// executed_action to favourite, matching how a real favourite gets created.
+async function createActedItem(text, { tool = 'create_linear_task', input = { title: 'Fix bug' }, action_result = 'Linear task created: "Fix bug" — https://linear.app/x/1' } = {}) {
+  mockProcessCapture.mockResolvedValue({
+    status: 'awaiting_approval',
+    tags: ['work'],
+    action_result: `Proposed: create Linear task "${input.title}"`,
+    pending_action: { tool, input },
+  })
+  const created = await createResolvedItem(text)
+  mockExecuteAction.mockResolvedValue({ status: 'acted', action_result })
+  const approved = await app.inject({ method: 'POST', url: `/api/items/${created.id}/approve` })
+  return approved.json()
+}
+
+describe('POST /api/items/:id/favourite', () => {
+  it('404 for unknown id', async () => {
+    const reply = await app.inject({ method: 'POST', url: '/api/items/nonexistent-id/favourite' })
+    expect(reply.statusCode).toBe(404)
+  })
+
+  it('409 when the item has no executed action', async () => {
+    const created = await createResolvedItem('no action item')
+    const reply = await app.inject({ method: 'POST', url: `/api/items/${created.id}/favourite` })
+    expect(reply.statusCode).toBe(409)
+  })
+
+  it('409 for a vetoed item (never executed, only proposed)', async () => {
+    mockProcessCapture.mockResolvedValue({
+      status: 'awaiting_approval',
+      tags: [],
+      action_result: 'Proposed: create Linear task "Fix bug"',
+      pending_action: { tool: 'create_linear_task', input: { title: 'Fix bug' } },
+    })
+    const created = await createResolvedItem('fix the bug')
+    await app.inject({ method: 'POST', url: `/api/items/${created.id}/veto` })
+
+    const reply = await app.inject({ method: 'POST', url: `/api/items/${created.id}/favourite` })
+    expect(reply.statusCode).toBe(409)
+  })
+
+  it('creates a favourite from an acted item, using action_result as the label', async () => {
+    const acted = await createActedItem('fix the bug')
+
+    const reply = await app.inject({ method: 'POST', url: `/api/items/${acted.id}/favourite` })
+    expect(reply.statusCode).toBe(201)
+    const fav = reply.json()
+    expect(fav.label).toBe('Linear task created: "Fix bug" — https://linear.app/x/1')
+    expect(fav.tool).toBe('create_linear_task')
+    expect(fav.input).toEqual({ title: 'Fix bug' })
+    expect(fav.tags).toEqual(['work'])
+
+    const list = await app.inject({ method: 'GET', url: '/api/favourites' })
+    expect(list.json().some(f => f.id === fav.id)).toBe(true)
+  })
+})
+
+describe('DELETE /api/favourites/:id', () => {
+  it('404 for unknown id', async () => {
+    const reply = await app.inject({ method: 'DELETE', url: '/api/favourites/nonexistent-id' })
+    expect(reply.statusCode).toBe(404)
+  })
+
+  it('removes the favourite', async () => {
+    const acted = await createActedItem('fix the bug')
+    const created = await app.inject({ method: 'POST', url: `/api/items/${acted.id}/favourite` })
+    const fav = created.json()
+
+    const reply = await app.inject({ method: 'DELETE', url: `/api/favourites/${fav.id}` })
+    expect(reply.statusCode).toBe(200)
+
+    const list = await app.inject({ method: 'GET', url: '/api/favourites' })
+    expect(list.json().some(f => f.id === fav.id)).toBe(false)
+  })
+})
+
+describe('POST /api/favourites/:id/run', () => {
+  it('404 for unknown id', async () => {
+    const reply = await app.inject({ method: 'POST', url: '/api/favourites/nonexistent-id/run' })
+    expect(reply.statusCode).toBe(404)
+  })
+
+  it('replays the saved tool call with no re-planning, resolving straight to acted', async () => {
+    const acted = await createActedItem('fix the bug')
+    const created = await app.inject({ method: 'POST', url: `/api/items/${acted.id}/favourite` })
+    const fav = created.json()
+
+    mockProcessCapture.mockClear()
+    mockExecuteAction.mockResolvedValue({ status: 'acted', action_result: 'Linear task created: "Fix bug" — https://linear.app/x/2' })
+
+    const reply = await app.inject({ method: 'POST', url: `/api/favourites/${fav.id}/run` })
+    expect(reply.statusCode).toBe(200)
+    const item = reply.json()
+    expect(item.status).toBe('acted')
+    expect(item.action_result).toBe('Linear task created: "Fix bug" — https://linear.app/x/2')
+    expect(item.tags).toEqual(['work'])
+    expect(item.executed_action).toEqual({ tool: 'create_linear_task', input: { title: 'Fix bug' } })
+    expect(mockExecuteAction).toHaveBeenCalledWith({ tool: 'create_linear_task', input: { title: 'Fix bug' } })
+    expect(mockProcessCapture).not.toHaveBeenCalled() // no re-planning — replay is exact
+
+    // Shows up in the inbox as its own item, for an audit trail.
+    const list = await app.inject({ method: 'GET', url: '/api/items' })
+    expect(list.json().some(i => i.id === item.id)).toBe(true)
+  })
+
+  it('marks the replayed item failed if the action throws, without touching the favourite', async () => {
+    const acted = await createActedItem('fix the bug')
+    const created = await app.inject({ method: 'POST', url: `/api/items/${acted.id}/favourite` })
+    const fav = created.json()
+
+    mockExecuteAction.mockRejectedValue(new Error('Linear API error: 401'))
+    const reply = await app.inject({ method: 'POST', url: `/api/favourites/${fav.id}/run` })
+    expect(reply.statusCode).toBe(200)
+    expect(reply.json().status).toBe('failed')
+
+    const stillThere = await app.inject({ method: 'GET', url: '/api/favourites' })
+    expect(stillThere.json().some(f => f.id === fav.id)).toBe(true)
+  })
+})
+
 describe('Tailscale allowlist', () => {
   it('allows all requests when TAILSCALE_SUBNET is not set', async () => {
     const reply = await app.inject({ method: 'GET', url: '/api/items', remoteAddress: '1.2.3.4' })
