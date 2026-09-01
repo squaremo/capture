@@ -236,8 +236,9 @@ header {
   color: var(--text-dim);
 }
 
-/* Shown only when the selected house matches this build's __DEFAULT_HOUSE__
-   — "this is where you physically are," not just a remembered preference. */
+/* Shown only when the selected house matches this deployment's default
+   house (runtime config) — "this is where you physically are," not just
+   a remembered preference. */
 .house-dot {
   width: 7px;
   height: 7px;

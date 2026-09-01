@@ -87,16 +87,42 @@ speaker, real audio) with the default `1` on at least one real household
 adjusting. See the comments in `services/sonos.js` and Open questions in
 `designs/satellites.md`.
 
+## Serving the real frontend
+
+`/` serves the actual capture frontend (`../frontend/dist`) — the same
+build used everywhere else, not a satellite-specific one. Build it first:
+
+    cd frontend
+    npm install
+    npm run build
+
+The satellite hands it runtime config via `GET /config.json`
+(`{ defaultHouse, backendUrl }`), generated fresh per request from this
+process's own env vars — see House attribution in `designs/satellites.md`
+for why this replaced an earlier frontend build-time constant.
+`BACKEND_URL` is required for the served frontend to actually work
+(capture, inbox — anything that isn't Sonos-specific): without it, those
+calls fall back to a relative `/api`, which 404s here, since the frontend
+is no longer same-origin with the central backend once a satellite is
+the one serving it. `FRONTEND_DIST_PATH` overrides where the build is
+read from if it's not at the default sibling-directory location.
+
+If no build is found at startup, `/` falls back to the bespoke manual
+test page instead (also always available at `/test` regardless) — so
+this still boots usefully for Sonos-only testing without a frontend
+checkout nearby.
+
 ## Run
 
     cd satellite
     npm install
-    HOUSE_ID=home npm start
+    BACKEND_URL=http://<backend-host> HOUSE_ID=home npm start
 
 Open `http://localhost:4000`. `HOUSE_ID` is required — it's what a real
 deployment would bake in at provisioning (see "Running modes" in the
 design doc); on a laptop, just set it to whichever house you're currently
-standing in and stop the process when you leave. `SPOTIFY_ACCOUNT_SN` is
+standing in and stop the process when you leave. `BACKEND_URL` is needed
+for the real frontend to work (see above); `SPOTIFY_ACCOUNT_SN` is
 optional, see Protocol above.
 
 Since discovery is real, this only finds speakers if you actually run it

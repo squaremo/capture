@@ -1,6 +1,6 @@
 # Satellites: local control per house
 
-Status: hub-side dispatch (`resolve_playback`/`control_playback` in `claude.js`, `backend/integrations/satellite.js`) and the satellite controller (`satellite/`) are implemented and tested. Room/speaker matching and Sonos transport control (`satellite/services/sonos.js`) are real — discovery and playback via `sonos-discovery` against actual hardware — and confirmed working against a real Sonos system: discovery found the real speakers, and search + play produced real audio, including the previously-unverified `x-sonos-spotify` URI/DIDL construction. Track search is still a stub, always resolving to one fixed, known-good Spotify track rather than searching a real catalog (see Open questions). The frontend's house chooser (`capture.js`) is implemented — sticky by default, or defaulting to a house set via runtime config, with a "here" indicator when one's set (see House attribution). That runtime-config mechanism (`/config.json`, `BACKEND_URL`) supersedes an earlier `DEFAULT_HOUSE` build-time-constant version and is design-only, not yet built — as is the satellite actually serving the frontend at all (still serves a bespoke manual test page today) and the local now-playing panel that depends on it (see Satellite-served frontend & local device controls).
+Status: hub-side dispatch (`resolve_playback`/`control_playback` in `claude.js`, `backend/integrations/satellite.js`) and the satellite controller (`satellite/`) are implemented and tested. Room/speaker matching and Sonos transport control (`satellite/services/sonos.js`) are real — discovery and playback via `sonos-discovery` against actual hardware — and confirmed working against a real Sonos system: discovery found the real speakers, and search + play produced real audio, including the previously-unverified `x-sonos-spotify` URI/DIDL construction. Track search is still a stub, always resolving to one fixed, known-good Spotify track rather than searching a real catalog (see Open questions). The frontend's house chooser (`capture.js`) is implemented — sticky by default, or defaulting to a house set via runtime config, with a "here" indicator when one's set (see House attribution). That runtime-config mechanism (`GET /config.json`, `BACKEND_URL`) supersedes an earlier `DEFAULT_HOUSE` build-time-constant version, and the satellite now actually serves the real frontend (`@fastify/static` against `../frontend/dist`) — verified end to end against a mock cross-origin backend. The local now-playing panel that would sit alongside it is still design-only (see Satellite-served frontend & local device controls).
 
 ## Problem
 
@@ -87,18 +87,37 @@ rather than reading a `__DEFAULT_HOUSE__` global, and `vite.config.js`/
 
 ## Satellite-served frontend & local device controls
 
-**Not yet implemented** — design only, below.
+**First half implemented** (serving the frontend, runtime config);
+**second half (local now-playing panel) not yet built** — see below.
 
 The satellite serves the same frontend build as everyone else (per
-House attribution) at `/`, replacing what's currently a bespoke manual
-test page (`satellite/public/index.html`) with the real capture UI,
-locally, at that house. `BACKEND_URL` (new env var, alongside `HOUSE_ID`)
-is what lets it keep the "frontend talks directly to the central
-backend, no proxy" rule intact even though the satellite is now the one
-serving the page: `/config.json` hands the frontend an explicit,
-absolute backend origin for capture/inbox calls, so those never
-accidentally route through the satellite itself — only the satellite's
-*own* endpoints (below) are ever same-origin relative fetches.
+House attribution) at `/` (`satellite/server.js`, via `@fastify/static`
+against `../frontend/dist`), replacing what was a bespoke manual test
+page — that page still exists, now at `/test`, kept for exercising
+`/api/search`+`/api/play` directly until the now-playing panel below
+supersedes it. `BACKEND_URL` (new env var, alongside `HOUSE_ID`) is what
+lets it keep the "frontend talks directly to the central backend, no
+proxy" rule intact even though the satellite is now the one serving the
+page: `GET /config.json` hands the frontend an explicit, absolute
+backend origin for capture/inbox calls (`frontend/src/api.js`'s
+`configureApi()`), so those never accidentally route through the
+satellite itself — only the satellite's *own* endpoints (below) are ever
+same-origin relative fetches. Verified end to end (Playwright, against a
+mock cross-origin backend): the house chooser picks up the satellite's
+`HOUSE_ID` as its default with the "here" dot, and a real capture round-
+trips through the cross-origin backend correctly. `Access-Control-Allow-
+Origin: *` was already on the backend (`backend/server.js`, labelled
+"(dev)" but unconditional) — this cross-origin use is exactly why it's
+needed for real now, not just dev.
+
+One incidental fix along the way: `main.js`'s poll loop had a raw
+`fetch('/api/items/...')` that bypassed `api.js`'s configurable base
+entirely — harmless while everything was same-origin, but would have
+silently 404ed under a satellite. Replaced with a proper `getItem()` in
+`api.js`. Also had to upgrade `fastify`/`@fastify/static` to their v5/v10
+lines: the v4-compatible `@fastify/static` majors carry an unpatched
+path-traversal advisory (GHSA-83w8-p2f5-377r, CVSS 7.5) that was only
+ever fixed from 10.1.2 on, which needs Fastify v5.
 
 That distinction is what makes a **local now-playing panel** possible
 without reopening the proxy question: the frontend, when served by a
@@ -338,14 +357,12 @@ explicitly if that's ever genuinely needed.
 - Provisioning story for a new satellite (how house-id and local device
   config get onto the box) — likely follows the same cloud-init pattern
   used for the main server, not yet written.
-- The satellite doesn't serve the real frontend at all yet — only its own
-  bespoke manual test page (`satellite/public/index.html`). Serving the
-  actual frontend build, the `/config.json` runtime-config endpoint
-  (`defaultHouse`, `backendUrl`), the frontend-side changes to consume it
-  (dropping `__DEFAULT_HOUSE__`, making `api.js`'s base URL come from
-  config instead of always being relative), and the local now-playing
-  panel are all designed (see House attribution and Satellite-served
-  frontend & local device controls) but not yet implemented.
+- The satellite now serves the real frontend build and its runtime
+  config (`GET /config.json`) — the manual test page moved to `/test`
+  rather than disappearing. Not yet built: the **local now-playing
+  panel** itself (see Satellite-served frontend & local device
+  controls), and closing the gap it depends on — `getStatus()` in
+  `services/sonos.js` doesn't track what's currently playing.
 - Satellite-side room/speaker matching and device control
   (`satellite/services/sonos.js`, documented in `satellite/README.md`'s
   Protocol section) are real, via
