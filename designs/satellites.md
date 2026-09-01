@@ -1,6 +1,6 @@
 # Satellites: local control per house
 
-Status: hub-side dispatch (`resolve_playback`/`control_playback` in `claude.js`, `backend/integrations/satellite.js`) and the satellite controller (`satellite/`) are implemented and tested. Track search and room/speaker matching are still stubs (see Open questions). The frontend's house chooser (`capture.js`) is implemented — sticky by default, or defaulting to `DEFAULT_HOUSE` with a "here" indicator when a build has one set (see House attribution) — but no satellite has an actual instance of the frontend deployed on it yet, so `DEFAULT_HOUSE` isn't exercised outside dev.
+Status: hub-side dispatch (`resolve_playback`/`control_playback` in `claude.js`, `backend/integrations/satellite.js`) and the satellite controller (`satellite/`) are implemented and tested. Room/speaker matching and Sonos transport control (`satellite/services/sonos.js`) are real — discovery and playback via `sonos-discovery` against actual hardware — but track search is still a stub, always resolving to one fixed, known-good Spotify track rather than searching a real catalog (see Open questions); this hasn't yet been exercised against real Sonos hardware since that requires being on the same LAN, which this sandbox never is. The frontend's house chooser (`capture.js`) is implemented — sticky by default, or defaulting to `DEFAULT_HOUSE` with a "here" indicator when a build has one set (see House attribution) — but no satellite has an actual instance of the frontend deployed on it yet, so `DEFAULT_HOUSE` isn't exercised outside dev.
 
 ## Problem
 
@@ -263,22 +263,43 @@ explicitly if that's ever genuinely needed.
   `DEFAULT_HOUSE` set actually gets served there — see House attribution)
   — likely follows the same cloud-init pattern used for the main server,
   not yet written.
-- Satellite-side track search and room/speaker matching are implemented
-  as stubs (`satellite/services/sonos.js`, documented in
-  `satellite/README.md`'s Protocol section) — both plain code, not an LLM
-  decision, per the reasoning above, and run concurrently (`Promise.all`)
-  since they're independent lookups — trivial today with no real I/O, but
-  the shape a real implementation (independent catalog search vs device
-  discovery) needs anyway. Speaker matching is real (exact → substring →
-  bounded edit-distance, against a hardcoded speaker list, refusing to
-  guess wildly and failing the request rather than the LLM's plan); track
-  search fabricates a plausible-shaped result (an id, a `matchConfidence`)
-  without querying an actual catalog. `search`/`play` are already split
-  into separate calls (`/api/search` resolves without committing,
-  `/api/play` commits an already-resolved result verbatim) specifically
-  so the hub can show a human the *exact* resolved match before anything
-  plays — see Safety, above. TODO: swap in a real catalog search
-  (Spotify's, or Sonos's own) behind `searchTrack()` — the protocol shape
-  is designed to survive that swap unchanged. TODO: swap the hardcoded
-  speaker list for real per-house device config once that provisioning
-  story (above) exists.
+- Satellite-side room/speaker matching and device control
+  (`satellite/services/sonos.js`, documented in `satellite/README.md`'s
+  Protocol section) are real, via
+  [`sonos-discovery`](https://github.com/jishi/node-sonos-discovery) — an
+  actively maintained, promise-based SSDP/UPnP client (not the abandoned
+  `sonos`/`node-sonos` npm package), pulled from its GitHub tag rather
+  than npm's stale 2019 publish. Speaker matching (exact → substring →
+  bounded edit-distance, refusing to guess wildly and failing the request
+  rather than the LLM's plan) now runs against the live discovered room
+  list instead of a hardcoded one. `play()`/`pause()` issue real
+  `SetAVTransportURI`/`Play`/`Pause` UPnP calls against the matched
+  speaker. None of this has been exercised against real hardware yet —
+  it needs to run on the same LAN as the Sonos system, which no sandbox
+  this was built in ever is; first real test is on whichever machine
+  actually ends up on that network.
+- Track search is still a stub: `searchTrack()` always resolves to one
+  fixed, known-good, actually-playable Spotify track
+  (`matchConfidence: "placeholder"`) rather than querying a real catalog
+  — deliberately ignoring the requested title/artist/album rather than
+  fabricating a plausible-looking match for them, so the approval text a
+  human sees is never a promise the satellite can't keep. `search`/`play`
+  were already split into separate calls (`/api/search` resolves without
+  committing, `/api/play` commits an already-resolved result verbatim)
+  specifically so the hub can show a human the *exact* resolved match
+  before anything plays — see Safety, above; that split is what makes it
+  safe for the fake match to be this blunt. TODO: swap in a real catalog
+  search (Spotify's Web API, Client Credentials auth) behind
+  `searchTrack()` — the protocol shape is designed to survive that swap
+  unchanged.
+- Playing a *real* (non-placeholder) Spotify track through Sonos needs
+  the `x-sonos-spotify:` URI + DIDL-Lite metadata scheme already
+  implemented in `spotifyPlayable()` — an undocumented protocol, adapted
+  from `node-sonos-http-api`'s `spotifyDef.js` (the reference
+  reverse-engineering of it) rather than guessed from scratch. The one
+  piece with no discoverable value is the Spotify "account serial
+  number" (`SPOTIFY_ACCOUNT_SN` env var, currently defaulting to a
+  guessed `1`) — even the reference implementation hardcodes this per
+  household with a comment calling it a hack. Determining the right
+  value, and whether the DIDL shape holds up at all, needs live testing
+  against real hardware.

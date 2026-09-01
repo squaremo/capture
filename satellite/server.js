@@ -71,10 +71,26 @@ app.post('/api/play', async (req, reply) => {
   if (!speaker?.name || typeof speaker.name !== 'string') {
     return reply.code(400).send({ error: 'speaker.name is required' })
   }
-  return sonos.play({ track, speaker })
+  try {
+    return await sonos.play({ track, speaker })
+  } catch (err) {
+    return reply.code(422).send({ error: err.message })
+  }
 })
 
-app.post('/api/pause', async () => sonos.pause())
+// Needs a speaker now that this controls real, possibly-multiple
+// hardware — there's no single "the system" to pause.
+app.post('/api/pause', async (req, reply) => {
+  const { speaker } = req.body ?? {}
+  if (!speaker?.name || typeof speaker.name !== 'string') {
+    return reply.code(400).send({ error: 'speaker.name is required' })
+  }
+  try {
+    return await sonos.pause({ speaker })
+  } catch (err) {
+    return reply.code(422).send({ error: err.message })
+  }
+})
 
 // ── Start ──────────────────────────────────────────────────
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

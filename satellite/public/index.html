@@ -35,12 +35,15 @@
   <div id="status">…</div>
 
 <script>
+// The last speaker a search resolved to — pause needs to be told which
+// speaker now that there can be more than one real one.
+let lastSpeaker = null
+
 async function refresh() {
   const res = await fetch('/api/status')
   const s = await res.json()
-  document.getElementById('status').textContent = s.playing
-    ? `[${s.house}] playing: ${s.track.title}${s.track.artist ? ` by ${s.track.artist}` : ''} on ${s.speaker.name}`
-    : `[${s.house}] paused`
+  document.getElementById('status').textContent =
+    `[${s.house}] ${s.playersFound} speaker${s.playersFound === 1 ? '' : 's'} found: ${s.rooms.join(', ') || '(none yet — still discovering, or none on this network)'}`
 }
 
 document.getElementById('play').onclick = async () => {
@@ -62,18 +65,37 @@ document.getElementById('play').onclick = async () => {
     return
   }
   const { track, speaker } = await searchRes.json()
+  lastSpeaker = speaker
 
-  await fetch('/api/play', {
+  const playRes = await fetch('/api/play', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ track, speaker }),
   })
-  refresh()
+  if (!playRes.ok) {
+    const { error } = await playRes.json()
+    document.getElementById('status').textContent = `error: ${error}`
+    return
+  }
+  document.getElementById('status').textContent = `playing "${track.title}"${track.artist ? ` by ${track.artist}` : ''} on ${speaker.name}`
 }
 
 document.getElementById('pause').onclick = async () => {
-  await fetch('/api/pause', { method: 'POST' })
-  refresh()
+  if (!lastSpeaker) {
+    document.getElementById('status').textContent = 'nothing played from here yet'
+    return
+  }
+  const res = await fetch('/api/pause', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ speaker: lastSpeaker }),
+  })
+  if (!res.ok) {
+    const { error } = await res.json()
+    document.getElementById('status').textContent = `error: ${error}`
+    return
+  }
+  document.getElementById('status').textContent = `[${lastSpeaker.name}] paused`
 }
 
 refresh()
