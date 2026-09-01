@@ -1,6 +1,6 @@
 # Satellites: local control per house
 
-Status: hub-side dispatch (`resolve_playback`/`control_playback` in `claude.js`, `backend/integrations/satellite.js`) and the satellite controller (`satellite/`) are implemented and tested. Track search is real (Spotify's Web API, called directly from the backend); room/speaker matching is still a stub (see Open questions). The frontend's house chooser (`capture.js`) is implemented — sticky by default, or defaulting to `DEFAULT_HOUSE` with a "here" indicator when a build has one set (see House attribution) — but no satellite has an actual instance of the frontend deployed on it yet, so `DEFAULT_HOUSE` isn't exercised outside dev.
+Status: hub-side dispatch (`resolve_playback`/`control_playback` in `claude.js`, `backend/integrations/satellite.js`) and the satellite controller (`satellite/`) are implemented and tested. Track search is real, directly against Spotify's Web API from the central backend. Room/speaker matching and Sonos transport control (`satellite/services/sonos.js`) are also real — discovery and playback via `sonos-discovery` against actual hardware — and confirmed working against a real Sonos system: discovery found the real speakers, and search + play produced real audio, including the previously-unverified `x-sonos-spotify` URI/DIDL construction (that verification predates the real Spotify search landing, so it used a fixed placeholder track id — `play()` only depends on `track.id`, so the two pieces should combine without further changes, but that combination itself isn't yet independently verified against hardware). The frontend's house chooser (`capture.js`) is implemented — sticky by default, or defaulting to `DEFAULT_HOUSE` with a "here" indicator when a build has one set (see House attribution) — but no satellite has an actual instance of the frontend deployed on it yet, so `DEFAULT_HOUSE` isn't exercised outside dev.
 
 ## Problem
 
@@ -267,26 +267,44 @@ explicitly if that's ever genuinely needed.
   `DEFAULT_HOUSE` set actually gets served there — see House attribution)
   — likely follows the same cloud-init pattern used for the main server,
   not yet written.
-- **Implemented**: track search and room/speaker matching are independent
-  lookups, run concurrently (`Promise.all`), and don't both live on the
-  satellite — catalog search is a plain cloud API call with no
-  local-network dependency, so `resolve_playback` calls Spotify's Web API
-  directly from the central backend (client-credentials, `spotify.js` —
-  see `secrets.js`'s `op://` pattern for `SPOTIFY_CLIENT_ID`/
-  `SPOTIFY_CLIENT_SECRET`), same as any other cloud integration, per the
-  Problem statement above (satellites exist for what the backend *can't*
-  reach directly, and Spotify search isn't that). `searchTrack()` no
-  longer exists in `satellite/services/sonos.js` — the satellite's
-  `/api/search` narrowed to speaker/room resolution only (`room?` in,
-  `{ speaker }` out; protocol documented in `satellite/README.md`). Only
-  speaker/room matching needs the satellite, since that's resolved
-  against each house's local device list — still a stub (exact →
-  substring → bounded edit-distance against a hardcoded speaker list,
-  refusing to guess wildly and failing the request rather than the LLM's
-  plan), and the one piece here still needing a real implementation.
-  Search and commit stay split into separate calls (resolve without
-  committing, then `/api/play` commits an already-resolved result
-  verbatim) specifically so the hub can show a human the *exact* resolved
-  match before anything plays — see Safety, above. TODO: swap the
-  hardcoded speaker list for real per-house device config once the
-  provisioning story (above) exists.
+- **Implemented**: track search and speaker/room matching are two
+  independent lookups that don't both live on the satellite. Track search
+  is real — `resolve_playback` calls Spotify's Web API directly from the
+  central backend (client-credentials, `spotify.js` — see `secrets.js`'s
+  `op://` pattern for `SPOTIFY_CLIENT_ID`/`SPOTIFY_CLIENT_SECRET`), same
+  as any other cloud integration, per the Problem statement above
+  (satellites exist for what the backend *can't* reach directly, and
+  Spotify search isn't that). `searchTrack()` no longer exists in
+  `satellite/services/sonos.js` — the satellite's `/api/search` narrowed
+  to speaker/room resolution only (`room?` in, `{ speaker }` out;
+  protocol documented in `satellite/README.md`). Speaker/room matching is
+  also real, via
+  [`sonos-discovery`](https://github.com/jishi/node-sonos-discovery) — an
+  actively maintained, promise-based SSDP/UPnP client (not the abandoned
+  `sonos`/`node-sonos` npm package), pulled from its GitHub tag rather
+  than npm's stale 2019 publish. Matching (exact → substring → bounded
+  edit-distance, refusing to guess wildly and failing the request rather
+  than the LLM's plan) runs against the live discovered room list — no
+  hardcoded speaker list left to replace with per-house config.
+  `play()`/`pause()` issue real `SetAVTransportURI`/`Play`/`Pause` UPnP
+  calls against the matched speaker, via `x-sonos-spotify:` URI +
+  DIDL-Lite metadata built in `spotifyPlayable()` (an undocumented
+  protocol, adapted from `node-sonos-http-api`'s `spotifyDef.js` rather
+  than guessed from scratch). Search and commit stay split into separate
+  calls (resolve without committing, then `/api/play` commits an
+  already-resolved result verbatim) specifically so the hub can show a
+  human the *exact* resolved match before anything plays — see Safety,
+  above.
+- **Verified against real hardware, but not yet together**: a laptop run
+  on the home LAN found the actual speakers (e.g. "Living Room") and a
+  search + play round-trip produced real audio, including the
+  `x-sonos-spotify` URI/DIDL construction and the guessed default
+  `SPOTIFY_ACCOUNT_SN=1` (an empirically-determined, per-household UPnP
+  value with no way to discover it automatically — override via the
+  `SPOTIFY_ACCOUNT_SN` env var if it doesn't work elsewhere). That
+  verification predates real Spotify search landing, so it used a fixed
+  placeholder track id rather than a live search result. `play()` only
+  ever depends on `track.id`, so the two pieces should combine without
+  further code changes — but that combined path (a real Spotify search
+  result actually played through real Sonos hardware) hasn't been
+  independently confirmed yet.

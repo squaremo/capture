@@ -1,18 +1,48 @@
-// Stand-in for real Sonos control until there's hardware to talk to. Track
-// catalog search now happens on the central backend, directly against
-// Spotify's Web API (see designs/satellites.md) — this only matches a
-// room name against this house's actual speakers, and plays/pauses
+// Real Sonos discovery + transport control via `sonos-discovery`
+// (github.com/jishi/node-sonos-discovery) — an actively maintained,
+// promise-based UPnP client; not the abandoned `sonos`/`node-sonos` npm
+// package. Constructing it starts SSDP discovery and its own local UPnP
+// eventing listener immediately — there's no separate start() to call,
+// and it needs to run somewhere with genuine LAN presence (SSDP
+// multicast doesn't cross Tailscale), which the satellite already has.
+//
+// Track catalog search now happens on the central backend, directly
+// against Spotify's Web API (see designs/satellites.md) — this only
+// matches a room name against discovered speakers, and plays/pauses
 // whatever track the hub already resolved.
 
-// Stub device list — a real implementation would discover these from the
-// house's actual Sonos system rather than hardcoding them (there's no
-// per-house device config yet, see Open questions in the design doc).
-const SPEAKERS = ['Living Room', 'Bedroom', 'Kitchen']
+// sonos-discovery is CommonJS with `module.exports = SonosSystem` — Node's
+// ESM interop only exposes that as the default export, not a named one.
+import SonosSystem from 'sonos-discovery'
 
-let state = { playing: false, track: null, speaker: null }
+const system = new SonosSystem({})
+
+// Resolves once discovery has found the household's zones and linked
+// services (SonosSystem's 'initialized' event) — or after a timeout, so
+// a house with no reachable Sonos system still boots the satellite
+// instead of hanging every request forever.
+const READY_TIMEOUT_MS = 10_000
+const ready = Promise.race([
+  new Promise((resolve) => system.once('initialized', resolve)),
+  new Promise((resolve) => setTimeout(resolve, READY_TIMEOUT_MS)),
+])
+
+// Sonos's own numeric id for "the Spotify service" in this household,
+// read live off the discovered system (throws if Spotify isn't linked in
+// the Sonos app). "sn" — which linked Spotify account, if there's more
+// than one — has no discoverable value; it's an empirically-determined
+// per-household constant (the reference implementation this is adapted
+// from hardcodes a single working value with a comment calling it a
+// hack). Override via SPOTIFY_ACCOUNT_SN once you've worked out yours
+// against real hardware — see Open questions in designs/satellites.md.
+const SPOTIFY_ACCOUNT_SN = process.env.SPOTIFY_ACCOUNT_SN ?? '1'
 
 export function getStatus() {
-  return { ...state }
+  return {
+    ready: system.players.length > 0,
+    playersFound: system.players.length,
+    rooms: system.players.map((p) => p.roomName),
+  }
 }
 
 // Resolves a room name into a specific speaker, without committing
@@ -20,9 +50,10 @@ export function getStatus() {
 // changes nothing), then play() by the exact result, so what a human
 // approved is exactly what plays, not a fresh re-match that could
 // plausibly land on something else. Throws if room doesn't match any
-// configured speaker closely enough.
+// discovered speaker closely enough.
 export async function matchRoom(room) {
-  const speaker = await matchSpeaker(room, SPEAKERS)
+  await ready
+  const speaker = await matchSpeaker(room)
   if (speaker.confidence === 'no_match') {
     throw new Error(`No speaker matching "${speaker.requested}"`)
   }
@@ -30,49 +61,86 @@ export async function matchRoom(room) {
 }
 
 // Commits playback using an already-resolved track/speaker (from a prior
-// search() call) — no matching happens here, so this can't land on a
-// different result than what was resolved and shown for approval.
-export function play({ track, speaker }) {
-  state = { playing: true, track, speaker }
-  console.log(
-    `[sonos stub] playing "${track.title}"${track.artist ? ` by ${track.artist}` : ''} ` +
-    `(${track.matchConfidence} match) on ${speaker.name} (${speaker.confidence} match for "${speaker.requested}")`
-  )
-  return getStatus()
+// matchRoom() call) against a real, discovered Sonos player — no
+// matching happens here, so this can't land on a different result than
+// what was resolved and shown for approval.
+export async function play({ track, speaker }) {
+  await ready
+  const player = system.getPlayer(speaker.name)
+  if (!player) {
+    throw new Error(`Speaker "${speaker.name}" is no longer available`)
+  }
+  const { uri, metadata } = spotifyPlayable(track)
+  await player.setAVTransport(uri, metadata)
+  await player.play()
+  return { playing: true, track, speaker: { name: player.roomName } }
 }
 
-export function pause() {
-  state = { ...state, playing: false }
-  console.log('[sonos stub] paused')
-  return getStatus()
+// Pauses a specific, already-known speaker — there's no single "the
+// system" to pause once there's more than one real player.
+export async function pause({ speaker }) {
+  await ready
+  const player = system.getPlayer(speaker.name)
+  if (!player) {
+    throw new Error(`Speaker "${speaker.name}" is no longer available`)
+  }
+  await player.pause()
+  return { playing: false, speaker: { name: player.roomName } }
 }
 
-// Fuzzy-matches free text ("bedroom") against this satellite's actual
-// speaker names ("Master Bedroom") — never the LLM's job, see
-// designs/satellites.md. Exact match, then substring either direction,
-// then a bounded edit-distance fallback; nothing within a plausible
-// distance reports no_match rather than guessing wildly. No room given at
-// all defaults to the first configured speaker.
-async function matchSpeaker(query, speakers) {
+// Builds the URI + DIDL-Lite metadata Sonos needs to play a Spotify
+// track through its own linked-service integration — an undocumented
+// protocol. Adapted from node-sonos-http-api's spotifyDef.js (the
+// reference reverse-engineering of it) rather than guessed from scratch.
+// Verified against real hardware with a fixed placeholder track id; only
+// depends on track.id, so the backend's real Spotify search result is a
+// drop-in — see designs/satellites.md.
+function spotifyPlayable(track) {
+  const sid = system.getServiceId('Spotify')
+  const serviceType = system.getServiceType('Spotify')
+  const encodedId = encodeURIComponent(track.id)
+
+  const uri = `x-sonos-spotify:spotify%3atrack%3a${encodedId}?sid=${sid}&flags=8224&sn=${SPOTIFY_ACCOUNT_SN}`
+
+  const token = `SA_RINCON${serviceType}_X_#Svc${serviceType}-0-Token`
+  const metadata =
+    '<DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" ' +
+    'xmlns:r="urn:schemas-rinconnetworks-com:metadata-1-0/" xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/">' +
+    `<item id="00032020spotify%3atrack%3a${encodedId}" parentID="00020000track:${track.id}" restricted="true">` +
+    '<dc:title></dc:title><upnp:class>object.item.audioItem.musicTrack</upnp:class>' +
+    `<desc id="cdudn" nameSpace="urn:schemas-rinconnetworks-com:metadata-1-0/">${token}</desc></item></DIDL-Lite>`
+
+  return { uri, metadata }
+}
+
+// Fuzzy-matches free text ("bedroom") against this house's actual,
+// discovered Sonos room names ("Master Bedroom") — never the LLM's job,
+// see designs/satellites.md. Exact match, then substring either
+// direction, then a bounded edit-distance fallback; nothing within a
+// plausible distance reports no_match rather than guessing wildly. No
+// room given at all defaults to the first discovered speaker.
+async function matchSpeaker(query) {
+  const rooms = system.players.map((p) => p.roomName)
+
   if (!query) {
-    return { name: speakers[0] ?? null, requested: null, confidence: speakers.length ? 'default' : 'no_match' }
+    return { name: rooms[0] ?? null, requested: null, confidence: rooms.length ? 'default' : 'no_match' }
   }
 
   const q = query.trim().toLowerCase()
 
-  const exact = speakers.find(s => s.toLowerCase() === q)
+  const exact = rooms.find(r => r.toLowerCase() === q)
   if (exact) return { name: exact, requested: query, confidence: 'exact' }
 
-  const partial = speakers.find(s => s.toLowerCase().includes(q) || q.includes(s.toLowerCase()))
+  const partial = rooms.find(r => r.toLowerCase().includes(q) || q.includes(r.toLowerCase()))
   if (partial) return { name: partial, requested: query, confidence: 'approximate' }
 
   let best = null
   let bestDistance = Infinity
-  for (const s of speakers) {
-    const distance = levenshtein(q, s.toLowerCase())
+  for (const r of rooms) {
+    const distance = levenshtein(q, r.toLowerCase())
     if (distance < bestDistance) {
       bestDistance = distance
-      best = s
+      best = r
     }
   }
   const threshold = Math.max(3, Math.floor((best?.length ?? 0) / 2))
