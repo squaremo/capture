@@ -6,13 +6,10 @@
 // and it needs to run somewhere with genuine LAN presence (SSDP
 // multicast doesn't cross Tailscale), which the satellite already has.
 //
-// Track search is still a stub — see Open questions in
-// designs/satellites.md — but play()/pause() now issue real AVTransport
-// calls against real, discovered speakers. Since there's no catalog
-// search yet, the "resolved" track is always the same known-good,
-// playable Spotify track regardless of what was asked for, so the
-// approval text a human sees always matches what will actually play
-// rather than echoing back a request it can't fulfil.
+// Track catalog search now happens on the central backend, directly
+// against Spotify's Web API (see designs/satellites.md) — this only
+// matches a room name against discovered speakers, and plays/pauses
+// whatever track the hub already resolved.
 
 // sonos-discovery is CommonJS with `module.exports = SonosSystem` — Node's
 // ESM interop only exposes that as the default export, not a named one.
@@ -29,17 +26,6 @@ const ready = Promise.race([
   new Promise((resolve) => system.once('initialized', resolve)),
   new Promise((resolve) => setTimeout(resolve, READY_TIMEOUT_MS)),
 ])
-
-// Stands in for real catalog search until that's built. Whatever
-// title/artist/album was actually asked for is ignored — the resolved
-// result always describes *this* track, not a fabrication of the
-// request, so what's shown for approval always matches what plays.
-const PLACEHOLDER_TRACK = {
-  id: '4uLU6hMCjMI75M1A2tKUQC', // Rick Astley – Never Gonna Give You Up
-  title: 'Never Gonna Give You Up',
-  artist: 'Rick Astley',
-  album: 'Whenever You Need Somebody',
-}
 
 // Sonos's own numeric id for "the Spotify service" in this household,
 // read live off the discovered system (throws if Spotify isn't linked in
@@ -59,29 +45,25 @@ export function getStatus() {
   }
 }
 
-// Resolves a rich query into a specific track + speaker, without
-// committing playback — this is the realistic split: search first (can
-// fail; changes nothing), then play() by the exact result, so what a
-// human approved is exactly what plays, not a fresh re-search that could
-// plausibly land on something else. Track search and speaker matching
-// don't depend on each other, so they run concurrently. Throws if room
-// doesn't match any discovered speaker closely enough.
-export async function search({ room }) {
+// Resolves a room name into a specific speaker, without committing
+// playback — this is the realistic split: search first (can fail;
+// changes nothing), then play() by the exact result, so what a human
+// approved is exactly what plays, not a fresh re-match that could
+// plausibly land on something else. Throws if room doesn't match any
+// discovered speaker closely enough.
+export async function matchRoom(room) {
   await ready
-  const [track, speaker] = await Promise.all([
-    searchTrack(),
-    matchSpeaker(room),
-  ])
+  const speaker = await matchSpeaker(room)
   if (speaker.confidence === 'no_match') {
     throw new Error(`No speaker matching "${speaker.requested}"`)
   }
-  return { track, speaker }
+  return { speaker }
 }
 
 // Commits playback using an already-resolved track/speaker (from a prior
-// search() call) against a real, discovered Sonos player — no matching
-// happens here, so this can't land on a different result than what was
-// resolved and shown for approval.
+// matchRoom() call) against a real, discovered Sonos player — no
+// matching happens here, so this can't land on a different result than
+// what was resolved and shown for approval.
 export async function play({ track, speaker }) {
   await ready
   const player = system.getPlayer(speaker.name)
@@ -95,8 +77,7 @@ export async function play({ track, speaker }) {
 }
 
 // Pauses a specific, already-known speaker — there's no single "the
-// system" to pause once there's more than one real player, so (unlike
-// the old stub) this now needs to be told which one.
+// system" to pause once there's more than one real player.
 export async function pause({ speaker }) {
   await ready
   const player = system.getPlayer(speaker.name)
@@ -110,9 +91,10 @@ export async function pause({ speaker }) {
 // Builds the URI + DIDL-Lite metadata Sonos needs to play a Spotify
 // track through its own linked-service integration — an undocumented
 // protocol. Adapted from node-sonos-http-api's spotifyDef.js (the
-// reference reverse-engineering of it) rather than guessed from scratch,
-// but still unverified against real hardware — see Open questions in
-// designs/satellites.md, particularly around SPOTIFY_ACCOUNT_SN.
+// reference reverse-engineering of it) rather than guessed from scratch.
+// Verified against real hardware with a fixed placeholder track id; only
+// depends on track.id, so the backend's real Spotify search result is a
+// drop-in — see designs/satellites.md.
 function spotifyPlayable(track) {
   const sid = system.getServiceId('Spotify')
   const serviceType = system.getServiceType('Spotify')
@@ -129,14 +111,6 @@ function spotifyPlayable(track) {
     `<desc id="cdudn" nameSpace="urn:schemas-rinconnetworks-com:metadata-1-0/">${token}</desc></item></DIDL-Lite>`
 
   return { uri, metadata }
-}
-
-// Stand-in for a real catalog search (Spotify's, or Sonos's own) —
-// always resolves to the same known-good track. matchConfidence:
-// 'placeholder' makes it obvious this isn't a real match yet, wherever
-// it surfaces.
-async function searchTrack() {
-  return { ...PLACEHOLDER_TRACK, matchConfidence: 'placeholder' }
 }
 
 // Fuzzy-matches free text ("bedroom") against this house's actual,

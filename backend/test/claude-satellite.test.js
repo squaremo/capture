@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const { mockCreate, mockResolvePlayback, mockCommitPlayback, mockGetHouses } = vi.hoisted(() => ({
+const { mockCreate, mockResolveSpeaker, mockCommitPlayback, mockGetHouses, mockSearchTrack } = vi.hoisted(() => ({
   mockCreate: vi.fn(),
-  mockResolvePlayback: vi.fn(),
+  mockResolveSpeaker: vi.fn(),
   mockCommitPlayback: vi.fn(),
   mockGetHouses: vi.fn(),
+  mockSearchTrack: vi.fn(),
 }))
 
 vi.mock('@anthropic-ai/sdk', () => ({
@@ -12,30 +13,38 @@ vi.mock('@anthropic-ai/sdk', () => ({
 }))
 
 vi.mock('../integrations/satellite.js', () => ({
-  resolvePlayback: mockResolvePlayback,
+  resolveSpeaker: mockResolveSpeaker,
   commitPlayback: mockCommitPlayback,
   getHouses: mockGetHouses,
 }))
 
-// SATELLITES_ENABLED is decided at module load time from getHouses(), so
-// this must be set before importing claude.js. This file exists separately
-// from claude.test.js so the two module-load configurations don't collide.
+vi.mock('../integrations/spotify.js', () => ({
+  searchTrack: mockSearchTrack,
+}))
+
+// SATELLITES_ENABLED/SPOTIFY_ENABLED are decided at module load time, from
+// getHouses() and these env vars respectively, so both must be set before
+// importing claude.js. This file exists separately from claude.test.js so
+// the two module-load configurations don't collide.
 mockGetHouses.mockReturnValue({ home: 'http://localhost:4000' })
+process.env.SPOTIFY_CLIENT_ID = 'test-spotify-client'
+process.env.SPOTIFY_CLIENT_SECRET = 'test-spotify-secret'
 
 const { processCapture, executeAction } = await import('../integrations/claude.js')
 
-const resolved = {
-  track: { id: 'trk_abc123', title: 'Silver Machine', artist: 'Hawkwind', album: null, matchConfidence: 'exact' },
-  speaker: { name: 'Living Room', requested: 'living room', confidence: 'exact' },
-}
+const track = { id: 'trk_abc123', title: 'Silver Machine', artist: 'Hawkwind', album: null, matchConfidence: 'exact' }
+const speaker = { name: 'Living Room', requested: 'living room', confidence: 'exact' }
+const resolved = { track, speaker }
 
 beforeEach(() => {
   mockCreate.mockClear()
-  mockResolvePlayback.mockClear()
+  mockResolveSpeaker.mockClear()
   mockCommitPlayback.mockClear()
   mockGetHouses.mockClear()
+  mockSearchTrack.mockClear()
   mockGetHouses.mockReturnValue({ home: 'http://localhost:4000' })
-  mockResolvePlayback.mockResolvedValue(resolved)
+  mockResolveSpeaker.mockResolvedValue({ speaker })
+  mockSearchTrack.mockResolvedValue(track)
 })
 
 function respondWithPlan(steps) {
@@ -57,7 +66,7 @@ function playbackPlan(resolveArgs, overrides = {}) {
   ]
 }
 
-describe('processCapture with satellites enabled', () => {
+describe('processCapture with satellites and Spotify enabled', () => {
   it('offers resolve_playback and control_playback as tools', async () => {
     respondWithPlan([{ id: 's1', tool: 'save_to_inbox', args: { action_result: 'ok', tags: [] } }])
     await processCapture('anything')
@@ -71,13 +80,21 @@ describe('processCapture with satellites enabled', () => {
 
     const result = await processCapture("play 'Silver Machine' by Hawkwind in the living room")
 
-    expect(mockResolvePlayback).toHaveBeenCalledWith({
-      houses: { home: 'http://localhost:4000' },
-      house: null, // no target_house in the plan and no capture origin passed -> defaults to null
-      room: 'living room',
+    // Track comes straight from Spotify (client-credentials, no
+    // local-network dependency); speaker comes from the satellite — the
+    // two independent lookups behind resolve_playback. See
+    // designs/satellites.md.
+    expect(mockSearchTrack).toHaveBeenCalledWith({
+      clientId: 'test-spotify-client',
+      clientSecret: 'test-spotify-secret',
       title: 'Silver Machine',
       artist: 'Hawkwind',
       album: undefined,
+    })
+    expect(mockResolveSpeaker).toHaveBeenCalledWith({
+      houses: { home: 'http://localhost:4000' },
+      house: null, // no target_house in the plan and no capture origin passed -> defaults to null
+      room: 'living room',
     })
     expect(mockCommitPlayback).not.toHaveBeenCalled()
     expect(result).toEqual({
@@ -97,7 +114,7 @@ describe('processCapture with satellites enabled', () => {
 
     const result = await processCapture('play Oxygene in the living room', { house: 'home' })
 
-    expect(mockResolvePlayback).toHaveBeenCalledWith(expect.objectContaining({ house: 'home' }))
+    expect(mockResolveSpeaker).toHaveBeenCalledWith(expect.objectContaining({ house: 'home' }))
     expect(result.pending_action.input.target_house).toBe('home')
     expect(result.action_result).toContain('(home)')
   })
@@ -107,15 +124,22 @@ describe('processCapture with satellites enabled', () => {
 
     const result = await processCapture('play Oxygene in the lake house living room', { house: 'home' })
 
-    expect(mockResolvePlayback).toHaveBeenCalledWith(expect.objectContaining({ house: 'lake' }))
+    expect(mockResolveSpeaker).toHaveBeenCalledWith(expect.objectContaining({ house: 'lake' }))
     expect(result.pending_action.input.target_house).toBe('lake')
   })
 
   it('propagates a resolve_playback failure (e.g. no matching speaker) as a thrown error', async () => {
-    mockResolvePlayback.mockRejectedValue(new Error('No speaker matching "garage"'))
+    mockResolveSpeaker.mockRejectedValue(new Error('No speaker matching "garage"'))
     respondWithPlan(playbackPlan({ title: 'x', room: 'garage' }))
 
     await expect(processCapture('play x in the garage')).rejects.toThrow('No speaker matching')
+  })
+
+  it('propagates a Spotify search failure as a thrown error', async () => {
+    mockSearchTrack.mockRejectedValue(new Error('No Spotify track matching "x"'))
+    respondWithPlan(playbackPlan({ title: 'x', room: 'living room' }))
+
+    await expect(processCapture('play x in the living room')).rejects.toThrow('No Spotify track matching')
   })
 
   it('reflects a house added to getHouses() since startup, without re-importing', async () => {

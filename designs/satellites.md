@@ -1,6 +1,6 @@
 # Satellites: local control per house
 
-Status: hub-side dispatch (`resolve_playback`/`control_playback` in `claude.js`, `backend/integrations/satellite.js`) and the satellite controller (`satellite/`) are implemented and tested. Room/speaker matching and Sonos transport control (`satellite/services/sonos.js`) are real — discovery and playback via `sonos-discovery` against actual hardware — and confirmed working against a real Sonos system: discovery found the real speakers, and search + play produced real audio, including the previously-unverified `x-sonos-spotify` URI/DIDL construction. Track search is still a stub, always resolving to one fixed, known-good Spotify track rather than searching a real catalog (see Open questions). The frontend's house chooser (`capture.js`) is implemented — sticky by default, or defaulting to `DEFAULT_HOUSE` with a "here" indicator when a build has one set (see House attribution) — but no satellite has an actual instance of the frontend deployed on it yet, so `DEFAULT_HOUSE` isn't exercised outside dev.
+Status: hub-side dispatch (`resolve_playback`/`control_playback` in `claude.js`, `backend/integrations/satellite.js`) and the satellite controller (`satellite/`) are implemented and tested. Track search is real, directly against Spotify's Web API from the central backend. Room/speaker matching and Sonos transport control (`satellite/services/sonos.js`) are also real — discovery and playback via `sonos-discovery` against actual hardware — and confirmed working against a real Sonos system: discovery found the real speakers, and search + play produced real audio, including the previously-unverified `x-sonos-spotify` URI/DIDL construction (that verification predates the real Spotify search landing, so it used a fixed placeholder track id — `play()` only depends on `track.id`, so the two pieces should combine without further changes, but that combination itself isn't yet independently verified against hardware). The frontend's house chooser (`capture.js`) is implemented — sticky by default, or defaulting to a house set via runtime config, with a "here" indicator when one's set (see House attribution). That runtime-config mechanism (`/config.json`, `BACKEND_URL`) supersedes an earlier `DEFAULT_HOUSE` build-time-constant version and is design-only, not yet built — as is the satellite actually serving the frontend at all (still serves a bespoke manual test page today) and the local now-playing panel that depends on it (see Satellite-served frontend & local device controls).
 
 ## Problem
 
@@ -38,32 +38,109 @@ Instead, each satellite's frontend build carries a house-id (baked in at
 provisioning), sent as an ordinary field on the capture request — same
 trust level as everything else in this single-user, Tailscale-only system.
 
-**Implemented**, and answers what was an open question here (distinct
-build per satellite, or the same build parameterized): the **same**
-frontend build for everyone, with an optional `DEFAULT_HOUSE` build-time
-constant (`vite.config.js` → `__DEFAULT_HOUSE__`, same mechanism as
-`__GIT_SHA__`; `frontend/Dockerfile` takes it as a build `ARG`). A house
-chooser (`capture.js`) sends `house` on every capture:
+Answers what was an open question here (distinct build per satellite, or
+the same build parameterized): the **same** frontend build for everyone.
+A house chooser (`capture.js`) sends `house` on every capture:
 
-- **No `DEFAULT_HOUSE`** (the general frontend — phone, laptop): the
+- **No default house** (the general frontend — phone, laptop): the
   chooser is plain and **sticky** — remembers your last pick via
   `localStorage`, defaults to none.
-- **`DEFAULT_HOUSE` set** (a satellite's own build, once one is deployed):
-  pre-selects it and shows a small "this is where you are" dot — a
-  visibly different, stronger signal than a remembered preference. You
-  can still override for one capture (e.g. controlling a different house
-  from this kiosk), but the override doesn't persist — the default wins
-  again next load, since it describes where the box physically is, not a
-  choice that should drift.
+- **Default house set** (a satellite serving its own instance of this
+  frontend): pre-selects it and shows a small "this is where you are"
+  dot — a visibly different, stronger signal than a remembered
+  preference. You can still override for one capture (e.g. controlling a
+  different house from this kiosk), but the override doesn't persist —
+  the default wins again next load, since it describes where the box
+  physically is, not a choice that should drift.
 
 The chooser is hidden entirely (both modes) when `GET /api/satellites`
 reports no configured houses — most deployments have none, and a picker
 with nothing to pick is just noise.
 
-Actually running a `DEFAULT_HOUSE`-configured instance of this frontend
-*on* a satellite device is still unbuilt (no serving/deploy mechanism
-there yet) — see Open questions — but the frontend itself no longer
-blocks on that; setting the build arg is now the whole story.
+**Where this value comes from — runtime config, not a build-time
+constant.** An earlier version of this baked the default house into the
+frontend bundle itself at build time (a `DEFAULT_HOUSE` Vite `define`,
+same mechanism as `__GIT_SHA__`, taken as a Docker build `ARG`). That's
+the wrong shape once a satellite is the thing actually serving this
+frontend to its own local kiosk (see Satellite-served frontend, below):
+it would mean a distinct, separately-built image per house just to
+change one string, when the satellite process already receives exactly
+this kind of thing as an ordinary runtime env var (`HOUSE_ID`, already
+used for its own `/api/status`). Build-time baking is right for
+something that genuinely identifies *the build* (`GIT_SHA`); a default
+house identifies *the deployment*, which should be one build configured
+differently per place it runs — the standard build-once/configure-per-
+environment split.
+
+So instead: the frontend fetches `GET /config.json` once at startup,
+before wiring up anything else. On the general deployment (nginx serving
+static files, no such route configured) this 404s, and the frontend
+treats that as `{}` — no default house, relative `/api` — i.e. today's
+existing behaviour, unchanged, with no nginx or build changes needed. A
+satellite serving the frontend implements `/config.json` for real,
+generated per-request from its own env vars: `{ defaultHouse: HOUSE_ID,
+backendUrl: BACKEND_URL }` (`backendUrl` is new — see below). `capture.js`
+takes the resolved default house as a plain argument from this config
+rather than reading a `__DEFAULT_HOUSE__` global, and `vite.config.js`/
+`frontend/Dockerfile` drop the `DEFAULT_HOUSE` build machinery entirely
+(`GIT_SHA` stays, since that one *is* build identity).
+
+## Satellite-served frontend & local device controls
+
+**Not yet implemented** — design only, below.
+
+The satellite serves the same frontend build as everyone else (per
+House attribution) at `/`, replacing what's currently a bespoke manual
+test page (`satellite/public/index.html`) with the real capture UI,
+locally, at that house. `BACKEND_URL` (new env var, alongside `HOUSE_ID`)
+is what lets it keep the "frontend talks directly to the central
+backend, no proxy" rule intact even though the satellite is now the one
+serving the page: `/config.json` hands the frontend an explicit,
+absolute backend origin for capture/inbox calls, so those never
+accidentally route through the satellite itself — only the satellite's
+*own* endpoints (below) are ever same-origin relative fetches.
+
+That distinction is what makes a **local now-playing panel** possible
+without reopening the proxy question: the frontend, when served by a
+satellite, also polls that satellite's *own* `/api/status` (already
+exists, relative fetch — naturally reaches the satellite because it's
+the one serving the page, and is simply absent/inert on the general
+deployment) and shows a small transport UI — what's playing, on which
+speaker, play/pause — sourced from real local device state rather than
+anything routed centrally. Pressing pause there calls the satellite's
+own `/api/pause` directly.
+
+This deliberately **bypasses the capture → Claude → approval pipeline**
+— and that's correct, not a gap in it. Approval exists to gate an LLM's
+interpretation of free text before it does something in the world (see
+Safety, above); a human standing at the satellite pressing a literal
+pause button is direct manual control, no interpretation involved — the
+same trust level as walking up to the physical speaker or using the
+Sonos app. The two paths (LLM-proposed, always gated; local-manual,
+never gated) stay cleanly separate because they go through genuinely
+different endpoints, not a shared one with a bypass flag.
+
+`getStatus()` in `satellite/services/sonos.js` doesn't currently track
+"what's playing" — `play()`/`pause()` are one-shot calls against real
+hardware with no remembered state (see Open questions in the Sonos
+integration work). A real now-playing panel needs that gap closed one
+way or another: either query the Sonos player's own live transport state
+(`sonos-discovery`'s `Player` tracks this via UPnP eventing already, per
+its GENA subscriptions — unexplored so far) or have the satellite
+remember the last thing it was told to play, accepting that could drift
+from ground truth if changed via the Sonos app directly.
+
+One more thing this reopens: Running Modes has the satellite bind only
+to its Tailscale interface, reasoning that "the only thing that's ever
+supposed to call it is the backend." Once the satellite also serves a
+UI meant to be used locally, that binding is doing double duty — it's
+also now what decides who can load the page at all. That still holds
+under this app's existing model (no public exposure, no auth beyond
+tailnet membership — see CLAUDE.md) as long as whatever's actually
+displaying the local UI (a kiosk screen, a phone on-site) is itself a
+tailnet member, same as every other frontend instance today. Worth
+confirming that's the intended setup before building this, rather than
+discovering it's not once the kiosk device can't reach it.
 
 ## Room / house targeting
 
@@ -77,9 +154,12 @@ proposes exactly what got resolved:
   `artist`/`album`, extracted from the capture text by Claude one-shot,
   the same way it already extracts `title`/`description` for
   `create_linear_task`), plus `room` (free text, "living room") and
-  `target_house`. Runs automatically, calling out to the satellite to
-  actually resolve `room` and the track — never the LLM's job to guess
-  against data it hasn't seen. Outputs `{ target_house, track, speaker }`.
+  `target_house`. Runs automatically, resolving the track itself via
+  Spotify's Web API (client-credentials, called directly from the central
+  backend — a cloud catalog lookup has no local-network dependency, unlike
+  playback itself) while calling out to the satellite only to resolve
+  `room` against its speaker list — never the LLM's job to guess against
+  data it hasn't seen. Outputs `{ target_house, track, speaker }`.
 - `control_playback` (`acting`) — always follows `resolve_playback` in
   the same plan, referencing its whole output by reference
   (`"track": "${s1.track}"`, etc — the interpreter's existing
@@ -217,9 +297,10 @@ could have changed in between:
    planning): resolve `target_house` (explicit) or the capture's origin
    house → look up its address in the house table (unknown → fail, never
    guess) → verify the satellite there reports the same house name and
-   supports the requested capability → `POST /api/search` with the rich
-   query → propose the exact resolved `track`/`speaker` for approval
-   (never the raw request — see Safety, above).
+   supports the requested capability → track lookup (Spotify, direct from
+   the backend) and `POST /api/search` (satellite, speaker/room only) run
+   concurrently → propose the exact resolved `track`/`speaker` for
+   approval (never the raw request — see Safety, above).
 2. **Commit** (`control_playback.execute()`, only on `POST /approve`):
    the same house/name/capability verification again → `POST /api/play`
    with exactly the already-resolved `track`/`speaker`, no re-search. A
@@ -259,47 +340,54 @@ explicitly if that's ever genuinely needed.
 ## Open questions
 
 - Provisioning story for a new satellite (how house-id and local device
-  config get onto the box, and how/where an instance of the frontend with
-  `DEFAULT_HOUSE` set actually gets served there — see House attribution)
-  — likely follows the same cloud-init pattern used for the main server,
-  not yet written.
-- Satellite-side room/speaker matching and device control
-  (`satellite/services/sonos.js`, documented in `satellite/README.md`'s
-  Protocol section) are real, via
+  config get onto the box) — likely follows the same cloud-init pattern
+  used for the main server, not yet written.
+- The satellite doesn't serve the real frontend at all yet — only its own
+  bespoke manual test page (`satellite/public/index.html`). Serving the
+  actual frontend build, the `/config.json` runtime-config endpoint
+  (`defaultHouse`, `backendUrl`), the frontend-side changes to consume it
+  (dropping `__DEFAULT_HOUSE__`, making `api.js`'s base URL come from
+  config instead of always being relative), and the local now-playing
+  panel are all designed (see House attribution and Satellite-served
+  frontend & local device controls) but not yet implemented.
+- **Implemented**: track search and speaker/room matching are two
+  independent lookups that don't both live on the satellite. Track search
+  is real — `resolve_playback` calls Spotify's Web API directly from the
+  central backend (client-credentials, `spotify.js` — see `secrets.js`'s
+  `op://` pattern for `SPOTIFY_CLIENT_ID`/`SPOTIFY_CLIENT_SECRET`), same
+  as any other cloud integration, per the Problem statement above
+  (satellites exist for what the backend *can't* reach directly, and
+  Spotify search isn't that). `searchTrack()` no longer exists in
+  `satellite/services/sonos.js` — the satellite's `/api/search` narrowed
+  to speaker/room resolution only (`room?` in, `{ speaker }` out;
+  protocol documented in `satellite/README.md`). Speaker/room matching is
+  also real, via
   [`sonos-discovery`](https://github.com/jishi/node-sonos-discovery) — an
   actively maintained, promise-based SSDP/UPnP client (not the abandoned
   `sonos`/`node-sonos` npm package), pulled from its GitHub tag rather
-  than npm's stale 2019 publish. Speaker matching (exact → substring →
-  bounded edit-distance, refusing to guess wildly and failing the request
-  rather than the LLM's plan) now runs against the live discovered room
-  list instead of a hardcoded one. `play()`/`pause()` issue real
-  `SetAVTransportURI`/`Play`/`Pause` UPnP calls against the matched
-  speaker. **Verified against real hardware**: run on a laptop on the
-  home LAN, discovery found the actual speakers (e.g. "Living Room"),
-  and a search + play round-trip produced real audio.
-- Track search is still a stub: `searchTrack()` always resolves to one
-  fixed, known-good, actually-playable Spotify track
-  (`matchConfidence: "placeholder"`) rather than querying a real catalog
-  — deliberately ignoring the requested title/artist/album rather than
-  fabricating a plausible-looking match for them, so the approval text a
-  human sees is never a promise the satellite can't keep. `search`/`play`
-  were already split into separate calls (`/api/search` resolves without
-  committing, `/api/play` commits an already-resolved result verbatim)
-  specifically so the hub can show a human the *exact* resolved match
-  before anything plays — see Safety, above; that split is what makes it
-  safe for the fake match to be this blunt. TODO: swap in a real catalog
-  search (Spotify's Web API, Client Credentials auth) behind
-  `searchTrack()` — the protocol shape is designed to survive that swap
-  unchanged.
-- Playing that placeholder Spotify track through Sonos uses the
-  `x-sonos-spotify:` URI + DIDL-Lite metadata scheme in
-  `spotifyPlayable()` — an undocumented protocol, adapted from
-  `node-sonos-http-api`'s `spotifyDef.js` (the reference
-  reverse-engineering of it) rather than guessed from scratch. **Verified
-  against real hardware**: the guessed default `SPOTIFY_ACCOUNT_SN=1`
-  worked first try and produced real audio on a real speaker — so this
-  household at least needs no override, though the env var stays
-  available since the reference implementation treats this value as
-  genuinely per-household. Swapping the fixed placeholder id for a real
-  Spotify Web API search result should be a drop-in change to
-  `searchTrack()`, since `spotifyPlayable()` only depends on `track.id`.
+  than npm's stale 2019 publish. Matching (exact → substring → bounded
+  edit-distance, refusing to guess wildly and failing the request rather
+  than the LLM's plan) runs against the live discovered room list — no
+  hardcoded speaker list left to replace with per-house config.
+  `play()`/`pause()` issue real `SetAVTransportURI`/`Play`/`Pause` UPnP
+  calls against the matched speaker, via `x-sonos-spotify:` URI +
+  DIDL-Lite metadata built in `spotifyPlayable()` (an undocumented
+  protocol, adapted from `node-sonos-http-api`'s `spotifyDef.js` rather
+  than guessed from scratch). Search and commit stay split into separate
+  calls (resolve without committing, then `/api/play` commits an
+  already-resolved result verbatim) specifically so the hub can show a
+  human the *exact* resolved match before anything plays — see Safety,
+  above.
+- **Verified against real hardware, but not yet together**: a laptop run
+  on the home LAN found the actual speakers (e.g. "Living Room") and a
+  search + play round-trip produced real audio, including the
+  `x-sonos-spotify` URI/DIDL construction and the guessed default
+  `SPOTIFY_ACCOUNT_SN=1` (an empirically-determined, per-household UPnP
+  value with no way to discover it automatically — override via the
+  `SPOTIFY_ACCOUNT_SN` env var if it doesn't work elsewhere). That
+  verification predates real Spotify search landing, so it used a fixed
+  placeholder track id rather than a live search result. `play()` only
+  ever depends on `track.id`, so the two pieces should combine without
+  further code changes — but that combined path (a real Spotify search
+  result actually played through real Sonos hardware) hasn't been
+  independently confirmed yet.

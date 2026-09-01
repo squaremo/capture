@@ -12,6 +12,7 @@ vi.mock('../integrations/claude.js', () => ({
   executeAction: mockExecuteAction,
   LINEAR_ENABLED: true,
   SATELLITES_ENABLED: false,
+  SPOTIFY_ENABLED: false,
 }))
 
 vi.mock('../integrations/satellite.js', () => ({
@@ -84,7 +85,7 @@ describe('GET /api/version', () => {
     expect(reply.json()).toEqual({
       backend: 'dev',
       config: null,
-      integrations: { linear: true, satellite: false },
+      integrations: { linear: true, satellite: false, spotify: false },
     })
   })
 })

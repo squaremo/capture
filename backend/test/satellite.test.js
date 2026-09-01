@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, writeFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { resolvePlayback, commitPlayback, listSatellites, getHouses } from '../integrations/satellite.js'
+import { resolveSpeaker, commitPlayback, listSatellites, getHouses } from '../integrations/satellite.js'
 
 const mockFetch = vi.fn()
 vi.stubGlobal('fetch', mockFetch)
@@ -17,61 +17,41 @@ function jsonResponse(body, ok = true, status = 200) {
 
 const houses = { home: 'http://localhost:4000' }
 
-describe('resolvePlayback', () => {
+describe('resolveSpeaker', () => {
   it('throws for an unknown house without calling out', async () => {
-    await expect(resolvePlayback({ houses, house: 'lake', title: 'x' })).rejects.toThrow('Unknown house')
+    await expect(resolveSpeaker({ houses, house: 'lake', room: 'living room' })).rejects.toThrow('Unknown house')
     expect(mockFetch).not.toHaveBeenCalled()
   })
 
   it('throws when the satellite status check is not ok', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({}, false, 503))
-    await expect(resolvePlayback({ houses, house: 'home', title: 'x' })).rejects.toThrow('503')
+    await expect(resolveSpeaker({ houses, house: 'home', room: 'living room' })).rejects.toThrow('503')
   })
 
   it('throws when the satellite reports a different house than the config expects', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ house: 'lake', capabilities: ['sonos'] }))
-    await expect(resolvePlayback({ houses, house: 'home', title: 'x' })).rejects.toThrow('mismatch')
+    await expect(resolveSpeaker({ houses, house: 'home', room: 'living room' })).rejects.toThrow('mismatch')
   })
 
   it('throws when the satellite has no sonos capability', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ house: 'home', capabilities: ['lights'] }))
-    await expect(resolvePlayback({ houses, house: 'home', title: 'x' })).rejects.toThrow('no Sonos capability')
+    await expect(resolveSpeaker({ houses, house: 'home', room: 'living room' })).rejects.toThrow('no Sonos capability')
   })
 
-  it('posts the rich query to /api/search and returns the resolved track/speaker', async () => {
+  it('posts the room to /api/search and returns the resolved speaker', async () => {
     const searchResult = {
-      track: { id: 'trk_abc123', title: 'Silver Machine', artist: 'Hawkwind', album: null, matchConfidence: 'exact' },
       speaker: { name: 'Living Room', requested: 'living room', confidence: 'exact' },
     }
     mockFetch
       .mockResolvedValueOnce(jsonResponse({ house: 'home', capabilities: ['sonos'] }))
       .mockResolvedValueOnce(jsonResponse(searchResult))
 
-    const result = await resolvePlayback({
-      houses,
-      house: 'home',
-      room: 'living room',
-      title: 'Silver Machine',
-      artist: 'Hawkwind',
-    })
+    const result = await resolveSpeaker({ houses, house: 'home', room: 'living room' })
 
     expect(result).toEqual(searchResult)
     const [url, options] = mockFetch.mock.calls[1]
     expect(url).toBe('http://localhost:4000/api/search')
-    expect(JSON.parse(options.body)).toEqual({
-      title: 'Silver Machine',
-      artist: 'Hawkwind',
-      album: undefined,
-      room: 'living room',
-    })
-  })
-
-  it('throws with the satellite-reported error on a failed search', async () => {
-    mockFetch
-      .mockResolvedValueOnce(jsonResponse({ house: 'home', capabilities: ['sonos'] }))
-      .mockResolvedValueOnce(jsonResponse({ error: 'title is required' }, false, 400))
-
-    await expect(resolvePlayback({ houses, house: 'home', title: '' })).rejects.toThrow('title is required')
+    expect(JSON.parse(options.body)).toEqual({ room: 'living room' })
   })
 
   it('throws with the satellite-reported error when no speaker matches the room', async () => {
@@ -80,7 +60,7 @@ describe('resolvePlayback', () => {
       .mockResolvedValueOnce(jsonResponse({ error: 'No speaker matching "garage"' }, false, 422))
 
     await expect(
-      resolvePlayback({ houses, house: 'home', title: 'x', room: 'garage' })
+      resolveSpeaker({ houses, house: 'home', room: 'garage' })
     ).rejects.toThrow('No speaker matching')
   })
 })

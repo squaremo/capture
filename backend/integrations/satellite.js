@@ -44,17 +44,20 @@ async function verifySatellite(houses, house) {
   return address
 }
 
-// Looks up the actual matching track and speaker for a rich query —
-// doesn't play anything. This is what gets shown for approval, so a human
-// approves the exact resolved particulars, not a raw request that then
-// gets (re-)interpreted after the fact. See designs/satellites.md.
-export async function resolvePlayback({ houses, house, room, title, artist, album }) {
+// Looks up the actual matching speaker for a room name — doesn't play
+// anything. Track search happens directly against Spotify's Web API on
+// the backend (see spotify.js) rather than through the satellite: unlike
+// speaker resolution, it has no local-network dependency. What
+// resolve_playback shows for approval combines both, so a human approves
+// the exact resolved particulars, not a raw request that then gets
+// (re-)interpreted after the fact. See designs/satellites.md.
+export async function resolveSpeaker({ houses, house, room }) {
   const address = await verifySatellite(houses, house)
 
   const res = await fetch(`${address}/api/search`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, artist, album, room }),
+    body: JSON.stringify({ room }),
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))

@@ -52,20 +52,28 @@ document.getElementById('play').onclick = async () => {
   const room = document.getElementById('room').value.trim()
   if (!title) return
 
-  // Same two-step protocol the hub uses: search first (can fail, plays
-  // nothing), then commit exactly that result.
+  // Real track resolution happens on the central backend against Spotify
+  // (see designs/satellites.md) — this standalone harness has no backend
+  // to call, so it only asks the satellite to resolve the room, same
+  // two-step protocol the hub uses (search first, can fail and plays
+  // nothing; then commit that result).
   const searchRes = await fetch('/api/search', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, artist, room }),
+    body: JSON.stringify({ room }),
   })
   if (!searchRes.ok) {
     const { error } = await searchRes.json()
     document.getElementById('status').textContent = `error: ${error}`
     return
   }
-  const { track, speaker } = await searchRes.json()
+  const { speaker } = await searchRes.json()
   lastSpeaker = speaker
+  // Synthetic track from the title/artist inputs — enough to exercise
+  // search + play/pause wiring against real hardware, but without a real
+  // Spotify track id (which only the backend's real search produces),
+  // play() issues a real transport call that won't produce actual audio.
+  const track = { title, artist: artist || null, album: null, matchConfidence: 'unresolved' }
 
   const playRes = await fetch('/api/play', {
     method: 'POST',
