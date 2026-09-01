@@ -1,6 +1,6 @@
 # Satellites: local control per house
 
-Status: hub-side dispatch (`resolve_playback`/`control_playback` in `claude.js`, `backend/integrations/satellite.js`) and the satellite controller (`satellite/`) are implemented and tested. Room/speaker matching and Sonos transport control (`satellite/services/sonos.js`) are real — discovery and playback via `sonos-discovery` against actual hardware — and confirmed working against a real Sonos system: discovery found the real speakers, and search + play produced real audio, including the previously-unverified `x-sonos-spotify` URI/DIDL construction. Track search is still a stub, always resolving to one fixed, known-good Spotify track rather than searching a real catalog (see Open questions). The frontend's house chooser (`capture.js`) is implemented — sticky by default, or defaulting to `DEFAULT_HOUSE` with a "here" indicator when a build has one set (see House attribution) — but no satellite has an actual instance of the frontend deployed on it yet, so `DEFAULT_HOUSE` isn't exercised outside dev.
+Status: hub-side dispatch (`resolve_playback`/`control_playback` in `claude.js`, `backend/integrations/satellite.js`) and the satellite controller (`satellite/`) are implemented and tested. Room/speaker matching and Sonos transport control (`satellite/services/sonos.js`) are real — discovery and playback via `sonos-discovery` against actual hardware — and confirmed working against a real Sonos system: discovery found the real speakers, and search + play produced real audio, including the previously-unverified `x-sonos-spotify` URI/DIDL construction. Track search is still a stub, always resolving to one fixed, known-good Spotify track rather than searching a real catalog (see Open questions). The frontend's house chooser (`capture.js`) is implemented — sticky by default, or defaulting to a house set via runtime config, with a "here" indicator when one's set (see House attribution). That runtime-config mechanism (`/config.json`, `BACKEND_URL`) supersedes an earlier `DEFAULT_HOUSE` build-time-constant version and is design-only, not yet built — as is the satellite actually serving the frontend at all (still serves a bespoke manual test page today) and the local now-playing panel that depends on it (see Satellite-served frontend & local device controls).
 
 ## Problem
 
@@ -38,32 +38,109 @@ Instead, each satellite's frontend build carries a house-id (baked in at
 provisioning), sent as an ordinary field on the capture request — same
 trust level as everything else in this single-user, Tailscale-only system.
 
-**Implemented**, and answers what was an open question here (distinct
-build per satellite, or the same build parameterized): the **same**
-frontend build for everyone, with an optional `DEFAULT_HOUSE` build-time
-constant (`vite.config.js` → `__DEFAULT_HOUSE__`, same mechanism as
-`__GIT_SHA__`; `frontend/Dockerfile` takes it as a build `ARG`). A house
-chooser (`capture.js`) sends `house` on every capture:
+Answers what was an open question here (distinct build per satellite, or
+the same build parameterized): the **same** frontend build for everyone.
+A house chooser (`capture.js`) sends `house` on every capture:
 
-- **No `DEFAULT_HOUSE`** (the general frontend — phone, laptop): the
+- **No default house** (the general frontend — phone, laptop): the
   chooser is plain and **sticky** — remembers your last pick via
   `localStorage`, defaults to none.
-- **`DEFAULT_HOUSE` set** (a satellite's own build, once one is deployed):
-  pre-selects it and shows a small "this is where you are" dot — a
-  visibly different, stronger signal than a remembered preference. You
-  can still override for one capture (e.g. controlling a different house
-  from this kiosk), but the override doesn't persist — the default wins
-  again next load, since it describes where the box physically is, not a
-  choice that should drift.
+- **Default house set** (a satellite serving its own instance of this
+  frontend): pre-selects it and shows a small "this is where you are"
+  dot — a visibly different, stronger signal than a remembered
+  preference. You can still override for one capture (e.g. controlling a
+  different house from this kiosk), but the override doesn't persist —
+  the default wins again next load, since it describes where the box
+  physically is, not a choice that should drift.
 
 The chooser is hidden entirely (both modes) when `GET /api/satellites`
 reports no configured houses — most deployments have none, and a picker
 with nothing to pick is just noise.
 
-Actually running a `DEFAULT_HOUSE`-configured instance of this frontend
-*on* a satellite device is still unbuilt (no serving/deploy mechanism
-there yet) — see Open questions — but the frontend itself no longer
-blocks on that; setting the build arg is now the whole story.
+**Where this value comes from — runtime config, not a build-time
+constant.** An earlier version of this baked the default house into the
+frontend bundle itself at build time (a `DEFAULT_HOUSE` Vite `define`,
+same mechanism as `__GIT_SHA__`, taken as a Docker build `ARG`). That's
+the wrong shape once a satellite is the thing actually serving this
+frontend to its own local kiosk (see Satellite-served frontend, below):
+it would mean a distinct, separately-built image per house just to
+change one string, when the satellite process already receives exactly
+this kind of thing as an ordinary runtime env var (`HOUSE_ID`, already
+used for its own `/api/status`). Build-time baking is right for
+something that genuinely identifies *the build* (`GIT_SHA`); a default
+house identifies *the deployment*, which should be one build configured
+differently per place it runs — the standard build-once/configure-per-
+environment split.
+
+So instead: the frontend fetches `GET /config.json` once at startup,
+before wiring up anything else. On the general deployment (nginx serving
+static files, no such route configured) this 404s, and the frontend
+treats that as `{}` — no default house, relative `/api` — i.e. today's
+existing behaviour, unchanged, with no nginx or build changes needed. A
+satellite serving the frontend implements `/config.json` for real,
+generated per-request from its own env vars: `{ defaultHouse: HOUSE_ID,
+backendUrl: BACKEND_URL }` (`backendUrl` is new — see below). `capture.js`
+takes the resolved default house as a plain argument from this config
+rather than reading a `__DEFAULT_HOUSE__` global, and `vite.config.js`/
+`frontend/Dockerfile` drop the `DEFAULT_HOUSE` build machinery entirely
+(`GIT_SHA` stays, since that one *is* build identity).
+
+## Satellite-served frontend & local device controls
+
+**Not yet implemented** — design only, below.
+
+The satellite serves the same frontend build as everyone else (per
+House attribution) at `/`, replacing what's currently a bespoke manual
+test page (`satellite/public/index.html`) with the real capture UI,
+locally, at that house. `BACKEND_URL` (new env var, alongside `HOUSE_ID`)
+is what lets it keep the "frontend talks directly to the central
+backend, no proxy" rule intact even though the satellite is now the one
+serving the page: `/config.json` hands the frontend an explicit,
+absolute backend origin for capture/inbox calls, so those never
+accidentally route through the satellite itself — only the satellite's
+*own* endpoints (below) are ever same-origin relative fetches.
+
+That distinction is what makes a **local now-playing panel** possible
+without reopening the proxy question: the frontend, when served by a
+satellite, also polls that satellite's *own* `/api/status` (already
+exists, relative fetch — naturally reaches the satellite because it's
+the one serving the page, and is simply absent/inert on the general
+deployment) and shows a small transport UI — what's playing, on which
+speaker, play/pause — sourced from real local device state rather than
+anything routed centrally. Pressing pause there calls the satellite's
+own `/api/pause` directly.
+
+This deliberately **bypasses the capture → Claude → approval pipeline**
+— and that's correct, not a gap in it. Approval exists to gate an LLM's
+interpretation of free text before it does something in the world (see
+Safety, above); a human standing at the satellite pressing a literal
+pause button is direct manual control, no interpretation involved — the
+same trust level as walking up to the physical speaker or using the
+Sonos app. The two paths (LLM-proposed, always gated; local-manual,
+never gated) stay cleanly separate because they go through genuinely
+different endpoints, not a shared one with a bypass flag.
+
+`getStatus()` in `satellite/services/sonos.js` doesn't currently track
+"what's playing" — `play()`/`pause()` are one-shot calls against real
+hardware with no remembered state (see Open questions in the Sonos
+integration work). A real now-playing panel needs that gap closed one
+way or another: either query the Sonos player's own live transport state
+(`sonos-discovery`'s `Player` tracks this via UPnP eventing already, per
+its GENA subscriptions — unexplored so far) or have the satellite
+remember the last thing it was told to play, accepting that could drift
+from ground truth if changed via the Sonos app directly.
+
+One more thing this reopens: Running Modes has the satellite bind only
+to its Tailscale interface, reasoning that "the only thing that's ever
+supposed to call it is the backend." Once the satellite also serves a
+UI meant to be used locally, that binding is doing double duty — it's
+also now what decides who can load the page at all. That still holds
+under this app's existing model (no public exposure, no auth beyond
+tailnet membership — see CLAUDE.md) as long as whatever's actually
+displaying the local UI (a kiosk screen, a phone on-site) is itself a
+tailnet member, same as every other frontend instance today. Worth
+confirming that's the intended setup before building this, rather than
+discovering it's not once the kiosk device can't reach it.
 
 ## Room / house targeting
 
@@ -259,10 +336,16 @@ explicitly if that's ever genuinely needed.
 ## Open questions
 
 - Provisioning story for a new satellite (how house-id and local device
-  config get onto the box, and how/where an instance of the frontend with
-  `DEFAULT_HOUSE` set actually gets served there — see House attribution)
-  — likely follows the same cloud-init pattern used for the main server,
-  not yet written.
+  config get onto the box) — likely follows the same cloud-init pattern
+  used for the main server, not yet written.
+- The satellite doesn't serve the real frontend at all yet — only its own
+  bespoke manual test page (`satellite/public/index.html`). Serving the
+  actual frontend build, the `/config.json` runtime-config endpoint
+  (`defaultHouse`, `backendUrl`), the frontend-side changes to consume it
+  (dropping `__DEFAULT_HOUSE__`, making `api.js`'s base URL come from
+  config instead of always being relative), and the local now-playing
+  panel are all designed (see House attribution and Satellite-served
+  frontend & local device controls) but not yet implemented.
 - Satellite-side room/speaker matching and device control
   (`satellite/services/sonos.js`, documented in `satellite/README.md`'s
   Protocol section) are real, via
