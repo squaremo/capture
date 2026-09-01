@@ -123,10 +123,16 @@ export function createCaptureInput({ onSubmit }) {
     blank.textContent = '—'
     houseSelect.appendChild(blank)
 
-    satellites.forEach(({ house }) => {
+    satellites.forEach(({ house, reachable, houseMismatch }) => {
       const opt = document.createElement('option')
       opt.value = house
-      opt.textContent = house
+      // Native <select> options can't reliably carry colour or a styled dot
+      // across platforms (mobile pickers in particular ignore most CSS), so
+      // liveness is a text glyph instead — same three states as the
+      // satellite-dot in the info panel (up / mismatch / unreachable).
+      const glyph = houseMismatch ? '▲' : reachable ? '●' : '○'
+      opt.textContent = `${glyph} ${house}`
+      opt.title = houseMismatch ? 'house name mismatch' : reachable ? 'reachable' : 'unreachable'
       houseSelect.appendChild(opt)
     })
 
