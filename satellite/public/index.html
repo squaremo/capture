@@ -48,16 +48,26 @@ document.getElementById('play').onclick = async () => {
   const artist = document.getElementById('artist').value.trim()
   const room = document.getElementById('room').value.trim()
   if (!title) return
-  const res = await fetch('/api/play', {
+
+  // Same two-step protocol the hub uses: search first (can fail, plays
+  // nothing), then commit exactly that result.
+  const searchRes = await fetch('/api/search', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title, artist, room }),
   })
-  if (!res.ok) {
-    const { error } = await res.json()
+  if (!searchRes.ok) {
+    const { error } = await searchRes.json()
     document.getElementById('status').textContent = `error: ${error}`
     return
   }
+  const { track, speaker } = await searchRes.json()
+
+  await fetch('/api/play', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ track, speaker }),
+  })
   refresh()
 }
 

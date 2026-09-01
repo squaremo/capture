@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const { mockCreate, mockControlPlayback, mockGetHouses } = vi.hoisted(() => ({
+const { mockCreate, mockResolvePlayback, mockCommitPlayback, mockGetHouses } = vi.hoisted(() => ({
   mockCreate: vi.fn(),
-  mockControlPlayback: vi.fn(),
+  mockResolvePlayback: vi.fn(),
+  mockCommitPlayback: vi.fn(),
   mockGetHouses: vi.fn(),
 }))
 
@@ -11,7 +12,8 @@ vi.mock('@anthropic-ai/sdk', () => ({
 }))
 
 vi.mock('../integrations/satellite.js', () => ({
-  controlPlayback: mockControlPlayback,
+  resolvePlayback: mockResolvePlayback,
+  commitPlayback: mockCommitPlayback,
   getHouses: mockGetHouses,
 }))
 
@@ -22,61 +24,98 @@ mockGetHouses.mockReturnValue({ home: 'http://localhost:4000' })
 
 const { processCapture, executeAction } = await import('../integrations/claude.js')
 
+const resolved = {
+  track: { id: 'trk_abc123', title: 'Silver Machine', artist: 'Hawkwind', album: null, matchConfidence: 'exact' },
+  speaker: { name: 'Living Room', requested: 'living room', confidence: 'exact' },
+}
+
 beforeEach(() => {
   mockCreate.mockClear()
-  mockControlPlayback.mockClear()
+  mockResolvePlayback.mockClear()
+  mockCommitPlayback.mockClear()
   mockGetHouses.mockClear()
   mockGetHouses.mockReturnValue({ home: 'http://localhost:4000' })
+  mockResolvePlayback.mockResolvedValue(resolved)
 })
 
 function respondWithPlan(steps) {
   mockCreate.mockResolvedValue({ content: [{ type: 'tool_use', name: 'propose_plan', input: { steps } }] })
 }
 
+// The two-step shape every real plan uses: resolve_playback (readonly)
+// runs automatically and its whole output is referenced by control_playback
+// (acting) via ${s1.field} — exactly how the interpreter is meant to chain
+// a readonly step into an acting one.
+function playbackPlan(resolveArgs, overrides = {}) {
+  return [
+    { id: 's1', tool: 'resolve_playback', args: resolveArgs },
+    {
+      id: 's2',
+      tool: 'control_playback',
+      args: { target_house: '${s1.target_house}', track: '${s1.track}', speaker: '${s1.speaker}', tags: [], ...overrides },
+    },
+  ]
+}
+
 describe('processCapture with satellites enabled', () => {
-  it('offers control_playback as a tool', async () => {
+  it('offers resolve_playback and control_playback as tools', async () => {
     respondWithPlan([{ id: 's1', tool: 'save_to_inbox', args: { action_result: 'ok', tags: [] } }])
     await processCapture('anything')
     const toolNames = mockCreate.mock.calls[0][0].tools[0].input_schema.properties.steps.items.properties.tool.enum
+    expect(toolNames).toContain('resolve_playback')
     expect(toolNames).toContain('control_playback')
   })
 
-  it('proposes playback without calling the satellite, awaiting approval', async () => {
-    respondWithPlan([
-      { id: 's1', tool: 'control_playback', args: { title: 'Silver Machine', artist: 'Hawkwind', room: 'living room' } },
-    ])
+  it('resolves before proposing, and the proposal shows the resolved particulars', async () => {
+    respondWithPlan(playbackPlan({ title: 'Silver Machine', artist: 'Hawkwind', room: 'living room' }))
 
     const result = await processCapture("play 'Silver Machine' by Hawkwind in the living room")
 
-    expect(mockControlPlayback).not.toHaveBeenCalled()
+    expect(mockResolvePlayback).toHaveBeenCalledWith({
+      houses: { home: 'http://localhost:4000' },
+      house: null, // no target_house in the plan and no capture origin passed -> defaults to null
+      room: 'living room',
+      title: 'Silver Machine',
+      artist: 'Hawkwind',
+      album: undefined,
+    })
+    expect(mockCommitPlayback).not.toHaveBeenCalled()
     expect(result).toEqual({
       status: 'awaiting_approval',
       tags: [],
-      action_result: 'Proposed: play "Silver Machine" by Hawkwind in living room (house unknown)',
+      // The exact resolved track/speaker, not the raw request text.
+      action_result: 'Proposed: play "Silver Machine" by Hawkwind on Living Room',
       pending_action: {
         tool: 'control_playback',
-        input: { title: 'Silver Machine', artist: 'Hawkwind', room: 'living room', target_house: null },
+        input: { target_house: null, track: resolved.track, speaker: resolved.speaker },
       },
     })
   })
 
-  it('defaults target_house to the capture origin when the text names no house', async () => {
-    respondWithPlan([{ id: 's1', tool: 'control_playback', args: { title: 'Oxygene', room: 'living room' } }])
+  it('defaults target_house on resolve_playback to the capture origin when the text names no house', async () => {
+    respondWithPlan(playbackPlan({ title: 'Oxygene', room: 'living room' }))
 
     const result = await processCapture('play Oxygene in the living room', { house: 'home' })
 
+    expect(mockResolvePlayback).toHaveBeenCalledWith(expect.objectContaining({ house: 'home' }))
     expect(result.pending_action.input.target_house).toBe('home')
     expect(result.action_result).toContain('(home)')
   })
 
-  it('keeps an explicitly named target_house over the capture origin', async () => {
-    respondWithPlan([
-      { id: 's1', tool: 'control_playback', args: { title: 'Oxygene', room: 'living room', target_house: 'lake' } },
-    ])
+  it('keeps an explicitly named target_house on resolve_playback over the capture origin', async () => {
+    respondWithPlan(playbackPlan({ title: 'Oxygene', room: 'living room', target_house: 'lake' }))
 
     const result = await processCapture('play Oxygene in the lake house living room', { house: 'home' })
 
+    expect(mockResolvePlayback).toHaveBeenCalledWith(expect.objectContaining({ house: 'lake' }))
     expect(result.pending_action.input.target_house).toBe('lake')
+  })
+
+  it('propagates a resolve_playback failure (e.g. no matching speaker) as a thrown error', async () => {
+    mockResolvePlayback.mockRejectedValue(new Error('No speaker matching "garage"'))
+    respondWithPlan(playbackPlan({ title: 'x', room: 'garage' }))
+
+    await expect(processCapture('play x in the garage')).rejects.toThrow('No speaker matching')
   })
 
   it('reflects a house added to getHouses() since startup, without re-importing', async () => {
@@ -94,26 +133,20 @@ describe('processCapture with satellites enabled', () => {
 })
 
 describe('executeAction with satellites enabled', () => {
-  it('dispatches to the resolved house and returns status acted', async () => {
-    mockControlPlayback.mockResolvedValue({
-      playing: true,
-      track: { id: 'trk_abc123', title: 'Silver Machine', artist: 'Hawkwind', album: null, matchConfidence: 'exact' },
-      speaker: { name: 'Living Room', requested: 'living room', confidence: 'exact' },
-    })
+  it('commits exactly the resolved track/speaker and returns status acted', async () => {
+    mockCommitPlayback.mockResolvedValue({ playing: true, ...resolved })
 
     const result = await executeAction({
       tool: 'control_playback',
-      input: { title: 'Silver Machine', artist: 'Hawkwind', room: 'living room', target_house: 'home' },
+      input: { target_house: 'home', track: resolved.track, speaker: resolved.speaker },
     })
 
     expect(mockGetHouses).toHaveBeenCalled()
-    expect(mockControlPlayback).toHaveBeenCalledWith({
+    expect(mockCommitPlayback).toHaveBeenCalledWith({
       houses: { home: 'http://localhost:4000' },
       house: 'home',
-      room: 'living room',
-      title: 'Silver Machine',
-      artist: 'Hawkwind',
-      album: undefined,
+      track: resolved.track,
+      speaker: resolved.speaker,
     })
     expect(result).toEqual({
       status: 'acted',
@@ -122,9 +155,9 @@ describe('executeAction with satellites enabled', () => {
   })
 
   it('propagates satellite errors as thrown exceptions', async () => {
-    mockControlPlayback.mockRejectedValue(new Error('Unknown house: "lake"'))
+    mockCommitPlayback.mockRejectedValue(new Error('Unknown house: "lake"'))
     await expect(
-      executeAction({ tool: 'control_playback', input: { title: 'x', target_house: 'lake' } })
+      executeAction({ tool: 'control_playback', input: { target_house: 'lake', track: resolved.track, speaker: resolved.speaker } })
     ).rejects.toThrow('Unknown house')
   })
 })

@@ -15,16 +15,30 @@ export function getStatus() {
   return { ...state }
 }
 
-// Throws if room doesn't match any configured speaker closely enough —
-// never silently plays on a guessed speaker. Only commits state once both
-// the track and the speaker have resolved.
-export function play({ title, artist, album, room }) {
-  const speaker = matchSpeaker(room, SPEAKERS)
+// Resolves a rich query into a specific track + speaker, without
+// committing playback — this is the realistic split: search first (can
+// fail; changes nothing), then play() by the exact result, so what a
+// human approved is exactly what plays, not a fresh re-search that could
+// plausibly land on something else. Track search and speaker matching
+// don't depend on each other, so they run concurrently — trivial for
+// these stubs, but the point where a real implementation would have two
+// genuinely independent I/O calls (catalog search vs device discovery).
+// Throws if room doesn't match any configured speaker closely enough.
+export async function search({ title, artist, album, room }) {
+  const [track, speaker] = await Promise.all([
+    searchTrack({ title, artist, album }),
+    matchSpeaker(room, SPEAKERS),
+  ])
   if (speaker.confidence === 'no_match') {
     throw new Error(`No speaker matching "${speaker.requested}"`)
   }
+  return { track, speaker }
+}
 
-  const track = searchTrack({ title, artist, album })
+// Commits playback using an already-resolved track/speaker (from a prior
+// search() call) — no matching happens here, so this can't land on a
+// different result than what was resolved and shown for approval.
+export function play({ track, speaker }) {
   state = { playing: true, track, speaker }
   console.log(
     `[sonos stub] playing "${track.title}"${track.artist ? ` by ${track.artist}` : ''} ` +
@@ -43,7 +57,7 @@ export function pause() {
 // Returns a plausible-shaped result — an id and a confidence label based
 // on how specific the query was — without actually querying anything. A
 // real implementation swaps only this function; callers don't change.
-function searchTrack({ title, artist, album }) {
+async function searchTrack({ title, artist, album }) {
   return {
     id: `trk_${Math.random().toString(36).slice(2, 10)}`,
     title,
@@ -59,7 +73,7 @@ function searchTrack({ title, artist, album }) {
 // then a bounded edit-distance fallback; nothing within a plausible
 // distance reports no_match rather than guessing wildly. No room given at
 // all defaults to the first configured speaker.
-function matchSpeaker(query, speakers) {
+async function matchSpeaker(query, speakers) {
   if (!query) {
     return { name: speakers[0] ?? null, requested: null, confidence: speakers.length ? 'default' : 'no_match' }
   }
