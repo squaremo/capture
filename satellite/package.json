@@ -8,6 +8,7 @@
     "dev": "node --watch server.js"
   },
   "dependencies": {
-    "fastify": "^4.26.0"
+    "fastify": "^4.26.0",
+    "sonos-discovery": "github:jishi/node-sonos-discovery#v1.8.0"
   }
 }

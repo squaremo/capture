@@ -3,20 +3,30 @@
 Local control node for one house. See `../designs/satellites.md` for the
 design this implements.
 
-This is currently a standalone vertical slice — UI → satellite →
-local service — proving the wiring end to end, ahead of the central
-backend calling into it. `services/sonos.js` is a stub standing in for
-real Sonos UPnP control until there's hardware to test against; it exposes
-the same shape a real implementation would, so it can be swapped in later
-without changing `server.js`'s controller API.
+`services/sonos.js` talks to real Sonos hardware via
+[`sonos-discovery`](https://github.com/jishi/node-sonos-discovery) — SSDP
+discovery and UPnP transport control against whatever's actually on this
+house's LAN. It needs to run somewhere with genuine local-network
+presence (SSDP multicast doesn't cross Tailscale) — which the satellite
+already has, since it's meant to run at the house, not centrally. Track
+search is still a stub (see below and Open questions in
+`designs/satellites.md`).
+
+Dependency note: `sonos-discovery` is pulled straight from its GitHub tag
+(`v1.8.0`), not the npm registry — the published `sonos-discovery`
+package on npm is from 2019 and predates a Node 20 compatibility fix the
+maintainer only ever tagged on GitHub. `node-sonos-http-api` (a much
+better-known project built on the same library) does the same thing for
+the same reason.
 
 ## Protocol
 
-`GET /api/status` — `{ house, capabilities, playing, track, speaker }`.
+`GET /api/status` — `{ house, capabilities, ready, playersFound, rooms }`.
 `house` and `capabilities` are used by the hub to verify it reached the
 right satellite and that it supports what's about to be asked of it (see
-`designs/satellites.md`); `playing`/`track`/`speaker` mirror the last
-`/api/play` result.
+`designs/satellites.md`); `ready`/`playersFound`/`rooms` reflect Sonos
+discovery on this house's LAN — `rooms` is the live list of discovered
+speaker names, matched against in `/api/search`'s `room` field.
 
 Playback is a deliberate two-call **search, then play** protocol — not
 one call that both resolves and commits — so a caller (the hub) can show
@@ -48,16 +58,34 @@ match any configured speaker closely enough, the request fails outright
 `POST /api/play` — body `{ track, speaker }`: exactly the object a prior
 `/api/search` returned, passed back verbatim. No free text accepted here
 and no re-matching happens — this can't land on a different result than
-what `/api/search` already resolved. Response is the same shape plus
+what `/api/search` already resolved. Issues a real Sonos `SetAVTransportURI`
++ `Play` against the named speaker. Response is the same shape plus
 `"playing": true`.
 
-`POST /api/pause` — no body.
+`POST /api/pause` — body `{ speaker }`. Needs a speaker now — there's no
+single "the system" to pause once there's real, possibly-multiple
+hardware behind this.
 
-Today's speaker list and catalog are stubs (`services/sonos.js`) — a
-fixed name list and a search that fabricates a plausible-looking result
-rather than querying anything real. Real Sonos/catalog integration is a
-tracked TODO in the design doc; this protocol shape is meant to survive
+Speaker matching is real (against Sonos's own discovered room names, via
+`sonos-discovery`). Track search is still a stub: `searchTrack()` always
+returns the same one known-good, actually-playable Spotify track
+(`matchConfidence: "placeholder"`) regardless of what title/artist/album
+was asked for — deliberately, so the approval text a human sees is never
+a promise the satellite can't keep. Swapping in a real catalog search is
+a tracked TODO in the design doc; this protocol shape is meant to survive
 that swap unchanged.
+
+Playing that placeholder track for real requires Spotify to already be
+linked as a music service in the Sonos app (same as for normal use) —
+`play()` reads Sonos's own service id for Spotify live off the discovered
+system, but the "account serial number" piece of the protocol
+(`SPOTIFY_ACCOUNT_SN` env var, defaults to `1`) is an
+empirically-determined per-household value with no way to discover it
+automatically. Confirmed working end to end (real discovery, real
+speaker, real audio) with the default `1` on at least one real household
+— but if playback ever fails elsewhere, this is the first thing to try
+adjusting. See the comments in `services/sonos.js` and Open questions in
+`designs/satellites.md`.
 
 ## Run
 
@@ -65,7 +93,14 @@ that swap unchanged.
     npm install
     HOUSE_ID=home npm start
 
-Open `http://localhost:4000`. `HOUSE_ID` is the only config for now —
-it's what a real deployment would bake in at provisioning (see "Running
-modes" in the design doc); on a laptop, just set it to whichever house
-you're currently standing in and stop the process when you leave.
+Open `http://localhost:4000`. `HOUSE_ID` is required — it's what a real
+deployment would bake in at provisioning (see "Running modes" in the
+design doc); on a laptop, just set it to whichever house you're currently
+standing in and stop the process when you leave. `SPOTIFY_ACCOUNT_SN` is
+optional, see Protocol above.
+
+Since discovery is real, this only finds speakers if you actually run it
+on the same network as your Sonos system — a satellite started on this
+sandbox, in CI, or on a machine off that LAN will report `playersFound: 0`
+and `/api/search` will always fail with "No speaker matching" until it's
+run somewhere that can actually see them.
