@@ -77,9 +77,12 @@ proposes exactly what got resolved:
   `artist`/`album`, extracted from the capture text by Claude one-shot,
   the same way it already extracts `title`/`description` for
   `create_linear_task`), plus `room` (free text, "living room") and
-  `target_house`. Runs automatically, calling out to the satellite to
-  actually resolve `room` and the track — never the LLM's job to guess
-  against data it hasn't seen. Outputs `{ target_house, track, speaker }`.
+  `target_house`. Runs automatically, resolving the track itself via
+  Spotify's Web API (client-credentials, called directly from the central
+  backend — a cloud catalog lookup has no local-network dependency, unlike
+  playback itself) while calling out to the satellite only to resolve
+  `room` against its speaker list — never the LLM's job to guess against
+  data it hasn't seen. Outputs `{ target_house, track, speaker }`.
 - `control_playback` (`acting`) — always follows `resolve_playback` in
   the same plan, referencing its whole output by reference
   (`"track": "${s1.track}"`, etc — the interpreter's existing
@@ -217,9 +220,10 @@ could have changed in between:
    planning): resolve `target_house` (explicit) or the capture's origin
    house → look up its address in the house table (unknown → fail, never
    guess) → verify the satellite there reports the same house name and
-   supports the requested capability → `POST /api/search` with the rich
-   query → propose the exact resolved `track`/`speaker` for approval
-   (never the raw request — see Safety, above).
+   supports the requested capability → track lookup (Spotify, direct from
+   the backend) and `POST /api/search` (satellite, speaker/room only) run
+   concurrently → propose the exact resolved `track`/`speaker` for
+   approval (never the raw request — see Safety, above).
 2. **Commit** (`control_playback.execute()`, only on `POST /approve`):
    the same house/name/capability verification again → `POST /api/play`
    with exactly the already-resolved `track`/`speaker`, no re-search. A
@@ -263,22 +267,28 @@ explicitly if that's ever genuinely needed.
   `DEFAULT_HOUSE` set actually gets served there — see House attribution)
   — likely follows the same cloud-init pattern used for the main server,
   not yet written.
-- Satellite-side track search and room/speaker matching are implemented
-  as stubs (`satellite/services/sonos.js`, documented in
-  `satellite/README.md`'s Protocol section) — both plain code, not an LLM
-  decision, per the reasoning above, and run concurrently (`Promise.all`)
-  since they're independent lookups — trivial today with no real I/O, but
-  the shape a real implementation (independent catalog search vs device
-  discovery) needs anyway. Speaker matching is real (exact → substring →
-  bounded edit-distance, against a hardcoded speaker list, refusing to
-  guess wildly and failing the request rather than the LLM's plan); track
-  search fabricates a plausible-shaped result (an id, a `matchConfidence`)
-  without querying an actual catalog. `search`/`play` are already split
-  into separate calls (`/api/search` resolves without committing,
-  `/api/play` commits an already-resolved result verbatim) specifically
-  so the hub can show a human the *exact* resolved match before anything
-  plays — see Safety, above. TODO: swap in a real catalog search
-  (Spotify's, or Sonos's own) behind `searchTrack()` — the protocol shape
-  is designed to survive that swap unchanged. TODO: swap the hardcoded
-  speaker list for real per-house device config once that provisioning
-  story (above) exists.
+- Track search and room/speaker matching are independent lookups, run
+  concurrently (`Promise.all`), but don't both belong on the satellite —
+  catalog search is a plain cloud API call with no local-network
+  dependency, so it lives on the central backend instead: `resolve_playback`
+  calls Spotify's Web API directly (client-credentials — see `secrets.js`'s
+  `op://` pattern for `SPOTIFY_CLIENT_ID`/`SPOTIFY_CLIENT_SECRET`), same as
+  any other cloud integration, per the Problem statement above (satellites
+  exist for what the backend *can't* reach directly, and Spotify search
+  isn't that). Only speaker/room matching needs the satellite, since that's
+  resolved against each house's local device list — still a stub today
+  (exact → substring → bounded edit-distance against a hardcoded speaker
+  list, refusing to guess wildly and failing the request rather than the
+  LLM's plan), and the one still needing a real implementation. Search and
+  commit stay split into separate calls (resolve without committing, then
+  `/api/play` commits an already-resolved result verbatim) specifically so
+  the hub can show a human the *exact* resolved match before anything plays
+  — see Safety, above.
+
+  This moves `searchTrack()` out of `satellite/services/sonos.js` entirely
+  rather than swapping its stub for a real Spotify call — the satellite's
+  `/api/search` narrows to speaker/room resolution only, so
+  `satellite/README.md`'s Protocol section (currently documents `POST
+  /api/search` taking `title`/`artist`/`album`/`room`) needs updating to
+  match once this lands. TODO: swap the hardcoded speaker list for real
+  per-house device config once the provisioning story (above) exists.
