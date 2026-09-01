@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { createItem, getItem, listItems, updateItem } from '../db.js'
+import { createItem, getItem, listItems, updateItem, createFavourite, getFavourite, listFavourites, deleteFavourite } from '../db.js'
 
 describe('createItem', () => {
   it('generates a valid id and returns a pending item', () => {
@@ -11,6 +11,7 @@ describe('createItem', () => {
     expect(item.action_result).toBeNull()
     expect(item.pending_action).toBeNull()
     expect(item.plan_progress).toEqual([])
+    expect(item.executed_action).toBeNull()
     expect(item.created_at).toBeTruthy()
   })
 })
@@ -101,5 +102,56 @@ describe('updateItem', () => {
       plan_progress: [{ label: 'Checking Linear for duplicates' }, { label: 'Second step' }],
     })
     expect(withTwoSteps.plan_progress).toHaveLength(2)
+  })
+
+  it('executed_action round-trips as an object and stays set once recorded', () => {
+    const item = createItem('proposed action')
+    const executed = updateItem(item.id, {
+      status: 'acted',
+      pending_action: null,
+      executed_action: { tool: 'create_linear_task', input: { title: 'Fix bug' } },
+    })
+    expect(executed.executed_action).toEqual({ tool: 'create_linear_task', input: { title: 'Fix bug' } })
+    expect(executed.pending_action).toBeNull()
+  })
+})
+
+describe('favourites', () => {
+  it('createFavourite generates a valid id and round-trips fields', () => {
+    const fav = createFavourite({
+      label: 'Linear task created: "Fix bug" — https://linear.app/x/1',
+      tool: 'create_linear_task',
+      input: { title: 'Fix bug', description: 'It is broken' },
+      tags: ['work'],
+    })
+    expect(fav.id).toMatch(/^\d+-[a-z0-9]+$/)
+    expect(fav.label).toBe('Linear task created: "Fix bug" — https://linear.app/x/1')
+    expect(fav.tool).toBe('create_linear_task')
+    expect(fav.input).toEqual({ title: 'Fix bug', description: 'It is broken' })
+    expect(fav.tags).toEqual(['work'])
+    expect(fav.created_at).toBeTruthy()
+  })
+
+  it('createFavourite defaults tags to an empty array', () => {
+    const fav = createFavourite({ label: 'Played something', tool: 'control_playback', input: {} })
+    expect(fav.tags).toEqual([])
+  })
+
+  it('getFavourite returns null for an unknown id', () => {
+    expect(getFavourite('nonexistent-id')).toBeNull()
+  })
+
+  it('listFavourites includes newly created favourites, newest first', async () => {
+    const a = createFavourite({ label: 'first', tool: 'create_linear_task', input: {} })
+    await new Promise(r => setTimeout(r, 2))
+    const b = createFavourite({ label: 'second', tool: 'create_linear_task', input: {} })
+    const ids = listFavourites().map(f => f.id)
+    expect(ids.indexOf(b.id)).toBeLessThan(ids.indexOf(a.id))
+  })
+
+  it('deleteFavourite removes it', () => {
+    const fav = createFavourite({ label: 'to remove', tool: 'create_linear_task', input: {} })
+    deleteFavourite(fav.id)
+    expect(getFavourite(fav.id)).toBeNull()
   })
 })

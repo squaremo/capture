@@ -26,6 +26,11 @@ function renderItem(item) {
   const { label, color } = STATUS_LABELS[item.status] ?? STATUS_LABELS.pending
   const isPending = item.status === 'pending'
   const isAwaitingApproval = item.status === 'awaiting_approval'
+  // Only an item that actually executed an acting-tool call (status
+  // 'acted', with executed_action recorded on approval) has a { tool, input }
+  // to freeze into a favourite — a terminal item (triaged/reminder/urgent)
+  // never had a tool call at all, and a vetoed/failed item never ran one.
+  const isFavouritable = item.status === 'acted' && Boolean(item.executed_action)
   const steps = item.plan_progress ?? []
 
   return `
@@ -39,7 +44,12 @@ function renderItem(item) {
     ${isPending
       ? `<div class="item-shimmer"></div>`
       : item.action_result
-        ? `<div class="item-result" style="border-color:${color}">${escHtml(item.action_result)}</div>`
+        ? `<div class="item-result" style="border-color:${color}">
+            <span class="item-result-text">${escHtml(item.action_result)}</span>
+            ${isFavouritable
+              ? `<button class="btn-favourite" data-action="favourite" title="Save as favourite" aria-label="Save as favourite">☆</button>`
+              : ''}
+          </div>`
         : ''}
     ${isAwaitingApproval
       ? `<div class="item-approval">
@@ -51,7 +61,7 @@ function renderItem(item) {
   `
 }
 
-function escHtml(str) {
+export function escHtml(str) {
   return String(str)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')

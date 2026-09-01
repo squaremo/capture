@@ -2,7 +2,11 @@ import './styles.css'
 import { createCaptureInput } from './components/capture.js'
 import { createInbox } from './components/inbox.js'
 import { createVersionInfo } from './components/versionInfo.js'
-import { postCapture, getItems, approveItem, vetoItem, getVersion, getSatellites } from './api.js'
+import { createFavouritesSidebar } from './components/favourites.js'
+import {
+  postCapture, getItems, approveItem, vetoItem, getVersion, getSatellites,
+  favouriteItem, getFavourites, runFavourite, deleteFavourite,
+} from './api.js'
 
 const app = document.getElementById('app')
 
@@ -25,11 +29,12 @@ headerBadges.append(versionInfo.pillEl, vpnBadge)
 header.append(logo, headerBadges)
 
 // ── Inbox ─────────────────────────────────────────────────
-const inFlight = new Set() // item ids currently being approved/vetoed
+const inFlight = new Set() // item ids currently being approved/vetoed/favourited
 
 const inbox = createInbox({
   onApprove: (id) => handleDecision(id, approveItem),
   onVeto: (id) => handleDecision(id, vetoItem),
+  onFavourite: (id) => handleFavourite(id),
 })
 
 async function handleDecision(id, action) {
@@ -43,6 +48,68 @@ async function handleDecision(id, action) {
     console.error(err)
   } finally {
     inFlight.delete(id)
+  }
+}
+
+// ── Favourites ────────────────────────────────────────────
+// A favourite freezes one already-executed tool call (star it once, from a
+// resolved item) for one-click replay later — see GET /api/favourites and
+// backend/server.js. No new planning or approval happens on replay: the
+// human already approved this exact resolved action when it was favourited.
+const favouritesSidebar = createFavouritesSidebar({
+  onRun: (id) => handleFavouriteRun(id),
+  onDelete: (id) => handleFavouriteDelete(id),
+})
+
+async function handleFavourite(itemId) {
+  if (inFlight.has(itemId)) return
+  inFlight.add(itemId)
+  try {
+    const favourite = await favouriteItem(itemId)
+    favourites.unshift(favourite)
+    favouritesSidebar.render(favourites)
+    inbox.markFavourited(itemId)
+  } catch (err) {
+    console.error(err)
+  } finally {
+    inFlight.delete(itemId)
+  }
+}
+
+async function handleFavouriteRun(favouriteId) {
+  if (inFlight.has(favouriteId)) return
+  inFlight.add(favouriteId)
+  favouritesSidebar.setRunning(favouriteId, true)
+  try {
+    const item = await runFavourite(favouriteId)
+    inbox.addItem(item) // shows up in the resolved section, same as any other capture
+    updateStats()
+  } catch (err) {
+    console.error(err)
+  } finally {
+    inFlight.delete(favouriteId)
+    favouritesSidebar.setRunning(favouriteId, false)
+  }
+}
+
+async function handleFavouriteDelete(favouriteId) {
+  try {
+    await deleteFavourite(favouriteId)
+    favourites = favourites.filter(f => f.id !== favouriteId)
+    favouritesSidebar.render(favourites)
+  } catch (err) {
+    console.error(err)
+  }
+}
+
+let favourites = []
+
+async function loadFavourites() {
+  try {
+    favourites = await getFavourites()
+    favouritesSidebar.render(favourites)
+  } catch {
+    // Backend not available yet — leave the sidebar hidden
   }
 }
 
@@ -151,7 +218,19 @@ async function loadSatellites() {
 }
 
 // ── Assemble ──────────────────────────────────────────────
-app.append(header, captureInput.el, inbox.el, stats, versionInfo.footerEl)
+// The favourites sidebar sits alongside the capture/inbox column — a real
+// side-by-side layout on a wide viewport (see .layout in styles.css), and
+// stacks above it on a narrow one, since this app is phone-first.
+const main = document.createElement('div')
+main.className = 'main-column'
+main.append(captureInput.el, inbox.el)
+
+const layout = document.createElement('div')
+layout.className = 'layout'
+layout.append(favouritesSidebar.el, main)
+
+app.append(header, layout, stats, versionInfo.footerEl)
 loadItems()
 loadVersion()
 loadSatellites()
+loadFavourites()

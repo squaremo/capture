@@ -51,6 +51,32 @@ body::before {
   padding: 0 16px;
 }
 
+/* Capture/inbox plus the favourites sidebar. Mobile-first: the sidebar
+   just stacks above the capture column (this app is phone-first — see
+   CLAUDE.md), and only becomes a true side-by-side layout at a width
+   comfortably wider than a phone. */
+.layout {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.main-column {
+  min-width: 0; /* lets long item text wrap instead of overflowing the flex item */
+}
+
+@media (min-width: 860px) {
+  #app { max-width: calc(var(--max-w) + 260px); }
+  .layout { flex-direction: row-reverse; align-items: flex-start; }
+  .main-column { flex: 1; max-width: var(--max-w); }
+  .favourites {
+    width: 220px;
+    flex-shrink: 0;
+    position: sticky;
+    top: 16px;
+  }
+}
+
 /* ── Header ──────────────────────────────────────────────── */
 header {
   display: flex;
@@ -346,11 +372,28 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 }
 
 .item-result {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
   font-size: 12px;
   color: var(--text-dim);
   border-left: 2px solid var(--border);
   padding-left: 8px;
 }
+
+.item-result-text { flex: 1; }
+
+.btn-favourite {
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+  flex-shrink: 0;
+}
+.btn-favourite:hover { color: var(--amber); }
+.btn-favourite:disabled { color: var(--amber); opacity: 1; cursor: default; }
 
 .item-steps {
   list-style: none;
@@ -399,6 +442,63 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   0%   { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
+
+/* ── Favourites sidebar ──────────────────────────────────── */
+.favourites {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border);
+}
+@media (min-width: 860px) {
+  .favourites { padding: 16px 0 0; border-bottom: none; }
+}
+/* An unconditional `display` on a class beats the UA [hidden] rule at
+   equal specificity (author styles win over UA styles), same fix as
+   .house-row[hidden] above. */
+.favourites[hidden] { display: none; }
+
+.favourites-title {
+  font-size: 11px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--amber);
+  margin: 0 0 8px;
+}
+
+.favourites-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.favourite-item {
+  display: flex;
+  align-items: stretch;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.favourite-run {
+  flex: 1;
+  text-align: left;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  padding: 8px 10px;
+  word-break: break-word;
+}
+.favourite-run:hover { color: var(--amber); }
+
+.favourite-delete {
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 14px;
+  padding: 0 10px;
+  flex-shrink: 0;
+}
+.favourite-delete:hover { color: var(--red); }
 
 /* ── Stats footer ────────────────────────────────────────── */
 .stats {

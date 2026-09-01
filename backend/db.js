@@ -17,17 +17,33 @@ db.exec(`
     pending_action TEXT,
     plan_progress TEXT,
     house        TEXT,
+    executed_action TEXT,
     created_at   TEXT NOT NULL
   )
 `)
 // Migrations for columns added after the table already existed elsewhere.
-for (const column of ['pending_action TEXT', 'plan_progress TEXT', 'house TEXT']) {
+for (const column of ['pending_action TEXT', 'plan_progress TEXT', 'house TEXT', 'executed_action TEXT']) {
   try {
     db.exec(`ALTER TABLE items ADD COLUMN ${column}`)
   } catch (err) {
     if (!/duplicate column name/.test(err.message)) throw err
   }
 }
+
+// One row per favourited action — a frozen { tool, input } call, exactly
+// as it was actually executed (see executed_action above), replayable with
+// no re-planning and no re-approval. See createFavourite()/runFavourite
+// callers in server.js.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS favourites (
+    id         TEXT PRIMARY KEY,
+    label      TEXT NOT NULL,
+    tool       TEXT NOT NULL,
+    input      TEXT NOT NULL,
+    tags       TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL
+  )
+`)
 
 function newId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
@@ -39,6 +55,7 @@ function parseItem(row) {
     tags: JSON.parse(row.tags),
     pending_action: row.pending_action ? JSON.parse(row.pending_action) : null,
     plan_progress: row.plan_progress ? JSON.parse(row.plan_progress) : [],
+    executed_action: row.executed_action ? JSON.parse(row.executed_action) : null,
   }
 }
 
@@ -46,8 +63,8 @@ export function createItem(text, house = null) {
   const id = newId()
   const created_at = new Date().toISOString()
   db.prepare(
-    'INSERT INTO items (id, text, status, tags, action_result, pending_action, plan_progress, house, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(id, text, 'pending', '[]', null, null, null, house, created_at)
+    'INSERT INTO items (id, text, status, tags, action_result, pending_action, plan_progress, house, executed_action, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, text, 'pending', '[]', null, null, null, house, null, created_at)
   return getItem(id)
 }
 
@@ -63,7 +80,7 @@ export function listItems({ status } = {}) {
   return rows.map(parseItem)
 }
 
-export function updateItem(id, { status, tags, action_result, pending_action, plan_progress }) {
+export function updateItem(id, { status, tags, action_result, pending_action, plan_progress, executed_action }) {
   const fields = []
   const values = []
   if (status !== undefined)         { fields.push('status = ?');         values.push(status) }
@@ -71,8 +88,40 @@ export function updateItem(id, { status, tags, action_result, pending_action, pl
   if (action_result !== undefined)  { fields.push('action_result = ?');  values.push(action_result) }
   if (pending_action !== undefined) { fields.push('pending_action = ?'); values.push(pending_action ? JSON.stringify(pending_action) : null) }
   if (plan_progress !== undefined)  { fields.push('plan_progress = ?');  values.push(plan_progress ? JSON.stringify(plan_progress) : null) }
+  if (executed_action !== undefined) { fields.push('executed_action = ?'); values.push(executed_action ? JSON.stringify(executed_action) : null) }
   if (!fields.length) return getItem(id)
   values.push(id)
   db.prepare(`UPDATE items SET ${fields.join(', ')} WHERE id = ?`).run(...values)
   return getItem(id)
+}
+
+// ── Favourites ────────────────────────────────────────────
+// A favourite freezes one already-executed { tool, input } call (see
+// executed_action above) under a label, for one-click replay with no
+// re-planning and no re-approval — see POST /api/favourites/:id/run.
+
+function parseFavourite(row) {
+  return { ...row, input: JSON.parse(row.input), tags: JSON.parse(row.tags) }
+}
+
+export function createFavourite({ label, tool, input, tags = [] }) {
+  const id = newId()
+  const created_at = new Date().toISOString()
+  db.prepare(
+    'INSERT INTO favourites (id, label, tool, input, tags, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(id, label, tool, JSON.stringify(input), JSON.stringify(tags), created_at)
+  return getFavourite(id)
+}
+
+export function getFavourite(id) {
+  const row = db.prepare('SELECT * FROM favourites WHERE id = ?').get(id)
+  return row ? parseFavourite(row) : null
+}
+
+export function listFavourites() {
+  return db.prepare('SELECT * FROM favourites ORDER BY created_at DESC').all().map(parseFavourite)
+}
+
+export function deleteFavourite(id) {
+  db.prepare('DELETE FROM favourites WHERE id = ?').run(id)
 }

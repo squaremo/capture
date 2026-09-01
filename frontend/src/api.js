@@ -52,3 +52,27 @@ export async function vetoItem(id) {
   if (!res.ok) throw new Error(`veto item failed: ${res.status}`)
   return res.json()
 }
+
+export async function favouriteItem(id) {
+  const res = await fetch(`${BASE}/items/${id}/favourite`, { method: 'POST' })
+  if (!res.ok) throw new Error(`favourite item failed: ${res.status}`)
+  return res.json()
+}
+
+export async function getFavourites() {
+  const res = await fetch(`${BASE}/favourites`)
+  if (!res.ok) throw new Error(`fetch favourites failed: ${res.status}`)
+  return res.json()
+}
+
+export async function runFavourite(id) {
+  const res = await fetch(`${BASE}/favourites/${id}/run`, { method: 'POST' })
+  if (!res.ok) throw new Error(`run favourite failed: ${res.status}`)
+  return res.json()
+}
+
+export async function deleteFavourite(id) {
+  const res = await fetch(`${BASE}/favourites/${id}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(`delete favourite failed: ${res.status}`)
+  return res.json()
+}
