@@ -40,21 +40,15 @@ app.get('/api/status', async () => ({
   ...sonos.getStatus(),
 }))
 
-// Resolves a rich query into a specific track + speaker, without playing
-// anything — the caller (the hub, or the UI below) shows this exact
-// result for approval before ever calling /api/play with it.
+// Resolves a room name into a specific speaker, without playing anything
+// — the caller (the hub, or the UI below) already has a track resolved
+// via Spotify by this point (see designs/satellites.md), and shows this
+// exact speaker match alongside it for approval before ever calling
+// /api/play.
 app.post('/api/search', async (req, reply) => {
-  const { title, artist, album, room } = req.body ?? {}
-  if (!title || typeof title !== 'string' || !title.trim()) {
-    return reply.code(400).send({ error: 'title is required' })
-  }
+  const { room } = req.body ?? {}
   try {
-    return await sonos.search({
-      title: title.trim(),
-      artist: typeof artist === 'string' ? artist.trim() : undefined,
-      album: typeof album === 'string' ? album.trim() : undefined,
-      room: typeof room === 'string' ? room.trim() : undefined,
-    })
+    return await sonos.matchRoom(typeof room === 'string' ? room.trim() : undefined)
   } catch (err) {
     return reply.code(422).send({ error: err.message })
   }
