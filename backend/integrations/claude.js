@@ -1,7 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { resolveEnv } from '../secrets.js'
 import { createLinearTask, searchLinearIssues } from './linear.js'
-import { resolvePlayback, commitPlayback, getHouses } from './satellite.js'
+import { resolveSpeaker, commitPlayback, getHouses } from './satellite.js'
+import { searchTrack } from './spotify.js'
 
 const client = new Anthropic({ apiKey: await resolveEnv('ANTHROPIC_API_KEY') })
 
@@ -18,6 +19,16 @@ export const LINEAR_ENABLED = Boolean(linearApiKey && linearTeamId)
 // propose device-control for ordinary captures that happen to mention a
 // song, with nothing to actually act on it — see designs/satellites.md.
 export const SATELLITES_ENABLED = Object.keys(getHouses()).length > 0
+
+const spotifyClientId = await resolveEnv('SPOTIFY_CLIENT_ID')
+const spotifyClientSecret = await resolveEnv('SPOTIFY_CLIENT_SECRET')
+export const SPOTIFY_ENABLED = Boolean(spotifyClientId && spotifyClientSecret)
+
+// resolve_playback needs both a house to reach (SATELLITES_ENABLED) and a
+// way to search the catalog (SPOTIFY_ENABLED) — offering the tool with
+// only one configured would let Claude propose device-control that can
+// never actually resolve. See designs/satellites.md.
+const PLAYBACK_ENABLED = SATELLITES_ENABLED && SPOTIFY_ENABLED
 
 // Every tool the plan can call. `kind` decides how the interpreter treats a step:
 // - terminal: ends the plan immediately with a resolved status (no external effect)
@@ -47,12 +58,19 @@ if (LINEAR_ENABLED) {
   }
 }
 
-if (SATELLITES_ENABLED) {
+if (PLAYBACK_ENABLED) {
   TOOL_REGISTRY.resolve_playback = {
     kind: 'readonly',
     label: 'Finding matching track and speaker',
+    // Track and speaker are independent lookups, run concurrently: the
+    // track comes straight from Spotify (a plain cloud catalog read, no
+    // local-network dependency), the speaker from the satellite's own
+    // device list (which does). See designs/satellites.md.
     execute: async ({ target_house, room, title, artist, album }) => {
-      const { track, speaker } = await resolvePlayback({ houses: getHouses(), house: target_house, room, title, artist, album })
+      const [track, { speaker }] = await Promise.all([
+        searchTrack({ clientId: spotifyClientId, clientSecret: spotifyClientSecret, title, artist, album }),
+        resolveSpeaker({ houses: getHouses(), house: target_house, room }),
+      ])
       return { target_house, track, speaker }
     },
   }
@@ -83,7 +101,7 @@ Resolve it by calling propose_plan with an ordered list of steps. Available tool
 - create_reminder (terminal): args { action_result, tags }. Something time-sensitive that should become a calendar event or reminder.
 - flag_urgent (terminal): args { action_result, tags }. Something that needs immediate attention.${LINEAR_ENABLED ? `
 - search_linear_issues (read-only — runs automatically, no approval needed): args { query }. Searches existing Linear issues for a similar title. Outputs: { duplicate_found: boolean, matching_issue: { title, url } | null }.
-- create_linear_task (acting — only proposes; a human must approve before anything is actually created): args { title, description?, tags }. Real project/engineering work that should be tracked in Linear (e.g. "fix the login bug", "add dark mode").` : ''}${SATELLITES_ENABLED ? `
+- create_linear_task (acting — only proposes; a human must approve before anything is actually created): args { title, description?, tags }. Real project/engineering work that should be tracked in Linear (e.g. "fix the login bug", "add dark mode").` : ''}${PLAYBACK_ENABLED ? `
 - resolve_playback (read-only — runs automatically, no approval needed): args { title, artist?, album?, room, target_house? }. Looks up the actual matching track and speaker for a Sonos playback request — never guess a specific speaker name or track yourself, this does the matching. room is free text like "living room" or "bedroom", passed through as written. target_house should only be set when the capture text unambiguously names one of these houses: ${houseNames.join(', ')}. Leave it unset otherwise — the app fills in the house the capture came from. Outputs: { target_house, track: { title, artist, album, matchConfidence }, speaker: { name, confidence } }.
 - control_playback (acting — proposes the exact resolved track and speaker; a human must approve before anything plays): args { target_house, track, speaker, tags }. Always follows resolve_playback in the same plan, referencing its whole output rather than re-stating anything: target_house: "\${s1.target_house}", track: "\${s1.track}", speaker: "\${s1.speaker}" (using whichever step id you gave resolve_playback). Never call control_playback without a resolve_playback step earlier in the same plan.` : ''}
 

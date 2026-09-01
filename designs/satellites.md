@@ -1,6 +1,6 @@
 # Satellites: local control per house
 
-Status: hub-side dispatch (`resolve_playback`/`control_playback` in `claude.js`, `backend/integrations/satellite.js`) and the satellite controller (`satellite/`) are implemented and tested. Track search and room/speaker matching are still stubs (see Open questions). The frontend's house chooser (`capture.js`) is implemented — sticky by default, or defaulting to `DEFAULT_HOUSE` with a "here" indicator when a build has one set (see House attribution) — but no satellite has an actual instance of the frontend deployed on it yet, so `DEFAULT_HOUSE` isn't exercised outside dev.
+Status: hub-side dispatch (`resolve_playback`/`control_playback` in `claude.js`, `backend/integrations/satellite.js`) and the satellite controller (`satellite/`) are implemented and tested. Track search is real (Spotify's Web API, called directly from the backend); room/speaker matching is still a stub (see Open questions). The frontend's house chooser (`capture.js`) is implemented — sticky by default, or defaulting to `DEFAULT_HOUSE` with a "here" indicator when a build has one set (see House attribution) — but no satellite has an actual instance of the frontend deployed on it yet, so `DEFAULT_HOUSE` isn't exercised outside dev.
 
 ## Problem
 
@@ -267,28 +267,26 @@ explicitly if that's ever genuinely needed.
   `DEFAULT_HOUSE` set actually gets served there — see House attribution)
   — likely follows the same cloud-init pattern used for the main server,
   not yet written.
-- Track search and room/speaker matching are independent lookups, run
-  concurrently (`Promise.all`), but don't both belong on the satellite —
-  catalog search is a plain cloud API call with no local-network
-  dependency, so it lives on the central backend instead: `resolve_playback`
-  calls Spotify's Web API directly (client-credentials — see `secrets.js`'s
-  `op://` pattern for `SPOTIFY_CLIENT_ID`/`SPOTIFY_CLIENT_SECRET`), same as
-  any other cloud integration, per the Problem statement above (satellites
-  exist for what the backend *can't* reach directly, and Spotify search
-  isn't that). Only speaker/room matching needs the satellite, since that's
-  resolved against each house's local device list — still a stub today
-  (exact → substring → bounded edit-distance against a hardcoded speaker
-  list, refusing to guess wildly and failing the request rather than the
-  LLM's plan), and the one still needing a real implementation. Search and
-  commit stay split into separate calls (resolve without committing, then
-  `/api/play` commits an already-resolved result verbatim) specifically so
-  the hub can show a human the *exact* resolved match before anything plays
-  — see Safety, above.
-
-  This moves `searchTrack()` out of `satellite/services/sonos.js` entirely
-  rather than swapping its stub for a real Spotify call — the satellite's
-  `/api/search` narrows to speaker/room resolution only, so
-  `satellite/README.md`'s Protocol section (currently documents `POST
-  /api/search` taking `title`/`artist`/`album`/`room`) needs updating to
-  match once this lands. TODO: swap the hardcoded speaker list for real
-  per-house device config once the provisioning story (above) exists.
+- **Implemented**: track search and room/speaker matching are independent
+  lookups, run concurrently (`Promise.all`), and don't both live on the
+  satellite — catalog search is a plain cloud API call with no
+  local-network dependency, so `resolve_playback` calls Spotify's Web API
+  directly from the central backend (client-credentials, `spotify.js` —
+  see `secrets.js`'s `op://` pattern for `SPOTIFY_CLIENT_ID`/
+  `SPOTIFY_CLIENT_SECRET`), same as any other cloud integration, per the
+  Problem statement above (satellites exist for what the backend *can't*
+  reach directly, and Spotify search isn't that). `searchTrack()` no
+  longer exists in `satellite/services/sonos.js` — the satellite's
+  `/api/search` narrowed to speaker/room resolution only (`room?` in,
+  `{ speaker }` out; protocol documented in `satellite/README.md`). Only
+  speaker/room matching needs the satellite, since that's resolved
+  against each house's local device list — still a stub (exact →
+  substring → bounded edit-distance against a hardcoded speaker list,
+  refusing to guess wildly and failing the request rather than the LLM's
+  plan), and the one piece here still needing a real implementation.
+  Search and commit stay split into separate calls (resolve without
+  committing, then `/api/play` commits an already-resolved result
+  verbatim) specifically so the hub can show a human the *exact* resolved
+  match before anything plays — see Safety, above. TODO: swap the
+  hardcoded speaker list for real per-house device config once the
+  provisioning story (above) exists.

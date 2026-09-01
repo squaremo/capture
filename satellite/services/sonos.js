@@ -1,8 +1,8 @@
-// Stand-in for real Sonos + catalog-search integration until there's
-// hardware/an API to talk to. Exposes the same shape a real
-// implementation would — a matched track and a matched speaker, each
-// carrying a confidence label — so swapping this out later doesn't
-// change callers. See designs/satellites.md.
+// Stand-in for real Sonos control until there's hardware to talk to. Track
+// catalog search now happens on the central backend, directly against
+// Spotify's Web API (see designs/satellites.md) — this only matches a
+// room name against this house's actual speakers, and plays/pauses
+// whatever track the hub already resolved.
 
 // Stub device list — a real implementation would discover these from the
 // house's actual Sonos system rather than hardcoding them (there's no
@@ -15,24 +15,18 @@ export function getStatus() {
   return { ...state }
 }
 
-// Resolves a rich query into a specific track + speaker, without
-// committing playback — this is the realistic split: search first (can
-// fail; changes nothing), then play() by the exact result, so what a
-// human approved is exactly what plays, not a fresh re-search that could
-// plausibly land on something else. Track search and speaker matching
-// don't depend on each other, so they run concurrently — trivial for
-// these stubs, but the point where a real implementation would have two
-// genuinely independent I/O calls (catalog search vs device discovery).
-// Throws if room doesn't match any configured speaker closely enough.
-export async function search({ title, artist, album, room }) {
-  const [track, speaker] = await Promise.all([
-    searchTrack({ title, artist, album }),
-    matchSpeaker(room, SPEAKERS),
-  ])
+// Resolves a room name into a specific speaker, without committing
+// playback — this is the realistic split: search first (can fail;
+// changes nothing), then play() by the exact result, so what a human
+// approved is exactly what plays, not a fresh re-match that could
+// plausibly land on something else. Throws if room doesn't match any
+// configured speaker closely enough.
+export async function matchRoom(room) {
+  const speaker = await matchSpeaker(room, SPEAKERS)
   if (speaker.confidence === 'no_match') {
     throw new Error(`No speaker matching "${speaker.requested}"`)
   }
-  return { track, speaker }
+  return { speaker }
 }
 
 // Commits playback using an already-resolved track/speaker (from a prior
@@ -51,20 +45,6 @@ export function pause() {
   state = { ...state, playing: false }
   console.log('[sonos stub] paused')
   return getStatus()
-}
-
-// Stand-in for a real catalog search (Spotify, Sonos's own search, ...).
-// Returns a plausible-shaped result — an id and a confidence label based
-// on how specific the query was — without actually querying anything. A
-// real implementation swaps only this function; callers don't change.
-async function searchTrack({ title, artist, album }) {
-  return {
-    id: `trk_${Math.random().toString(36).slice(2, 10)}`,
-    title,
-    artist: artist ?? null,
-    album: album ?? null,
-    matchConfidence: artist ? 'exact' : 'approximate',
-  }
 }
 
 // Fuzzy-matches free text ("bedroom") against this satellite's actual
