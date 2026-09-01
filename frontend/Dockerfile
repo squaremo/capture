@@ -12,11 +12,6 @@ COPY . .
 ARG GIT_SHA=dev
 ENV GIT_SHA=$GIT_SHA
 
-# Which house this build "is" — empty for the general frontend image;
-# a satellite's own build would set this. See vite.config.js.
-ARG DEFAULT_HOUSE=
-ENV DEFAULT_HOUSE=$DEFAULT_HOUSE
-
 RUN npm run build
 
 FROM nginx:alpine
