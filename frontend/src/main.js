@@ -3,6 +3,7 @@ import { createCaptureInput } from './components/capture.js'
 import { createInbox } from './components/inbox.js'
 import { createVersionInfo } from './components/versionInfo.js'
 import { createFavouritesSidebar } from './components/favourites.js'
+import { createLocalActivity } from './components/localActivity.js'
 import { loadConfig } from './config.js'
 import {
   configureApi, postCapture, getItem, getItems, approveItem, vetoItem, getVersion, getSatellites,
@@ -230,13 +231,16 @@ async function init() {
     }
   }
 
+  // ── Local device activity (satellite-served pages only) ────
+  const localActivity = createLocalActivity()
+
   // ── Assemble ──────────────────────────────────────────────
   // The favourites sidebar sits alongside the capture/inbox column — a real
   // side-by-side layout on a wide viewport (see .layout in styles.css), and
   // stacks above it on a narrow one, since this app is phone-first.
   const main = document.createElement('div')
   main.className = 'main-column'
-  main.append(captureInput.el, inbox.el)
+  main.append(localActivity.el, captureInput.el, inbox.el)
 
   const layout = document.createElement('div')
   layout.className = 'layout'

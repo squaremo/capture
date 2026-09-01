@@ -203,6 +203,52 @@ header {
 
 .satellite-none { color: var(--text-dim); }
 
+/* ── Local device activity (satellite-served pages only) ──── */
+.local-activity {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+/* Same pitfall as .house-row: an unconditional `display` on a class
+   beats the UA [hidden] rule at equal specificity. */
+.local-activity[hidden] { display: none; }
+
+.local-activity-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.local-activity-label {
+  flex: 1;
+  color: var(--text);
+}
+
+.local-activity-badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 7px;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+.local-activity-badge--playing { border-color: var(--accent); color: var(--accent); }
+
+.btn-local-pause {
+  padding: 4px 10px;
+  font-size: 11px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+.btn-local-pause:hover { color: var(--red); border-color: var(--red); }
+
 /* ── Capture ─────────────────────────────────────────────── */
 .capture {
   padding: 20px 0;
