@@ -24,6 +24,12 @@ const spotifyClientId = await resolveEnv('SPOTIFY_CLIENT_ID')
 const spotifyClientSecret = await resolveEnv('SPOTIFY_CLIENT_SECRET')
 export const SPOTIFY_ENABLED = Boolean(spotifyClientId && spotifyClientSecret)
 
+// Scopes catalog search to the household's own Spotify market — plain
+// config, not a secret, so read directly rather than through resolveEnv.
+// See spotify.js's searchTrack() for why this matters for playback, not
+// just search relevance.
+const spotifyMarket = process.env.SPOTIFY_MARKET
+
 // resolve_playback needs both a house to reach (SATELLITES_ENABLED) and a
 // way to search the catalog (SPOTIFY_ENABLED) — offering the tool with
 // only one configured would let Claude propose device-control that can
@@ -68,7 +74,7 @@ if (PLAYBACK_ENABLED) {
     // device list (which does). See designs/satellites.md.
     execute: async ({ target_house, room, title, artist, album }) => {
       const [track, { speaker }] = await Promise.all([
-        searchTrack({ clientId: spotifyClientId, clientSecret: spotifyClientSecret, title, artist, album }),
+        searchTrack({ clientId: spotifyClientId, clientSecret: spotifyClientSecret, title, artist, album, market: spotifyMarket }),
         resolveSpeaker({ houses: getHouses(), house: target_house, room }),
       ])
       return { target_house, track, speaker }
