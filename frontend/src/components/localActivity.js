@@ -8,13 +8,13 @@
 // good — it's a structural fact about that deployment, not a transient
 // hiccup worth retrying).
 //
-// Pausing/adjusting volume here calls the satellite's own /api/pause or
-// /api/volume directly, bypassing the capture/Claude/approval pipeline
-// entirely and deliberately — see designs/satellites.md's
-// Satellite-served frontend & local device controls: a human pressing a
-// button or dragging a slider here is direct manual control, the same
-// trust level as walking up to the speaker, not an LLM's interpretation
-// of free text that needs gating.
+// Pausing/resuming/adjusting volume here calls the satellite's own
+// /api/pause, /api/resume, or /api/volume directly, bypassing the
+// capture/Claude/approval pipeline entirely and deliberately — see
+// designs/satellites.md's Satellite-served frontend & local device
+// controls: a human pressing a button or dragging a slider here is
+// direct manual control, the same trust level as walking up to the
+// speaker, not an LLM's interpretation of free text that needs gating.
 const POLL_MS = 4000
 
 export function createLocalActivity() {
@@ -70,26 +70,28 @@ export function createLocalActivity() {
       badge.textContent = playing ? 'playing' : 'paused'
       row.appendChild(badge)
 
-      if (playing) {
-        const pauseBtn = document.createElement('button')
-        pauseBtn.className = 'btn-local-pause'
-        pauseBtn.textContent = 'pause'
-        pauseBtn.addEventListener('click', async () => {
-          pauseBtn.disabled = true
-          try {
-            await fetch('/api/pause', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ speaker: { name: speaker } }),
-            })
-          } catch {
-            // Whatever actually happened, the next poll (or this
-            // immediate refresh) reflects real state — no local guess.
-          }
-          fetchAndRender()
-        })
-        row.appendChild(pauseBtn)
-      }
+      // One toggle button either way — /api/resume, not /api/play, is
+      // what continues a paused speaker: /api/play always reloads the
+      // track from the start (a fresh setAVTransport), so re-using it
+      // here would restart rather than resume.
+      const toggleBtn = document.createElement('button')
+      toggleBtn.className = 'btn-local-pause'
+      toggleBtn.textContent = playing ? 'pause' : 'play'
+      toggleBtn.addEventListener('click', async () => {
+        toggleBtn.disabled = true
+        try {
+          await fetch(playing ? '/api/pause' : '/api/resume', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ speaker: { name: speaker } }),
+          })
+        } catch {
+          // Whatever actually happened, the next poll (or this
+          // immediate refresh) reflects real state — no local guess.
+        }
+        fetchAndRender()
+      })
+      row.appendChild(toggleBtn)
 
       // volume is live ground truth from the player itself (see
       // sonos.js's getStatus()), null only if the speaker somehow

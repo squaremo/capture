@@ -131,14 +131,24 @@ That distinction is what makes a **local now-playing panel**
 the proxy question: the frontend, when served by a satellite, also polls
 that satellite's *own* `GET /api/status` (relative fetch, on a 4s
 interval) and shows a small transport strip per speaker with known
-activity — track, playing/paused, a pause button, a volume slider —
+activity — track, playing/paused, a play/pause toggle, a volume slider —
 sourced from real local device state rather than anything routed
-centrally. Pressing pause or dragging the slider calls the satellite's
-own `/api/pause`/`/api/volume` directly, with an immediate extra poll
-afterwards for fast feedback rather than waiting out the interval. On
-the general deployment `/api/status` 404s (no such route on the central
-backend) — confirmed via Playwright that this stops polling for good
-after exactly one request, not an ongoing background drain.
+centrally. Pressing the toggle or dragging the slider calls the
+satellite's own `/api/pause`/`/api/resume`/`/api/volume` directly, with
+an immediate extra poll afterwards for fast feedback rather than waiting
+out the interval. On the general deployment `/api/status` 404s (no such
+route on the central backend) — confirmed via Playwright that this stops
+polling for good after exactly one request, not an ongoing background
+drain.
+
+`/api/resume` is deliberately its own thing, not "call `/api/play` again
+with the remembered track": `play()` always re-runs `setAVTransport`,
+which *reloads* the track — fine for starting something new, but it
+restarts a paused track from the beginning rather than continuing it.
+`resume()` just calls the player's own `play()` with nothing else, since
+the transport already has the right track loaded from the original
+`/api/play` call. Confirmed against mocked hardware: `setAVTransport` is
+called exactly once across a play → pause → resume sequence.
 
 Volume is the one piece of this that's genuinely live, not remembered:
 `sonos-discovery`'s `Player` keeps `player.state.volume` current via
