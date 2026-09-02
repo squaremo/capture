@@ -609,8 +609,14 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 }
 .favourite-form[hidden] { display: none; }
 
-.favourite-confirm {
-  width: 100%;
+.favourite-form-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.favourite-form-actions .btn-approve,
+.favourite-form-actions .btn-veto {
+  flex: 1;
   padding: 6px 14px;
   font-size: 12px;
 }

@@ -30,11 +30,22 @@ export function createFavouritesSidebar({ onRun, onDelete } = {}) {
     const id = li.dataset.id
     if (e.target.closest('[data-action="delete"]')) return onDelete?.(id)
     if (e.target.closest('[data-action="confirm"]')) return onRun?.(id, collectFormOverrides(li))
+    // Explicit escape hatch for an opened form: close it without running
+    // or deleting the favourite. Clicking the label a second time also
+    // toggles it shut (below), but that's not an obvious affordance on
+    // its own — nothing marks the label as "click again to collapse" —
+    // so a visible cancel button is the one a person actually finds.
+    if (e.target.closest('[data-action="cancel"]')) {
+      const form = li.querySelector('.favourite-form')
+      if (form) form.hidden = true
+      return
+    }
     if (e.target.closest('[data-action="run"]')) {
       const form = li.querySelector('.favourite-form')
       // A favourite with edits to make opens its form on first click
-      // rather than firing straight away — a second click (the form's own
-      // "run" button, data-action="confirm") actually replays it.
+      // rather than firing straight away — a second click on the same
+      // label closes it again (same toggle the cancel button uses), and
+      // the form's own "run" button (data-action="confirm") replays it.
       if (form) { form.hidden = !form.hidden; return }
       return onRun?.(id)
     }
@@ -52,7 +63,10 @@ export function createFavouritesSidebar({ onRun, onDelete } = {}) {
           ${fields.length
             ? `<div class="favourite-form" hidden>
                 ${renderForm(fields)}
-                <button class="btn-approve favourite-confirm" data-action="confirm">run</button>
+                <div class="favourite-form-actions">
+                  <button class="btn-approve favourite-confirm" data-action="confirm">run</button>
+                  <button class="btn-veto" data-action="cancel">cancel</button>
+                </div>
               </div>`
             : ''}
         </li>
