@@ -101,7 +101,15 @@ page: `GET /config.json` hands the frontend an explicit, absolute
 backend origin for capture/inbox calls (`frontend/src/api.js`'s
 `configureApi()`), so those never accidentally route through the
 satellite itself — only the satellite's *own* endpoints (below) are ever
-same-origin relative fetches. Verified end to end (Playwright, against a
+same-origin relative fetches. Unlike the plain-`http://` backend→satellite
+dispatch traffic (see Hub → satellite dispatch — tailnet-to-process
+directly, no nginx involved), `BACKEND_URL` needs `https://`: this is
+*browser*-facing traffic, and nginx is the one thing in this stack that
+terminates real TLS. Hit this exact mix-up once in practice — an `http://`
+`BACKEND_URL` fails silently in the browser (no CORS error, just a
+request that never completes; "Provisional headers are shown" in Chrome's
+Network tab, since it's a plain unreachable/refused connection, not a
+CORS rejection the server would otherwise respond to). Verified end to end (Playwright, against a
 mock cross-origin backend): the house chooser picks up the satellite's
 `HOUSE_ID` as its default with the "here" dot, and a real capture round-
 trips through the cross-origin backend correctly. `Access-Control-Allow-
