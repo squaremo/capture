@@ -1,6 +1,6 @@
 # Satellites: local control per house
 
-Status: hub-side dispatch (`resolve_playback`/`control_playback` in `claude.js`, `backend/integrations/satellite.js`) and the satellite controller (`satellite/`) are implemented and tested. Track search is real, directly against Spotify's Web API from the central backend. Room/speaker matching and Sonos transport control (`satellite/services/sonos.js`) are also real — discovery and playback via `sonos-discovery` against actual hardware — and confirmed working against a real Sonos system: discovery found the real speakers, and search + play produced real audio, including the previously-unverified `x-sonos-spotify` URI/DIDL construction (that verification predates the real Spotify search landing, so it used a fixed placeholder track id — `play()` only depends on `track.id`, so the two pieces should combine without further changes, but that combination itself isn't yet independently verified against hardware). The frontend's house chooser (`capture.js`) is implemented — sticky by default, or defaulting to a house set via runtime config, with a "here" indicator when one's set (see House attribution). That runtime-config mechanism (`GET /config.json`, `BACKEND_URL`) supersedes an earlier `DEFAULT_HOUSE` build-time-constant version, and the satellite now actually serves the real frontend (`@fastify/static` against `../frontend/dist`) — verified end to end against a mock cross-origin backend, though not yet combined with the real Spotify search work in one live run. A local now-playing panel (`frontend/src/components/localActivity.js`) sits alongside it, showing per-speaker activity from a small in-memory record the satellite now keeps (`sonos.js`'s `activity` map) and offering a direct, ungated pause — verified end to end with Playwright (panel appears on a play call, pause flips it, and it stays permanently inert on a deployment with no local satellite).
+Status: hub-side dispatch (`resolve_playback`/`control_playback` in `claude.js`, `backend/integrations/satellite.js`) and the satellite controller (`satellite/`) are implemented and tested. Track search is real, directly against Spotify's Web API from the central backend. Room/speaker matching and Sonos transport control (`satellite/services/sonos.js`) are also real — discovery and playback via `sonos-discovery` against actual hardware — and confirmed working against a real Sonos system: discovery found the real speakers, and search + play produced real audio, including the previously-unverified `x-sonos-spotify` URI/DIDL construction (that verification predates the real Spotify search landing, so it used a fixed placeholder track id — `play()` only depends on `track.id`, so the two pieces should combine without further changes, but that combination itself isn't yet independently verified against hardware). The frontend's house chooser (`capture.js`) is implemented — sticky by default, or defaulting to a house set via runtime config, with a "here" indicator when one's set (see House attribution). That runtime-config mechanism (`GET /config.json`, `BACKEND_URL`) supersedes an earlier `DEFAULT_HOUSE` build-time-constant version, and the satellite now actually serves the real frontend (`@fastify/static` against `../frontend/dist`) — verified end to end against a mock cross-origin backend, though not yet combined with the real Spotify search work in one live run. A local now-playing panel (`frontend/src/components/localActivity.js`) sits alongside it, showing per-speaker activity from a small in-memory record the satellite now keeps (`sonos.js`'s `activity` map) and offering a direct, ungated pause and volume control (volume is live, not remembered — read fresh off `sonos-discovery`'s own eventing-backed `player.state.volume`) — verified end to end with Playwright (panel appears on a play call, pause flips it, the slider moves real volume, and it stays permanently inert on a deployment with no local satellite).
 
 ## Problem
 
@@ -131,13 +131,21 @@ That distinction is what makes a **local now-playing panel**
 the proxy question: the frontend, when served by a satellite, also polls
 that satellite's *own* `GET /api/status` (relative fetch, on a 4s
 interval) and shows a small transport strip per speaker with known
-activity — track, playing/paused, a pause button — sourced from real
-local device state rather than anything routed centrally. Pressing pause
-there calls the satellite's own `/api/pause` directly, with an immediate
-extra poll afterwards for fast feedback rather than waiting out the
-interval. On the general deployment `/api/status` 404s (no such route on
-the central backend) — confirmed via Playwright that this stops polling
-for good after exactly one request, not an ongoing background drain.
+activity — track, playing/paused, a pause button, a volume slider —
+sourced from real local device state rather than anything routed
+centrally. Pressing pause or dragging the slider calls the satellite's
+own `/api/pause`/`/api/volume` directly, with an immediate extra poll
+afterwards for fast feedback rather than waiting out the interval. On
+the general deployment `/api/status` 404s (no such route on the central
+backend) — confirmed via Playwright that this stops polling for good
+after exactly one request, not an ongoing background drain.
+
+Volume is the one piece of this that's genuinely live, not remembered:
+`sonos-discovery`'s `Player` keeps `player.state.volume` current via
+real UPnP eventing, so `getStatus()` just reads it fresh off the player
+each call rather than tracking it itself the way it does for
+track/playing (see the `activity` map, above and in Open questions) —
+there's nothing to drift out of sync.
 
 This deliberately **bypasses the capture → Claude → approval pipeline**
 — and that's correct, not a gap in it. Approval exists to gate an LLM's

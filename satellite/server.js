@@ -130,6 +130,23 @@ app.post('/api/pause', async (req, reply) => {
   }
 })
 
+// Same manual, speaker-scoped shape as /api/pause — local control only,
+// never proposed/approved by the LLM plan system.
+app.post('/api/volume', async (req, reply) => {
+  const { speaker, level } = req.body ?? {}
+  if (!speaker?.name || typeof speaker.name !== 'string') {
+    return reply.code(400).send({ error: 'speaker.name is required' })
+  }
+  if (typeof level !== 'number' || !Number.isFinite(level)) {
+    return reply.code(400).send({ error: 'level (a number, 0-100) is required' })
+  }
+  try {
+    return await sonos.setVolume({ speaker, level })
+  } catch (err) {
+    return reply.code(422).send({ error: err.message })
+  }
+})
+
 // ── Start ──────────────────────────────────────────────────
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   try {
