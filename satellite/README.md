@@ -146,9 +146,40 @@ configured" — same as an unconfigured house does for Sonos.
 
 ## Run
 
+### With a `.env` file (recommended)
+
+    cd satellite
+    npm install
+    cp .env.example .env
+
+Edit `.env`:
+
+    HOUSE_ID=home
+    BACKEND_URL=https://<backend-host>
+    DIRIGERA_ACCESS_TOKEN=...
+    DIRIGERA_HOST=...
+
+then just:
+
+    npm start
+
+`npm start`/`npm run dev` pick `.env` up automatically via Node's
+`--env-file-if-exists` — no dotenv dependency, no export-ing vars by
+hand. It's gitignored, same as the backend's `.env`; never commit it,
+since it ends up holding the Dirigera access token. Leave `DIRIGERA_*`
+blank if this house has no Dirigera hub — the satellite still starts,
+just without the `dirigera` capability (see Dirigera setup above).
+
+### With inline env vars
+
     cd satellite
     npm install
     BACKEND_URL=https://<backend-host> HOUSE_ID=home npm start
+
+Same effect as a `.env` file, just not persisted between runs — useful
+for a one-off override of a single var without touching `.env`.
+
+### Either way
 
 Open `http://localhost:4000`. `HOUSE_ID` is required — it's what a real
 deployment would bake in at provisioning (see "Running modes" in the
@@ -157,20 +188,9 @@ standing in and stop the process when you leave. `BACKEND_URL` is needed
 for the real frontend to work (see above); `SPOTIFY_ACCOUNT_SN` is
 optional, see Protocol above.
 
-Config can also come from a `.env` file in this directory (copy
-`.env.example`) instead of inline env vars — `npm start`/`npm run dev`
-pick it up automatically via Node's `--env-file-if-exists`, no dotenv
-dependency needed. It's gitignored, same as the backend's `.env`; never
-commit it, since it ends up holding the Dirigera access token above.
-
-    HOUSE_ID=home
-    BACKEND_URL=https://<backend-host>
-    DIRIGERA_ACCESS_TOKEN=...
-    DIRIGERA_HOST=...
-
 Since discovery is real, this only finds speakers if you actually run it
 on the same network as your Sonos system — a satellite started on this
 sandbox, in CI, or on a machine off that LAN will report `playersFound: 0`
 and `/api/search` will always fail with "No speaker matching" until it's
 run somewhere that can actually see them. Same for Dirigera: `/api/lights`
-only works run somewhere with real access to the hub.
+only works when run somewhere with real access to the hub.
