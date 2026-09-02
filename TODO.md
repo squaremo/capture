@@ -1,5 +1,7 @@
 # todo
 
+- [ ] Sonos app shows "Unknown content" for tracks played via `control_playback` — `spotifyPlayable()` in `satellite/services/sonos.js` deliberately sends an empty `<dc:title>` in the DIDL-Lite metadata (matching `node-sonos-http-api`'s reference behavior for track-type items), but that leaves the Sonos app with nothing to display. Playback itself works; only the now-playing display in Sonos's own app is affected. Worth trying: populate `dc:title`/`dc:creator`/album art fields properly rather than leaving them blank, or check whether Sonos is expected to backfill metadata itself from the `sid`/`desc` token and something else in the request is missing.
+- [ ] Dev/run tooling is getting brittle — running backend + frontend + satellite together currently means manually `cd`-ing into each and remembering the right env vars by hand (e.g. `BACKEND_URL` needing `https://` not `http://`, `HOUSE_ID`, `SPOTIFY_ACCOUNT_SN`, building the frontend before the satellite can serve it). Worth a root-level script or two (npm scripts, a Makefile, or `scripts/`) for the common flows — at minimum "run backend + frontend dev servers together" and "build frontend + start a satellite pointed at a given backend."
 - [ ] Add real PWA icons — `vite-plugin-pwa` manifest currently references `/icons/192.png` and `/icons/512.png`, which don't exist
 - [ ] Implement Google Calendar integration for reminder-type captures
 - [ ] Frontend e2e tests (Playwright/Cypress) — now that the frontend actually talks to the backend, this is unblocked
