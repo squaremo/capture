@@ -24,7 +24,13 @@ const spotifyTrack = {
   id: 'spotify-track-id',
   name: 'Silver Machine',
   artists: [{ name: 'Hawkwind' }],
-  album: { name: 'Space Ritual' },
+  album: {
+    name: 'Space Ritual',
+    images: [
+      { url: 'https://i.scdn.co/image/large', height: 640, width: 640 },
+      { url: 'https://i.scdn.co/image/small', height: 64, width: 64 },
+    ],
+  },
 }
 
 describe('searchTrack', () => {
@@ -81,8 +87,18 @@ describe('searchTrack', () => {
       title: 'Silver Machine',
       artist: 'Hawkwind',
       album: 'Space Ritual',
+      image: 'https://i.scdn.co/image/large',
       matchConfidence: 'exact',
     })
+  })
+
+  it('reports a null image when the album has none', async () => {
+    const trackWithNoImages = { ...spotifyTrack, album: { name: 'Space Ritual', images: [] } }
+    mockFetch.mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(searchResponse([trackWithNoImages]))
+
+    const result = await searchTrack({ clientId: 'client-i', clientSecret: 'secret-i', title: 'Silver Machine' })
+
+    expect(result.image).toBeNull()
   })
 
   it('reports approximate confidence when no artist was given to narrow the query', async () => {
