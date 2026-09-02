@@ -249,6 +249,12 @@ header {
 }
 .btn-local-pause:hover { color: var(--red); border-color: var(--red); }
 
+.local-activity-volume {
+  width: 72px;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+}
+
 /* ── Capture ─────────────────────────────────────────────── */
 .capture {
   padding: 20px 0;

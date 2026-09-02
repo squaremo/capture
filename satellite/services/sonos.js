@@ -52,7 +52,15 @@ export function getStatus() {
     ready: system.players.length > 0,
     playersFound: system.players.length,
     rooms: system.players.map((p) => p.roomName),
-    activity: [...activity.entries()].map(([speaker, state]) => ({ speaker, ...state })),
+    // volume, unlike track/playing, is real ground truth read fresh off
+    // the player each call — sonos-discovery keeps player.state.volume
+    // current via UPnP eventing, so there's nothing for this satellite to
+    // remember itself.
+    activity: [...activity.entries()].map(([speaker, state]) => ({
+      speaker,
+      ...state,
+      volume: system.getPlayer(speaker)?.state?.volume ?? null,
+    })),
   }
 }
 
@@ -102,6 +110,21 @@ export async function pause({ speaker }) {
   const previous = activity.get(player.roomName)
   activity.set(player.roomName, { track: previous?.track ?? null, playing: false, at: new Date().toISOString() })
   return { playing: false, speaker: { name: player.roomName } }
+}
+
+// Sets a specific speaker's volume (0-100) — same manual, ungated,
+// speaker-scoped shape as play()/pause(). Doesn't touch `activity`;
+// volume isn't something this satellite remembers, it's read live off
+// the player in getStatus() instead.
+export async function setVolume({ speaker, level }) {
+  await ready
+  const player = system.getPlayer(speaker.name)
+  if (!player) {
+    throw new Error(`Speaker "${speaker.name}" is no longer available`)
+  }
+  const clamped = Math.max(0, Math.min(100, Math.round(level)))
+  await player.setVolume(clamped)
+  return { speaker: { name: player.roomName }, volume: clamped }
 }
 
 // Builds the URI + DIDL-Lite metadata Sonos needs to play a Spotify
