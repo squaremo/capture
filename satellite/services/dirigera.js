@@ -48,10 +48,18 @@ async function matchRoom(client, roomText) {
   throw new Error(`No room matching "${roomText}" (known rooms: ${rooms.map(r => r.name).join(', ') || 'none'})`)
 }
 
-function validateBrightness(brightness) {
-  if (!Number.isFinite(brightness) || brightness < 1 || brightness > 100) {
+// Coerces before validating — brightness can arrive as a numeral string
+// rather than a JSON number (the propose_plan tool schema's args field
+// is untyped, so Claude's output isn't guaranteed to type it as a
+// number, and Number.isFinite doesn't coerce strings the way the global
+// isFinite does). Returns the coerced number so callers store/forward a
+// real number, not whatever string happened to arrive.
+function normalizeBrightness(brightness) {
+  const level = Number(brightness)
+  if (!Number.isFinite(level) || level < 1 || level > 100) {
     throw new Error(`brightness must be between 1 and 100, got ${brightness}`)
   }
+  return level
 }
 
 // Resolves a room name (and validates action/brightness) without
@@ -63,8 +71,8 @@ export async function resolveLight({ room, action, brightness }) {
   if (!['on', 'off', 'set_brightness'].includes(action)) {
     throw new Error(`Unknown light action: "${action}"`)
   }
-  if (action === 'set_brightness') validateBrightness(brightness)
-  return { room: match, action, brightness }
+  const level = action === 'set_brightness' ? normalizeBrightness(brightness) : brightness
+  return { room: match, action, brightness: level }
 }
 
 // Commits an already-resolved room/action/brightness (from a prior
