@@ -516,6 +516,48 @@ describe('POST /api/favourites/:id/run', () => {
     expect(item.action_result).toBe('Linear task created: "Fix bug v2" — https://linear.app/x/3')
   })
 
+  it('persists an edited-and-run favourite as its new default (input, plan_steps, and a re-rendered label)', async () => {
+    // e.g. control_light's favouriteLabel is a live template — running an
+    // edited favourite should make its button show the new value, not
+    // the one it was first favourited at.
+    const planSteps = [{ id: 's1', tool: 'control_light', args: { room: 'living room', action: 'set_brightness', brightness: 10 } }]
+    const oldRoom = { id: 'room_1', name: 'Living Room' }
+    const fav = createFavourite({
+      label: 'Living Room lights (10%)',
+      tool: 'control_light',
+      input: { room: oldRoom, action: 'set_brightness', brightness: 10 },
+      tags: [],
+      plan_steps: planSteps,
+      house: 'home',
+    })
+
+    const newInput = { room: oldRoom, action: 'set_brightness', brightness: 90 }
+    const newPlanSteps = [{ id: 's1', tool: 'control_light', args: { room: 'living room', action: 'set_brightness', brightness: 90 } }]
+    mockRunProgram.mockResolvedValue({
+      status: 'awaiting_approval',
+      tags: [],
+      action_result: 'Proposed: dim to 90% lights in "Living Room"',
+      pending_action: { tool: 'control_light', input: newInput },
+      plan_steps: newPlanSteps,
+    })
+    mockExecuteAction.mockResolvedValue({ status: 'acted', action_result: 'Lights dimmed to 90% in "Living Room"' })
+    mockGetFavouriteLabel.mockReturnValue('Living Room lights (90%)')
+
+    await app.inject({
+      method: 'POST',
+      url: `/api/favourites/${fav.id}/run`,
+      payload: { overrides: { s1: { brightness: 90 } } },
+    })
+
+    expect(mockGetFavouriteLabel).toHaveBeenCalledWith('control_light', newInput, 'Lights dimmed to 90% in "Living Room"')
+
+    const list = await app.inject({ method: 'GET', url: '/api/favourites' })
+    const updated = list.json().find(f => f.id === fav.id)
+    expect(updated.label).toBe('Living Room lights (90%)')
+    expect(updated.input).toEqual(newInput)
+    expect(updated.plan_steps).toEqual(newPlanSteps)
+  })
+
   it('marks the replayed item failed if the action throws, without touching the favourite', async () => {
     const acted = await createActedItem('fix the bug')
     const created = await app.inject({ method: 'POST', url: `/api/items/${acted.id}/favourite` })
@@ -526,8 +568,13 @@ describe('POST /api/favourites/:id/run', () => {
     expect(reply.statusCode).toBe(200)
     expect(reply.json().status).toBe('failed')
 
+    // A failed run must not become the new default — only a successful
+    // run persists back onto the favourite.
     const stillThere = await app.inject({ method: 'GET', url: '/api/favourites' })
-    expect(stillThere.json().some(f => f.id === fav.id)).toBe(true)
+    const untouched = stillThere.json().find(f => f.id === fav.id)
+    expect(untouched).toBeTruthy()
+    expect(untouched.label).toBe(fav.label)
+    expect(untouched.input).toEqual(fav.input)
   })
 })
 

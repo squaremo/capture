@@ -99,12 +99,13 @@ if (PLAYBACK_ENABLED) {
       const result = await commitPlayback({ houses: getHouses(), house: target_house, track, speaker })
       return `Played "${result.track.title}"${result.track.artist ? ` by ${result.track.artist}` : ''} on ${result.speaker.name}`
     },
-    // resolve_playback's title/artist/room are just as editable via the
-    // form as control_light's action/brightness are — freezing the
-    // specific track into the label ("Played 'Silver Machine'...") goes
-    // stale the moment the form is used to play something else. Keep
-    // only the speaker, same reasoning as control_light keeping the room.
-    favouriteLabel: ({ speaker }) => `${speaker.name} playback`,
+    // A live template, not a frozen snapshot: this is recomputed from
+    // the favourite's *current* input every time it changes (see
+    // getFavouriteLabel() below and POST /api/favourites/:id/run), so
+    // editing the track/room via the form and running it makes this the
+    // new label too — it always names whatever the favourite would
+    // replay right now, never a stale first-run value.
+    favouriteLabel: ({ track, speaker }) => `${speaker.name}: "${track.title}"${track.artist ? ` by ${track.artist}` : ''}`,
   }
 }
 
@@ -135,29 +136,27 @@ if (SATELLITES_ENABLED) {
       const verb = result.action === 'off' ? 'turned off' : result.action === 'on' ? 'turned on' : `dimmed to ${result.brightness}%`
       return `Lights ${verb} in "${result.room.name}"`
     },
-    // room is exactly as editable via the form as action/brightness are —
-    // there's no field here immune from being changed on replay. But room
-    // is the "where", action/brightness the "what", and a person is far
-    // more likely to reuse the same light favourite at a different level
-    // than to redirect a brightness favourite at a different room — so
-    // the label keeps the where and drops the what, rather than freezing
-    // "dimmed to 10%" as a name that goes stale the moment the form is
-    // used to replay at a different level. Same reasoning as
-    // control_playback's favouriteLabel above.
-    favouriteLabel: ({ room }) => `${room.name} lights`,
+    // Same live-template reasoning as control_playback's favouriteLabel
+    // above — recomputed from current input, not frozen at favourite
+    // time, so it tracks whatever level this would actually replay at.
+    favouriteLabel: ({ room, action, brightness }) => {
+      const verb = action === 'off' ? 'off' : action === 'on' ? 'on' : `${brightness}%`
+      return `${room.name} lights (${verb})`
+    },
   }
 }
 
-// A tool can define favouriteLabel(input) to generate a stable name for
-// POST /api/items/:id/favourite instead of freezing the item's
-// action_result verbatim — worth doing whenever the acting tool's editable
-// form has a "where" (room, speaker) distinct from a "what" (brightness,
-// track) that's more likely to be the thing edited on replay; freezing the
-// current "what" into the label goes stale the first time it's replayed
-// differently. create_linear_task doesn't get one: its title *is* the
-// content, with no separate "where" to fall back to, so there's nothing
-// more stable to drop down to — action_result (the fallback) stays the
-// most useful label even though title is just as editable.
+// A tool can define favouriteLabel(input) to render its label as a live
+// template instead of freezing action_result verbatim at favourite-create
+// time. What makes this different from just using action_result: it's
+// re-evaluated against the favourite's *current* input every time that
+// input changes — POST /api/favourites/:id/run persists whatever
+// tool/input actually ran (edited via the form or not) back onto the
+// favourite and regenerates its label from favouriteLabel(input), so the
+// button always names what running it *now* would do, not a snapshot from
+// whenever it was first favourited. create_linear_task doesn't define one
+// — action_result (the fallback) already says exactly what happened, and
+// there's no template needed to keep a title in sync with itself.
 export function getFavouriteLabel(tool, input, fallback) {
   return TOOL_REGISTRY[tool]?.favouriteLabel?.(input) ?? fallback
 }

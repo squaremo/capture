@@ -101,6 +101,11 @@ async function init() {
       const item = await runFavourite(favouriteId, overrides)
       inbox.addItem(item) // shows up in the resolved section, same as any other capture
       updateStats()
+      // A successful run can change the favourite itself now (see
+      // POST /api/favourites/:id/run) — its label/input become whatever
+      // just ran, so re-fetch rather than leave the sidebar showing the
+      // pre-run values until the next page load.
+      await loadFavourites()
     } catch (err) {
       console.error(err)
     } finally {

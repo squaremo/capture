@@ -143,6 +143,26 @@ export function listFavourites() {
   return db.prepare('SELECT * FROM favourites ORDER BY created_at DESC').all().map(parseFavourite)
 }
 
+// Lets a favourite's defaults track its last real run — see
+// POST /api/favourites/:id/run in server.js. A plain "run" persists
+// unchanged values (a no-op write); an edited-and-run becomes the new
+// default for next time, and label is regenerated from those values
+// (getFavouriteLabel() in claude.js) so it never freezes a value the form
+// later replays differently.
+export function updateFavourite(id, { label, tool, input, tags, plan_steps }) {
+  const fields = []
+  const values = []
+  if (label !== undefined)      { fields.push('label = ?');      values.push(label) }
+  if (tool !== undefined)       { fields.push('tool = ?');       values.push(tool) }
+  if (input !== undefined)      { fields.push('input = ?');      values.push(JSON.stringify(input)) }
+  if (tags !== undefined)       { fields.push('tags = ?');       values.push(JSON.stringify(tags)) }
+  if (plan_steps !== undefined) { fields.push('plan_steps = ?'); values.push(plan_steps ? JSON.stringify(plan_steps) : null) }
+  if (!fields.length) return getFavourite(id)
+  values.push(id)
+  db.prepare(`UPDATE favourites SET ${fields.join(', ')} WHERE id = ?`).run(...values)
+  return getFavourite(id)
+}
+
 export function deleteFavourite(id) {
   db.prepare('DELETE FROM favourites WHERE id = ?').run(id)
 }

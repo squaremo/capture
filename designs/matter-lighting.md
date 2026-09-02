@@ -176,20 +176,32 @@ see the Favourites entry in `TODO.md`.)
 - **Approval friction for low-stakes actions** — flagged above; worth a
   deliberate call later rather than a silent exception now.
 - **Favouriting a light action** — confirmed working against real
-  hardware (see Status above). One real wrinkle found in practice:
-  `control_light`'s `action_result` bakes in the specific brightness
-  ("dimmed to 10%"), which the favourite's form then lets you replay at
-  a *different* level — freezing that string as the favourite's label
-  would go stale the moment you actually use the form. Fixed via
-  `favouriteLabel` on `control_light`'s `TOOL_REGISTRY` entry (checked
-  by `getFavouriteLabel()` in `claude.js`, called from
-  `POST /api/items/:id/favourite`): drops `action`/`brightness`, keeping
-  only the room ("Living Room lights"). Not lighting-specific in the end
-  — `resolve_playback`'s `title`/`artist`/`room` are exactly as editable
-  via the form as `control_light`'s `action`/`brightness`, so
-  `control_playback` got the same treatment (`"Living Room playback"`,
-  dropping the track). `create_linear_task` is the one real exception:
-  its title *is* the content, with no separate "where" to fall back to,
-  so there's nothing more stable to drop down to — freezing the title
-  into the label stays the most useful choice there even though it's
-  just as editable as anything else.
+  hardware (see Status above). Went through two iterations once real use
+  surfaced the problem:
+  1. First fix: `control_light`'s `action_result` bakes in the specific
+     brightness ("dimmed to 10%"), which the favourite's form then lets
+     you replay at a *different* level — freezing that string as the
+     label goes stale the moment the form is used. Tried dropping
+     `action`/`brightness` from the label, keeping only the room
+     ("Living Room lights") — and the same fix for `control_playback`
+     (drops the track, keeps the speaker), since its form fields are
+     exactly as editable.
+  2. That still wasn't right: room is just as editable via the form as
+     brightness is (nothing on a resolve step's args is more "stable"
+     than anything else — the whole point of "favourite as a form" is
+     that any field can be tweaked). The actual fix: make the label a
+     **live template** (`favouriteLabel(input)` on a `TOOL_REGISTRY`
+     entry) that's re-evaluated from the favourite's *current* input
+     every time that input changes, rather than a string frozen once.
+     `POST /api/favourites/:id/run` now persists whatever `tool`/`input`/
+     `plan_steps` actually ran back onto the favourite itself
+     (`updateFavourite()` in `db.js`) and regenerates `label` from them —
+     only on success, so a failed edit never becomes the new default.
+     `control_light`'s template is `"${room.name} lights (${brightness}%)"`
+     (or on/off); `control_playback`'s is `"${speaker.name}: \"${track}\""`.
+     The favourite's button therefore always shows what running it *now*
+     would do — "just run it" replays the current default, or open the
+     form to edit it, and running becomes the new default for next time.
+     `create_linear_task` still doesn't define a template: its title is
+     the content, with no separate identifying field to build a template
+     around — `action_result` (the fallback) already says what happened.

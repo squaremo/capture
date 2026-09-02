@@ -1,6 +1,6 @@
 import Fastify from 'fastify'
 import { fileURLToPath } from 'url'
-import { createItem, getItem, listItems, updateItem, createFavourite, getFavourite, listFavourites, deleteFavourite } from './db.js'
+import { createItem, getItem, listItems, updateItem, createFavourite, getFavourite, listFavourites, updateFavourite, deleteFavourite } from './db.js'
 import { processCapture, executeAction, runProgram, getFormFields, getFavouriteLabel, LINEAR_ENABLED, SATELLITES_ENABLED, SPOTIFY_ENABLED } from './integrations/claude.js'
 import { listSatellites, getHouses } from './integrations/satellite.js'
 import { BACKEND_VERSION, getConfigVersion } from './version.js'
@@ -166,18 +166,29 @@ app.delete('/api/favourites/:id', async (req, reply) => {
 
 // POST /api/favourites/:id/run — replay a favourite's saved program. With
 // no body (or a favourite saved before plan_steps existed), this replays
-// the exact frozen { tool, input } call recorded at favourite time — no
-// re-planning, no re-resolution, and no new approval step: the human
-// already approved this exact resolved action once, when it was first
-// favourited. An optional { overrides: { stepId: { field: value } } } body
-// instead re-runs the favourite's saved plan_steps through runProgram()
-// with those fields edited — e.g. a different track/room — re-resolving
-// for real (a fresh Spotify/speaker lookup) rather than only ever
-// replaying frozen values; approval is still skipped, same reasoning as
-// the frozen path. Either way, creates a new item so the replay shows up
-// in the inbox like any other capture (audit trail, consistent with
-// everything else the app does), resolved directly to acted/failed rather
-// than passing through pending/awaiting_approval.
+// the exact { tool, input } call it currently holds — no re-planning and
+// no new approval step: the human already approved this exact resolved
+// action once, when it was first favourited. An optional
+// { overrides: { stepId: { field: value } } } body instead re-runs the
+// favourite's saved plan_steps through runProgram() with those fields
+// edited — e.g. a different track/room — re-resolving for real (a fresh
+// Spotify/speaker lookup) rather than only ever replaying frozen values;
+// approval is still skipped, same reasoning as the unedited path.
+//
+// On success, whatever actually ran — edited or not — is written back
+// onto the favourite itself (updateFavourite below): its tool/input/
+// plan_steps become the new defaults for next time, and its label is
+// regenerated from them (getFavouriteLabel(), using a tool's
+// favouriteLabel template where one exists). A favourite's displayed name
+// and default replay therefore always track the last real run, not a
+// snapshot frozen at creation — editing the form is how you *change* the
+// favourite, not just deviate from it once. Only on failure is nothing
+// persisted back — a broken edit shouldn't become the new default.
+//
+// Either way, creates a new item so the replay shows up in the inbox like
+// any other capture (audit trail, consistent with everything else the app
+// does), resolved directly to acted/failed rather than passing through
+// pending/awaiting_approval.
 app.post('/api/favourites/:id/run', async (req, reply) => {
   const favourite = getFavourite(req.params.id)
   if (!favourite) return reply.code(404).send({ error: 'Not found' })
@@ -186,6 +197,7 @@ app.post('/api/favourites/:id/run', async (req, reply) => {
   let tool = favourite.tool
   let input = favourite.input
   let tags = favourite.tags
+  let plan_steps = favourite.plan_steps
 
   if (overrides && favourite.plan_steps?.length) {
     try {
@@ -195,6 +207,7 @@ app.post('/api/favourites/:id/run', async (req, reply) => {
       }
       ;({ tool, input } = resolved.pending_action)
       tags = resolved.tags
+      plan_steps = resolved.plan_steps
     } catch (err) {
       return reply.code(422).send({ error: err.message })
     }
@@ -203,12 +216,13 @@ app.post('/api/favourites/:id/run', async (req, reply) => {
   const item = createItem(favourite.label)
   try {
     const { status, action_result } = await executeAction({ tool, input })
+    updateFavourite(favourite.id, { label: getFavouriteLabel(tool, input, action_result), tool, input, tags, plan_steps })
     return withFormFields(updateItem(item.id, {
       status,
       action_result,
       tags,
       executed_action: { tool, input },
-      plan_steps: favourite.plan_steps,
+      plan_steps,
     }))
   } catch (err) {
     app.log.error({ err, favouriteId: favourite.id }, 'Favourite replay failed')

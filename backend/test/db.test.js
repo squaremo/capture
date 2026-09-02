@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { createItem, getItem, listItems, updateItem, createFavourite, getFavourite, listFavourites, deleteFavourite } from '../db.js'
+import { createItem, getItem, listItems, updateItem, createFavourite, getFavourite, listFavourites, updateFavourite, deleteFavourite } from '../db.js'
 
 describe('createItem', () => {
   it('generates a valid id and returns a pending item', () => {
@@ -172,5 +172,40 @@ describe('favourites', () => {
     const fav = createFavourite({ label: 'to remove', tool: 'create_linear_task', input: {} })
     deleteFavourite(fav.id)
     expect(getFavourite(fav.id)).toBeNull()
+  })
+
+  it('updateFavourite replaces label/tool/input/tags/plan_steps, letting a run become the new default', () => {
+    const fav = createFavourite({
+      label: 'Living Room lights (10%)',
+      tool: 'control_light',
+      input: { room: { id: 'room_1', name: 'Living Room' }, action: 'set_brightness', brightness: 10 },
+      tags: [],
+      plan_steps: [{ id: 's1', tool: 'control_light', args: { room: 'living room', action: 'set_brightness', brightness: 10 } }],
+      house: 'home',
+    })
+
+    const newSteps = [{ id: 's1', tool: 'control_light', args: { room: 'living room', action: 'set_brightness', brightness: 90 } }]
+    const updated = updateFavourite(fav.id, {
+      label: 'Living Room lights (90%)',
+      tool: 'control_light',
+      input: { room: { id: 'room_1', name: 'Living Room' }, action: 'set_brightness', brightness: 90 },
+      tags: ['home'],
+      plan_steps: newSteps,
+    })
+
+    expect(updated.label).toBe('Living Room lights (90%)')
+    expect(updated.input.brightness).toBe(90)
+    expect(updated.tags).toEqual(['home'])
+    expect(updated.plan_steps).toEqual(newSteps)
+    // house is left alone — not one of updateFavourite's fields.
+    expect(updated.house).toBe('home')
+  })
+
+  it('updateFavourite only touches fields explicitly passed', () => {
+    const fav = createFavourite({ label: 'original', tool: 'create_linear_task', input: { title: 'x' }, tags: ['a'] })
+    const updated = updateFavourite(fav.id, { label: 'renamed' })
+    expect(updated.label).toBe('renamed')
+    expect(updated.input).toEqual({ title: 'x' })
+    expect(updated.tags).toEqual(['a'])
   })
 })

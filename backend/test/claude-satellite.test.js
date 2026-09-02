@@ -319,14 +319,18 @@ describe('getFormFields for a resolved playback program', () => {
 })
 
 describe('getFavouriteLabel', () => {
-  it('drops action/brightness for control_light, keeping only the room', () => {
+  it('renders control_light as a live template, not a frozen result string', () => {
     expect(getFavouriteLabel('control_light', { room, action: 'set_brightness', brightness: 10 }, 'Lights dimmed to 10% in "Living Room"'))
-      .toBe('Living Room lights')
+      .toBe('Living Room lights (10%)')
+    // Same input, different brightness — the label tracks it, which is
+    // the whole point: it's recomputed from current input, not frozen.
+    expect(getFavouriteLabel('control_light', { room, action: 'set_brightness', brightness: 90 }, 'irrelevant'))
+      .toBe('Living Room lights (90%)')
   })
 
-  it('drops track/artist for control_playback, keeping only the speaker', () => {
+  it('renders control_playback as a live template', () => {
     expect(getFavouriteLabel('control_playback', { track, speaker }, 'Played "Silver Machine" by Hawkwind on Living Room'))
-      .toBe('Living Room playback')
+      .toBe('Living Room: "Silver Machine" by Hawkwind')
   })
 
   it('falls back to the given fallback for a tool with no favouriteLabel (e.g. create_linear_task)', () => {
