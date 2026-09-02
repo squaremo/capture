@@ -19,6 +19,7 @@ Unstructured thoughts on where this could go, captured as-is — not scoped or c
 - **Child and parent modes** — some actions should require parent mode to invoke.
 - **Auditing** — actions taken by the app should be logged/auditable. Partial start: `plan_progress` (see `TOL-5` below) persists which read-only steps a plan actually ran, though not yet the acting-step execution itself.
 - **Home automation control**: Spotify, Sonos, a Matter hub (IKEA Dirigera).
+  - [x] Dirigera light control implemented (`designs/matter-lighting.md`): `control_light` (on/off/dim, free-text room resolved against Dirigera's own rooms) dispatches to a satellite the same way `control_playback` does. Unlike the Sonos stub, `satellite/services/dirigera.js` talks to a real hub — not yet verified against actual hardware (needs the one-time pairing step on a real satellite box, see `satellite/README.md`).
 - **Push to external services**: tasks and calendar items into things like Proton Calendar, Linear, possibly Obsidian.
 - **Drive custom-built apps too**, not just third-party services — these would need to be reachable on the same Tailscale network.
 - **Favourites**: named shortcuts (e.g. "play [song]") that just replay a fixed, previously-approved sequence of tool calls when invoked — no new planning/approval step needed each time.

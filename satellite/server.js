@@ -4,6 +4,7 @@ import { networkInterfaces } from 'os'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
 import * as sonos from './services/sonos.js'
+import * as dirigera from './services/dirigera.js'
 
 const PORT = parseInt(process.env.PORT ?? '4000', 10)
 // Only the backend ever calls this, over Tailscale — bind to the tailnet
@@ -15,10 +16,11 @@ const PORT = parseInt(process.env.PORT ?? '4000', 10)
 const HOST = process.env.HOST ?? findTailscaleAddress() ?? '127.0.0.1'
 const HOUSE_ID = process.env.HOUSE_ID ?? 'unnamed-house'
 
-// Which local services this satellite can currently reach. Only Sonos is
-// wired up so far; the hub checks this before dispatching an action rather
-// than firing blind into an unsupported house.
-const CAPABILITIES = ['sonos']
+// Which local services this satellite can currently reach. Sonos is
+// always listed (it's a stub, always "reachable"); Dirigera only when a
+// token is actually configured. The hub checks this before dispatching
+// an action rather than firing blind into an unsupported house.
+const CAPABILITIES = ['sonos', ...(dirigera.isConfigured() ? ['dirigera'] : [])]
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const indexHtml = readFileSync(join(__dirname, 'public/index.html'), 'utf8')
@@ -54,6 +56,24 @@ app.post('/api/play', async (req, reply) => {
 })
 
 app.post('/api/pause', async () => sonos.pause())
+
+app.post('/api/lights', async (req, reply) => {
+  if (!dirigera.isConfigured()) {
+    return reply.code(400).send({ error: 'Dirigera not configured on this satellite' })
+  }
+  const { room, action, brightness } = req.body ?? {}
+  if (!room || typeof room !== 'string' || !room.trim()) {
+    return reply.code(400).send({ error: 'room is required' })
+  }
+  if (!['on', 'off', 'set_brightness'].includes(action)) {
+    return reply.code(400).send({ error: `action must be "on", "off", or "set_brightness"` })
+  }
+  try {
+    return await dirigera.setLight({ room: room.trim(), action, brightness })
+  } catch (err) {
+    return reply.code(400).send({ error: err.message })
+  }
+})
 
 // ── Start ──────────────────────────────────────────────────
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

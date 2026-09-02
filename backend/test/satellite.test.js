@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, writeFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { controlPlayback, listSatellites, getHouses } from '../integrations/satellite.js'
+import { controlPlayback, controlLight, listSatellites, getHouses } from '../integrations/satellite.js'
 
 const mockFetch = vi.fn()
 vi.stubGlobal('fetch', mockFetch)
@@ -68,6 +68,49 @@ describe('controlPlayback', () => {
       .mockResolvedValueOnce(jsonResponse({ error: 'title is required' }, false, 400))
 
     await expect(controlPlayback({ houses, house: 'home', title: '' })).rejects.toThrow('title is required')
+  })
+})
+
+describe('controlLight', () => {
+  it('throws for an unknown house without calling out', async () => {
+    await expect(controlLight({ houses, house: 'lake', room: 'living room', action: 'on' })).rejects.toThrow('Unknown house')
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it('throws when the satellite status check is not ok', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({}, false, 503))
+    await expect(controlLight({ houses, house: 'home', room: 'living room', action: 'on' })).rejects.toThrow('503')
+  })
+
+  it('throws when the satellite reports a different house than the config expects', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ house: 'lake', capabilities: ['dirigera'] }))
+    await expect(controlLight({ houses, house: 'home', room: 'living room', action: 'on' })).rejects.toThrow('mismatch')
+  })
+
+  it('throws when the satellite has no dirigera capability', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ house: 'home', capabilities: ['sonos'] }))
+    await expect(controlLight({ houses, house: 'home', room: 'living room', action: 'on' })).rejects.toThrow('no Dirigera capability')
+  })
+
+  it('posts the action and returns the result', async () => {
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse({ house: 'home', capabilities: ['dirigera'] }))
+      .mockResolvedValueOnce(jsonResponse({ room: 'Living room', action: 'set_brightness', brightness: 20 }))
+
+    const result = await controlLight({ houses, house: 'home', room: 'living room', action: 'set_brightness', brightness: 20 })
+
+    expect(result).toEqual({ room: 'Living room', action: 'set_brightness', brightness: 20 })
+    const [url, options] = mockFetch.mock.calls[1]
+    expect(url).toBe('http://localhost:4000/api/lights')
+    expect(JSON.parse(options.body)).toEqual({ room: 'living room', action: 'set_brightness', brightness: 20 })
+  })
+
+  it('throws with the satellite-reported error on a failed request', async () => {
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse({ house: 'home', capabilities: ['dirigera'] }))
+      .mockResolvedValueOnce(jsonResponse({ error: 'No room matching "attic"' }, false, 400))
+
+    await expect(controlLight({ houses, house: 'home', room: 'attic', action: 'on' })).rejects.toThrow('No room matching')
   })
 })
 

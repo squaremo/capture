@@ -8,6 +8,7 @@
     "dev": "node --watch server.js"
   },
   "dependencies": {
+    "dirigera": "^2.0.0",
     "fastify": "^4.26.0"
   }
 }

@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { resolveEnv } from '../secrets.js'
 import { createLinearTask, searchLinearIssues } from './linear.js'
-import { controlPlayback, getHouses } from './satellite.js'
+import { controlPlayback, controlLight, getHouses } from './satellite.js'
 
 const client = new Anthropic({ apiKey: await resolveEnv('ANTHROPIC_API_KEY') })
 
@@ -48,8 +48,14 @@ if (LINEAR_ENABLED) {
 }
 
 if (SATELLITES_ENABLED) {
+  // usesHouse marks any tool that dispatches to a satellite and takes a
+  // target_house arg — processCapture uses it below to apply the same
+  // "default to the capture's house of origin, never guessed by Claude"
+  // rule to every such tool generically, rather than special-casing tool
+  // names one at a time.
   TOOL_REGISTRY.control_playback = {
     kind: 'acting',
+    usesHouse: true,
     describe: ({ title, artist, room, target_house }) =>
       `Proposed: play "${title}"${artist ? ` by ${artist}` : ''} in ${room}${target_house ? ` (${target_house})` : ' (house unknown)'}`,
     execute: async ({ target_house, room, title, artist, album }) => {
@@ -57,11 +63,26 @@ if (SATELLITES_ENABLED) {
       return `Played "${result.track}"${result.room ? ` in ${result.room}` : ''}`
     },
   }
+
+  TOOL_REGISTRY.control_light = {
+    kind: 'acting',
+    usesHouse: true,
+    describe: ({ room, action, brightness, target_house }) => {
+      const verb = action === 'off' ? 'turn off' : action === 'on' ? 'turn on' : `dim to ${brightness}%`
+      return `Proposed: ${verb} lights in ${room}${target_house ? ` (${target_house})` : ' (house unknown)'}`
+    },
+    execute: async ({ target_house, room, action, brightness }) => {
+      const result = await controlLight({ houses: getHouses(), house: target_house, room, action, brightness })
+      const verb = result.action === 'off' ? 'turned off' : result.action === 'on' ? 'turned on' : `dimmed to ${result.brightness}%`
+      return `Lights ${verb} in ${result.room}`
+    },
+  }
 }
 
-// control_playback's valid target_house names can change without a
-// restart (see getHouses() in satellite.js), so this is rebuilt fresh on
-// every capture rather than being a static const.
+// Tool availability and control_playback/control_light's valid
+// target_house names can change without a restart (see getHouses() in
+// satellite.js), so this is rebuilt fresh on every capture rather than
+// being a static const.
 function buildSystemPrompt() {
   const houseNames = Object.keys(getHouses())
   return `You are the intent processor for a personal quick-capture app. The user has just captured a thought, note, task, or reminder.
@@ -73,9 +94,10 @@ Resolve it by calling propose_plan with an ordered list of steps. Available tool
 - flag_urgent (terminal): args { action_result, tags }. Something that needs immediate attention.${LINEAR_ENABLED ? `
 - search_linear_issues (read-only — runs automatically, no approval needed): args { query }. Searches existing Linear issues for a similar title. Outputs: { duplicate_found: boolean, matching_issue: { title, url } | null }.
 - create_linear_task (acting — only proposes; a human must approve before anything is actually created): args { title, description?, tags }. Real project/engineering work that should be tracked in Linear (e.g. "fix the login bug", "add dark mode").` : ''}${SATELLITES_ENABLED ? `
-- control_playback (acting — only proposes; a human must approve before anything plays): args { title, artist?, album?, room, target_house?, tags }. Plays music at a house over Sonos. room is free text like "living room" or "bedroom" — pass it through as written, the satellite works out which speaker that means, don't guess a specific speaker name. target_house should only be set when the capture text unambiguously names one of these houses: ${houseNames.join(', ')}. Leave it unset otherwise — the app fills in the house the capture came from.` : ''}
+- control_playback (acting — only proposes; a human must approve before anything plays): args { title, artist?, album?, room, target_house?, tags }. Plays music at a house over Sonos. room is free text like "living room" or "bedroom" — pass it through as written, the satellite works out which speaker that means, don't guess a specific speaker name. target_house should only be set when the capture text unambiguously names one of these houses: ${houseNames.join(', ')}. Leave it unset otherwise — the app fills in the house the capture came from.
+- control_light (acting — only proposes; a human must approve before anything happens): args { room, action, brightness?, target_house?, tags }. Controls lights at a house via its Matter hub. room is free text like "living room" — pass it through as written, same as control_playback. action is "on", "off", or "set_brightness" (with brightness 1-100, e.g. "dim the living room to 20%" -> action "set_brightness", brightness 20). target_house follows the same rule as control_playback's.` : ''}
 
-action_result is a short natural-language description of what was done, e.g. "Saved to inbox", "Reminder set: 'Call dentist' — Tomorrow, 9:00am", "Flagged as urgent". Not needed for create_linear_task or control_playback — their descriptions are generated automatically. tags is an array of 1–3 lowercase tags.
+action_result is a short natural-language description of what was done, e.g. "Saved to inbox", "Reminder set: 'Call dentist' — Tomorrow, 9:00am", "Flagged as urgent". Not needed for create_linear_task, control_playback, or control_light — their descriptions are generated automatically. tags is an array of 1–3 lowercase tags.
 
 Steps run in the order given. A read-only step's output is not shown to you before you finish planning — you only see it by referencing it later, so cover both outcomes of a boolean output using "if"/"unless" on separate steps rather than guessing which one will happen.
 
@@ -175,9 +197,10 @@ export async function processCapture(text, { onStep, house } = {}) {
 
     if (def.kind === 'acting') {
       const { tags = [], ...input } = args
-      // control_playback defaults to the house the capture came from when
-      // the text didn't unambiguously name one — never guessed by Claude.
-      if (step.tool === 'control_playback' && !input.target_house) {
+      // Any usesHouse tool defaults target_house to the capture's house of
+      // origin when the text didn't unambiguously name one — never guessed
+      // by Claude.
+      if (def.usesHouse && !input.target_house) {
         input.target_house = house ?? null
       }
       return {

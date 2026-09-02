@@ -32,7 +32,15 @@
     <button id="play">play</button>
     <button id="pause">pause</button>
   </div>
+  <div class="row">
+    <input id="lightRoom" placeholder="room" size="12">
+    <input id="brightness" placeholder="%" size="4" type="number" min="1" max="100">
+    <button id="lightOn">on</button>
+    <button id="lightOff">off</button>
+    <button id="lightDim">dim</button>
+  </div>
   <div id="status">…</div>
+  <div id="lightStatus"></div>
 
 <script>
 async function refresh() {
@@ -60,6 +68,25 @@ document.getElementById('pause').onclick = async () => {
   await fetch('/api/pause', { method: 'POST' })
   refresh()
 }
+
+async function setLight(action) {
+  const room = document.getElementById('lightRoom').value.trim()
+  const brightness = Number(document.getElementById('brightness').value)
+  if (!room) return
+  const res = await fetch('/api/lights', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ room, action, brightness: action === 'set_brightness' ? brightness : undefined }),
+  })
+  const body = await res.json()
+  document.getElementById('lightStatus').textContent = res.ok
+    ? `${body.room}: ${body.action}${body.brightness ? ` ${body.brightness}%` : ''}`
+    : `error: ${body.error}`
+}
+
+document.getElementById('lightOn').onclick = () => setLight('on')
+document.getElementById('lightOff').onclick = () => setLight('off')
+document.getElementById('lightDim').onclick = () => setLight('set_brightness')
 
 refresh()
 </script>

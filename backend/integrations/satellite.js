@@ -54,6 +54,36 @@ export async function controlPlayback({ houses, house, room, title, artist, albu
   return res.json()
 }
 
+// Same shape as controlPlayback: resolve house -> satellite, confirm it's
+// reachable and actually is the house it claims, confirm it has Dirigera
+// configured, then dispatch. Room resolution and the isOn/lightLevel
+// two-call quirk are the satellite's job — see designs/matter-lighting.md.
+export async function controlLight({ houses, house, room, action, brightness }) {
+  const address = houses[house]
+  if (!address) throw new Error(`Unknown house: "${house}"`)
+
+  const statusRes = await fetch(`${address}/api/status`)
+  if (!statusRes.ok) throw new Error(`Satellite at "${house}" returned ${statusRes.status}`)
+  const status = await statusRes.json()
+  if (status.house !== house) {
+    throw new Error(`Satellite at "${house}"'s address reports house "${status.house}" — config/satellite mismatch`)
+  }
+  if (!status.capabilities?.includes('dirigera')) {
+    throw new Error(`"${house}" has no Dirigera capability configured`)
+  }
+
+  const res = await fetch(`${address}/api/lights`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ room, action, brightness }),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.error ?? `Satellite lights request failed: ${res.status}`)
+  }
+  return res.json()
+}
+
 // A short timeout so one unreachable satellite (laptop switched off, say)
 // doesn't hang the whole report — the caller just sees it as unreachable.
 async function fetchStatus(address, timeoutMs = 3000) {

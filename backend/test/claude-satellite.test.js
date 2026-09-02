@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const { mockCreate, mockControlPlayback, mockGetHouses } = vi.hoisted(() => ({
+const { mockCreate, mockControlPlayback, mockControlLight, mockGetHouses } = vi.hoisted(() => ({
   mockCreate: vi.fn(),
   mockControlPlayback: vi.fn(),
+  mockControlLight: vi.fn(),
   mockGetHouses: vi.fn(),
 }))
 
@@ -12,6 +13,7 @@ vi.mock('@anthropic-ai/sdk', () => ({
 
 vi.mock('../integrations/satellite.js', () => ({
   controlPlayback: mockControlPlayback,
+  controlLight: mockControlLight,
   getHouses: mockGetHouses,
 }))
 
@@ -25,6 +27,7 @@ const { processCapture, executeAction } = await import('../integrations/claude.j
 beforeEach(() => {
   mockCreate.mockClear()
   mockControlPlayback.mockClear()
+  mockControlLight.mockClear()
   mockGetHouses.mockClear()
   mockGetHouses.mockReturnValue({ home: 'http://localhost:4000' })
 })
@@ -79,6 +82,41 @@ describe('processCapture with satellites enabled', () => {
     expect(result.pending_action.input.target_house).toBe('lake')
   })
 
+  it('offers control_light as a tool', async () => {
+    respondWithPlan([{ id: 's1', tool: 'save_to_inbox', args: { action_result: 'ok', tags: [] } }])
+    await processCapture('anything')
+    const toolNames = mockCreate.mock.calls[0][0].tools[0].input_schema.properties.steps.items.properties.tool.enum
+    expect(toolNames).toContain('control_light')
+  })
+
+  it('proposes light control without calling the satellite, awaiting approval', async () => {
+    respondWithPlan([
+      { id: 's1', tool: 'control_light', args: { room: 'living room', action: 'set_brightness', brightness: 20 } },
+    ])
+
+    const result = await processCapture('dim the living room lights to 20%')
+
+    expect(mockControlLight).not.toHaveBeenCalled()
+    expect(result).toEqual({
+      status: 'awaiting_approval',
+      tags: [],
+      action_result: 'Proposed: dim to 20% lights in living room (house unknown)',
+      pending_action: {
+        tool: 'control_light',
+        input: { room: 'living room', action: 'set_brightness', brightness: 20, target_house: null },
+      },
+    })
+  })
+
+  it('defaults target_house to the capture origin for control_light too', async () => {
+    respondWithPlan([{ id: 's1', tool: 'control_light', args: { room: 'living room', action: 'off' } }])
+
+    const result = await processCapture('turn off the living room lights', { house: 'home' })
+
+    expect(result.pending_action.input.target_house).toBe('home')
+    expect(result.action_result).toContain('(home)')
+  })
+
   it('reflects a house added to getHouses() since startup, without re-importing', async () => {
     // SATELLITES_ENABLED was decided at import time from the original
     // mock (just "home") — this only checks the *house name list* fed
@@ -122,5 +160,35 @@ describe('executeAction with satellites enabled', () => {
     await expect(
       executeAction({ tool: 'control_playback', input: { title: 'x', target_house: 'lake' } })
     ).rejects.toThrow('Unknown house')
+  })
+})
+
+describe('control_light execution', () => {
+  it('dispatches to the resolved house and returns status acted', async () => {
+    mockControlLight.mockResolvedValue({ room: 'Living room', action: 'set_brightness', brightness: 20 })
+
+    const result = await executeAction({
+      tool: 'control_light',
+      input: { room: 'living room', action: 'set_brightness', brightness: 20, target_house: 'home' },
+    })
+
+    expect(mockControlLight).toHaveBeenCalledWith({
+      houses: { home: 'http://localhost:4000' },
+      house: 'home',
+      room: 'living room',
+      action: 'set_brightness',
+      brightness: 20,
+    })
+    expect(result).toEqual({
+      status: 'acted',
+      action_result: 'Lights dimmed to 20% in Living room',
+    })
+  })
+
+  it('propagates satellite errors as thrown exceptions', async () => {
+    mockControlLight.mockRejectedValue(new Error('No room matching "attic"'))
+    await expect(
+      executeAction({ tool: 'control_light', input: { room: 'attic', action: 'on', target_house: 'home' } })
+    ).rejects.toThrow('No room matching')
   })
 })

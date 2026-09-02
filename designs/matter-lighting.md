@@ -1,6 +1,10 @@
 # Matter lighting: local control via Dirigera
 
-Status: design only, not yet implemented. Builds directly on
+Status: implemented — `satellite/services/dirigera.js`, `POST /api/lights`
+on the satellite, `controlLight()` in `backend/integrations/satellite.js`,
+and the `control_light` tool in `TOOL_REGISTRY`. Not yet verified against
+a real hub (needs pairing on an actual satellite box — see
+`satellite/README.md`). Builds directly on
 `designs/satellites.md` — read that first. Hub → satellite dispatch,
 capability-checked routing, room-as-free-text resolved locally, and
 "approval always required, no same-house exception" all carry over
@@ -76,11 +80,11 @@ guess a specific device, and the satellite resolves it locally.
 
 Unlike Sonos, this doesn't need a hand-maintained device-name config file
 (the open TODO for Sonos speaker matching). Dirigera already models rooms
-natively — every device carries a `room` assigned via the IKEA app — so
-`dirigera.js` can list lights and match the free-text room arg against
-Dirigera's own room names directly. "Lights in living room" is a group
-action: every light device in the matched room is affected, not just
-one.
+natively, and its own client exposes room-scoped group operations
+(`rooms.setAttributes({ id, deviceType: 'light', attributes })`) — so
+`dirigera.js` lists rooms, fuzzy-matches the free-text room arg against
+Dirigera's own room names, and applies the action to every light in that
+room in one call, rather than iterating individual devices client-side.
 
 ## New acting tool: `control_light`
 
@@ -103,16 +107,22 @@ back-and-forth needed; a bad extraction is caught at approval, same as
 everything else.
 
 `target_house` resolution (explicit named house vs. capture's house of
-origin) is identical to `control_playback` — no new logic needed there.
+origin) is identical to `control_playback` — implemented by generalizing
+the tool-name-specific check `processCapture()` had for `control_playback`
+into a `usesHouse: true` flag any `TOOL_REGISTRY` entry can set, checked
+generically. Adding a second satellite-dispatching tool was the trigger
+to make that generic rather than duplicating the special case.
 
 One Dirigera-specific wrinkle, handled inside `dirigera.js` rather than
 exposed to the plan: `isOn` and `lightLevel` are independent attributes,
 so setting brightness on a light that's off doesn't visibly do anything
-until it's also turned on. `set_brightness` therefore sets both in one
-action — the tool's single verb hides this, rather than making the
-interpreter or Claude model it as two steps. Same "vendor quirks are the
-satellite's problem, not the LLM's" reasoning already applied to Sonos
-track search and speaker matching.
+until it's also turned on — and Dirigera's own client docs warn some
+attributes can't be combined in a single `setAttributes` call, so
+`set_brightness` issues two calls (`isOn: true`, then `lightLevel`)
+rather than one. The tool's single `set_brightness` verb hides both of
+these — the interpreter and Claude never see two steps. Same "vendor
+quirks are the satellite's problem, not the LLM's" reasoning already
+applied to Sonos track search and speaker matching.
 
 ## Safety
 
@@ -137,10 +147,10 @@ action. The satellite exposes it as `POST /api/lights` with body
 
 ## Open questions
 
-- **Mixed initial states** — if "living room" has three lights and one's
-  already off, does "dim to 20%" turn all three on at 20%, or only touch
-  ones already on? Leaning toward uniform (all on, all at 20%) as the
-  simplest predictable behaviour, but not decided.
+- **Mixed initial states** — resolved: `set_brightness` always turns the
+  whole room's lights on and sets them all to the given level (the
+  `rooms.setAttributes` group call has no per-device conditional), rather
+  than only touching lights already on.
 - **Non-IKEA Matter devices bridged through Dirigera** — assumed to
   behave identically for brightness through Dirigera's normalized API,
   not verified without real hardware.
