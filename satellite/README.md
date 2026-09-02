@@ -102,7 +102,13 @@ for why this replaced an earlier frontend build-time constant.
 (capture, inbox — anything that isn't Sonos-specific): without it, those
 calls fall back to a relative `/api`, which 404s here, since the frontend
 is no longer same-origin with the central backend once a satellite is
-the one serving it. `FRONTEND_DIST_PATH` overrides where the build is
+the one serving it. Use **`https://`** — unlike the backend→satellite
+dispatch traffic (`/api/play` etc.), which is deliberately plain
+`http://` because it goes tailnet-to-process directly (see Hub →
+satellite dispatch in the design doc), this is *browser*-facing traffic
+that goes through nginx, the one thing in this stack that terminates
+real TLS. Point it at the backend's normal nginx-fronted address, not
+its raw process port. `FRONTEND_DIST_PATH` overrides where the build is
 read from if it's not at the default sibling-directory location.
 
 If no build is found at startup, `/` falls back to the bespoke manual
@@ -114,7 +120,7 @@ checkout nearby.
 
     cd satellite
     npm install
-    BACKEND_URL=http://<backend-host> HOUSE_ID=home npm start
+    BACKEND_URL=https://<backend-host> HOUSE_ID=home npm start
 
 Open `http://localhost:4000`. `HOUSE_ID` is required — it's what a real
 deployment would bake in at provisioning (see "Running modes" in the
