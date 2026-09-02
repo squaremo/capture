@@ -56,8 +56,12 @@ export async function patchItem(id, patch) {
   return res.json()
 }
 
-export async function approveItem(id) {
-  const res = await fetch(`${BASE}/items/${id}/approve`, { method: 'POST' })
+export async function approveItem(id, overrides) {
+  const res = await fetch(`${BASE}/items/${id}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(overrides ? { overrides } : {}),
+  })
   if (!res.ok) throw new Error(`approve item failed: ${res.status}`)
   return res.json()
 }
@@ -80,8 +84,12 @@ export async function getFavourites() {
   return res.json()
 }
 
-export async function runFavourite(id) {
-  const res = await fetch(`${BASE}/favourites/${id}/run`, { method: 'POST' })
+export async function runFavourite(id, overrides) {
+  const res = await fetch(`${BASE}/favourites/${id}/run`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(overrides ? { overrides } : {}),
+  })
   if (!res.ok) throw new Error(`run favourite failed: ${res.status}`)
   return res.json()
 }

@@ -6,7 +6,7 @@ vi.mock('@anthropic-ai/sdk', () => ({
   default: vi.fn(() => ({ messages: { create: mockCreate } })),
 }))
 
-import { processCapture } from '../integrations/claude.js'
+import { processCapture, runProgram, getFormFields } from '../integrations/claude.js'
 
 beforeEach(() => {
   mockCreate.mockClear()
@@ -24,9 +24,15 @@ function respondWithStep(tool, args) {
 
 describe('processCapture', () => {
   it('maps save_to_inbox → triaged', async () => {
-    respondWithStep('save_to_inbox', { action_result: 'Saved to inbox.', tags: ['work'] })
+    const args = { action_result: 'Saved to inbox.', tags: ['work'] }
+    respondWithStep('save_to_inbox', args)
     const result = await processCapture('buy milk')
-    expect(result).toEqual({ status: 'triaged', tags: ['work'], action_result: 'Saved to inbox.' })
+    expect(result).toEqual({
+      status: 'triaged',
+      tags: ['work'],
+      action_result: 'Saved to inbox.',
+      plan_steps: [{ id: 's1', tool: 'save_to_inbox', args }],
+    })
   })
 
   it('maps create_reminder → reminder', async () => {
@@ -81,5 +87,41 @@ describe('processCapture', () => {
     const result = await processCapture('test')
     expect(result.status).toBe('urgent')
     expect(result.action_result).toBe('Urgent!')
+  })
+
+  it('only records the steps actually reached in plan_steps, not skipped branches', async () => {
+    respondWithPlan([
+      { id: 's1', tool: 'flag_urgent', args: { action_result: 'Urgent!', tags: [] } },
+      { id: 's2', tool: 'save_to_inbox', args: { action_result: 'Saved.', tags: [] } },
+    ])
+    const result = await processCapture('test')
+    expect(result.plan_steps).toEqual([{ id: 's1', tool: 'flag_urgent', args: { action_result: 'Urgent!', tags: [] } }])
+  })
+})
+
+describe('runProgram with overrides', () => {
+  it('substitutes an overridden literal arg before resolving the step', async () => {
+    const steps = [{ id: 's1', tool: 'save_to_inbox', args: { action_result: 'Saved.', tags: [] } }]
+    const result = await runProgram(steps, { overrides: { s1: { action_result: 'Edited.' } } })
+    expect(result.action_result).toBe('Edited.')
+    expect(result.plan_steps).toEqual([{ id: 's1', tool: 'save_to_inbox', args: { action_result: 'Edited.', tags: [] } }])
+  })
+
+  it('behaves exactly like the original plan when no overrides are given', async () => {
+    const steps = [{ id: 's1', tool: 'create_reminder', args: { action_result: 'Reminder set.', tags: ['health'] } }]
+    const result = await runProgram(steps, {})
+    expect(result).toEqual({ status: 'reminder', tags: ['health'], action_result: 'Reminder set.', plan_steps: steps })
+  })
+})
+
+describe('getFormFields', () => {
+  it('skips terminal classification steps entirely (nothing to parameterize)', () => {
+    const steps = [{ id: 's1', tool: 'save_to_inbox', args: { action_result: 'Saved.', tags: ['work'] } }]
+    expect(getFormFields(steps)).toEqual([])
+  })
+
+  it('returns an empty list for no steps', () => {
+    expect(getFormFields(undefined)).toEqual([])
+    expect(getFormFields([])).toEqual([])
   })
 })

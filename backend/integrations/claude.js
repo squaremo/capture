@@ -196,13 +196,42 @@ export async function processCapture(text, { onStep, house } = {}) {
     throw new Error('Claude proposed an empty plan')
   }
 
+  return runProgram(steps, { house, onStep })
+}
+
+// Interprets a plan to its terminal/acting conclusion — shared by a
+// freshly-proposed plan (processCapture, above) and by replaying one
+// that already ran before (approving an edited pending_action, or
+// running a favourite with edited inputs — see server.js). Either way
+// it's the same "program": an ordered list of steps, each a tool plus
+// literal args (optionally referencing an earlier step's output via
+// "${stepId.field}"), that always resolves to the same one terminal or
+// acting step.
+//
+// `overrides`, keyed by step id then arg name, lets a caller substitute
+// edited values for a step's literal args before they're resolved —
+// this is what turns a frozen favourite/proposal into an editable form:
+// the human's edits flow through exactly the same readonly-then-acting
+// pipeline as the original plan, so e.g. changing resolve_playback's
+// room re-runs the real speaker lookup rather than just patching text.
+//
+// Returns the resolved outcome plus `plan_steps`: the literal steps
+// actually reached, in order (skipped branches omitted, refs left
+// untouched) — a replayable, editable record of "the program", not just
+// its resolved output. Persisted on items/favourites for this purpose.
+export async function runProgram(steps, { house, onStep, overrides } = {}) {
   const bindings = {}
+  const executedSteps = []
+
   for (const step of steps) {
     if (!conditionHolds(step, bindings)) continue
 
     const def = TOOL_REGISTRY[step.tool]
     if (!def) throw new Error(`Plan referenced unknown tool: ${step.tool}`)
-    const args = resolveArgs(step.args, bindings)
+
+    const rawArgs = { ...step.args, ...overrides?.[step.id] }
+    const args = resolveArgs(rawArgs, bindings)
+    executedSteps.push({ ...step, args: rawArgs })
 
     // resolve_playback defaults to the house the capture came from when
     // the text didn't unambiguously name one — never guessed by Claude.
@@ -214,7 +243,7 @@ export async function processCapture(text, { onStep, house } = {}) {
 
     if (def.kind === 'terminal') {
       const { action_result = 'Saved to inbox.', tags = [] } = args
-      return { status: def.status, tags, action_result }
+      return { status: def.status, tags, action_result, plan_steps: executedSteps }
     }
 
     if (def.kind === 'acting') {
@@ -224,6 +253,7 @@ export async function processCapture(text, { onStep, house } = {}) {
         tags,
         action_result: def.describe(input),
         pending_action: { tool: step.tool, input },
+        plan_steps: executedSteps,
       }
     }
 
@@ -233,6 +263,39 @@ export async function processCapture(text, { onStep, house } = {}) {
   }
 
   throw new Error('Plan finished without reaching a terminal or acting step')
+}
+
+// Extracts the editable "form" for a program: the literal (non-templated)
+// arguments of its readonly/acting steps, in order. A "${stepId.field}"
+// reference is skipped — there's nothing meaningful to type into a value
+// that's computed from an earlier step — and terminal classification
+// steps (save_to_inbox etc.) are skipped entirely, since they're not
+// parameterizing an action. `tags` is bookkeeping, not a form field.
+const REF_ONLY_RE = /^\$\{[^.}]+\.[^}]+\}$/
+
+export function getFormFields(steps) {
+  const fields = []
+  for (const step of steps ?? []) {
+    const def = TOOL_REGISTRY[step.tool]
+    if (!def || def.kind === 'terminal') continue
+    for (const [field, value] of Object.entries(step.args ?? {})) {
+      if (field === 'tags' || value == null || typeof value === 'object') continue
+      if (typeof value === 'string' && REF_ONLY_RE.test(value)) continue
+      fields.push({ step: step.id, tool: step.tool, field, value, label: humanizeField(field), type: fieldType(field, value) })
+    }
+  }
+  return fields
+}
+
+function humanizeField(field) {
+  return field.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+}
+
+function fieldType(field, value) {
+  if (typeof value === 'boolean') return 'checkbox'
+  if (typeof value === 'number') return 'number'
+  if (field === 'description' || (typeof value === 'string' && value.length > 60)) return 'textarea'
+  return 'text'
 }
 
 // Runs a previously-proposed action after the human has approved it.

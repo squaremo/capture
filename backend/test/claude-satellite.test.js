@@ -30,7 +30,7 @@ mockGetHouses.mockReturnValue({ home: 'http://localhost:4000' })
 process.env.SPOTIFY_CLIENT_ID = 'test-spotify-client'
 process.env.SPOTIFY_CLIENT_SECRET = 'test-spotify-secret'
 
-const { processCapture, executeAction } = await import('../integrations/claude.js')
+const { processCapture, executeAction, runProgram, getFormFields } = await import('../integrations/claude.js')
 
 const track = { id: 'trk_abc123', title: 'Silver Machine', artist: 'Hawkwind', album: null, matchConfidence: 'exact' }
 const speaker = { name: 'Living Room', requested: 'living room', confidence: 'exact' }
@@ -76,7 +76,8 @@ describe('processCapture with satellites and Spotify enabled', () => {
   })
 
   it('resolves before proposing, and the proposal shows the resolved particulars', async () => {
-    respondWithPlan(playbackPlan({ title: 'Silver Machine', artist: 'Hawkwind', room: 'living room' }))
+    const plan = playbackPlan({ title: 'Silver Machine', artist: 'Hawkwind', room: 'living room' })
+    respondWithPlan(plan)
 
     const result = await processCapture("play 'Silver Machine' by Hawkwind in the living room")
 
@@ -107,6 +108,7 @@ describe('processCapture with satellites and Spotify enabled', () => {
         tool: 'control_playback',
         input: { target_house: null, track: resolved.track, speaker: resolved.speaker },
       },
+      plan_steps: plan,
     })
   })
 
@@ -184,5 +186,38 @@ describe('executeAction with satellites enabled', () => {
     await expect(
       executeAction({ tool: 'control_playback', input: { target_house: 'lake', track: resolved.track, speaker: resolved.speaker } })
     ).rejects.toThrow('Unknown house')
+  })
+})
+
+describe('getFormFields for a resolved playback program', () => {
+  it('exposes resolve_playback\'s literal request fields, not control_playback\'s resolved refs', () => {
+    const plan = playbackPlan({ title: 'Silver Machine', artist: 'Hawkwind', room: 'living room' })
+    expect(getFormFields(plan)).toEqual([
+      { step: 's1', tool: 'resolve_playback', field: 'title', value: 'Silver Machine', label: 'Title', type: 'text' },
+      { step: 's1', tool: 'resolve_playback', field: 'artist', value: 'Hawkwind', label: 'Artist', type: 'text' },
+      { step: 's1', tool: 'resolve_playback', field: 'room', value: 'living room', label: 'Room', type: 'text' },
+    ])
+  })
+})
+
+describe('runProgram with overrides for playback', () => {
+  it('re-resolves a fresh track/speaker for an edited room, then proposes control_playback with them', async () => {
+    const otherTrack = { id: 'trk_xyz', title: 'Master of the Universe', artist: 'Hawkwind', album: null, matchConfidence: 'exact' }
+    const otherSpeaker = { name: 'Bedroom', requested: 'bedroom', confidence: 'exact' }
+    mockSearchTrack.mockResolvedValue(otherTrack)
+    mockResolveSpeaker.mockResolvedValue({ speaker: otherSpeaker })
+
+    const plan = playbackPlan({ title: 'Silver Machine', artist: 'Hawkwind', room: 'living room' })
+    const result = await runProgram(plan, {
+      house: 'home',
+      overrides: { s1: { title: 'Master of the Universe', room: 'bedroom' } },
+    })
+
+    expect(mockSearchTrack).toHaveBeenCalledWith(expect.objectContaining({ title: 'Master of the Universe' }))
+    expect(mockResolveSpeaker).toHaveBeenCalledWith(expect.objectContaining({ room: 'bedroom' }))
+    expect(result.pending_action).toEqual({
+      tool: 'control_playback',
+      input: { target_house: 'home', track: otherTrack, speaker: otherSpeaker },
+    })
   })
 })

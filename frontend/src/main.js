@@ -47,8 +47,8 @@ async function init() {
   const inFlight = new Set() // item ids currently being approved/vetoed/favourited
 
   const inbox = createInbox({
-    onApprove: (id) => handleDecision(id, approveItem),
-    onVeto: (id) => handleDecision(id, vetoItem),
+    onApprove: (id, overrides) => handleDecision(id, () => approveItem(id, overrides)),
+    onVeto: (id) => handleDecision(id, () => vetoItem(id)),
     onFavourite: (id) => handleFavourite(id),
   })
 
@@ -56,7 +56,7 @@ async function init() {
     if (inFlight.has(id)) return // ignore repeat clicks while a decision is in flight
     inFlight.add(id)
     try {
-      const updated = await action(id)
+      const updated = await action()
       inbox.updateItem(updated)
       updateStats()
     } catch (err) {
@@ -93,12 +93,12 @@ async function init() {
     }
   }
 
-  async function handleFavouriteRun(favouriteId) {
+  async function handleFavouriteRun(favouriteId, overrides) {
     if (inFlight.has(favouriteId)) return
     inFlight.add(favouriteId)
     favouritesSidebar.setRunning(favouriteId, true)
     try {
-      const item = await runFavourite(favouriteId)
+      const item = await runFavourite(favouriteId, overrides)
       inbox.addItem(item) // shows up in the resolved section, same as any other capture
       updateStats()
     } catch (err) {

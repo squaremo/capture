@@ -18,11 +18,12 @@ db.exec(`
     plan_progress TEXT,
     house        TEXT,
     executed_action TEXT,
+    plan_steps   TEXT,
     created_at   TEXT NOT NULL
   )
 `)
 // Migrations for columns added after the table already existed elsewhere.
-for (const column of ['pending_action TEXT', 'plan_progress TEXT', 'house TEXT', 'executed_action TEXT']) {
+for (const column of ['pending_action TEXT', 'plan_progress TEXT', 'house TEXT', 'executed_action TEXT', 'plan_steps TEXT']) {
   try {
     db.exec(`ALTER TABLE items ADD COLUMN ${column}`)
   } catch (err) {
@@ -30,10 +31,14 @@ for (const column of ['pending_action TEXT', 'plan_progress TEXT', 'house TEXT',
   }
 }
 
-// One row per favourited action — a frozen { tool, input } call, exactly
-// as it was actually executed (see executed_action above), replayable with
-// no re-planning and no re-approval. See createFavourite()/runFavourite
-// callers in server.js.
+// One row per favourited action. Alongside the frozen { tool, input } call
+// (see executed_action above) — used for a plain, no-questions-asked
+// replay — a favourite also keeps plan_steps: the literal program
+// (readonly + acting steps, with their original args) that produced it, plus
+// the house it ran in. That's what lets POST /api/favourites/:id/run take
+// edited inputs and re-resolve through the real pipeline (e.g. re-searching
+// Spotify for a different track) instead of only ever replaying frozen
+// values. See runProgram()/getFormFields() in claude.js.
 db.exec(`
   CREATE TABLE IF NOT EXISTS favourites (
     id         TEXT PRIMARY KEY,
@@ -41,9 +46,18 @@ db.exec(`
     tool       TEXT NOT NULL,
     input      TEXT NOT NULL,
     tags       TEXT NOT NULL DEFAULT '[]',
+    plan_steps TEXT,
+    house      TEXT,
     created_at TEXT NOT NULL
   )
 `)
+for (const column of ['plan_steps TEXT', 'house TEXT']) {
+  try {
+    db.exec(`ALTER TABLE favourites ADD COLUMN ${column}`)
+  } catch (err) {
+    if (!/duplicate column name/.test(err.message)) throw err
+  }
+}
 
 function newId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
@@ -56,6 +70,7 @@ function parseItem(row) {
     pending_action: row.pending_action ? JSON.parse(row.pending_action) : null,
     plan_progress: row.plan_progress ? JSON.parse(row.plan_progress) : [],
     executed_action: row.executed_action ? JSON.parse(row.executed_action) : null,
+    plan_steps: row.plan_steps ? JSON.parse(row.plan_steps) : [],
   }
 }
 
@@ -63,8 +78,8 @@ export function createItem(text, house = null) {
   const id = newId()
   const created_at = new Date().toISOString()
   db.prepare(
-    'INSERT INTO items (id, text, status, tags, action_result, pending_action, plan_progress, house, executed_action, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(id, text, 'pending', '[]', null, null, null, house, null, created_at)
+    'INSERT INTO items (id, text, status, tags, action_result, pending_action, plan_progress, house, executed_action, plan_steps, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, text, 'pending', '[]', null, null, null, house, null, null, created_at)
   return getItem(id)
 }
 
@@ -80,7 +95,7 @@ export function listItems({ status } = {}) {
   return rows.map(parseItem)
 }
 
-export function updateItem(id, { status, tags, action_result, pending_action, plan_progress, executed_action }) {
+export function updateItem(id, { status, tags, action_result, pending_action, plan_progress, executed_action, plan_steps }) {
   const fields = []
   const values = []
   if (status !== undefined)         { fields.push('status = ?');         values.push(status) }
@@ -89,6 +104,7 @@ export function updateItem(id, { status, tags, action_result, pending_action, pl
   if (pending_action !== undefined) { fields.push('pending_action = ?'); values.push(pending_action ? JSON.stringify(pending_action) : null) }
   if (plan_progress !== undefined)  { fields.push('plan_progress = ?');  values.push(plan_progress ? JSON.stringify(plan_progress) : null) }
   if (executed_action !== undefined) { fields.push('executed_action = ?'); values.push(executed_action ? JSON.stringify(executed_action) : null) }
+  if (plan_steps !== undefined)     { fields.push('plan_steps = ?');     values.push(plan_steps ? JSON.stringify(plan_steps) : null) }
   if (!fields.length) return getItem(id)
   values.push(id)
   db.prepare(`UPDATE items SET ${fields.join(', ')} WHERE id = ?`).run(...values)
@@ -101,15 +117,20 @@ export function updateItem(id, { status, tags, action_result, pending_action, pl
 // re-planning and no re-approval — see POST /api/favourites/:id/run.
 
 function parseFavourite(row) {
-  return { ...row, input: JSON.parse(row.input), tags: JSON.parse(row.tags) }
+  return {
+    ...row,
+    input: JSON.parse(row.input),
+    tags: JSON.parse(row.tags),
+    plan_steps: row.plan_steps ? JSON.parse(row.plan_steps) : [],
+  }
 }
 
-export function createFavourite({ label, tool, input, tags = [] }) {
+export function createFavourite({ label, tool, input, tags = [], plan_steps = null, house = null }) {
   const id = newId()
   const created_at = new Date().toISOString()
   db.prepare(
-    'INSERT INTO favourites (id, label, tool, input, tags, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(id, label, tool, JSON.stringify(input), JSON.stringify(tags), created_at)
+    'INSERT INTO favourites (id, label, tool, input, tags, plan_steps, house, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, label, tool, JSON.stringify(input), JSON.stringify(tags), plan_steps ? JSON.stringify(plan_steps) : null, house, created_at)
   return getFavourite(id)
 }
 

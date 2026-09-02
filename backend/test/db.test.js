@@ -12,6 +12,7 @@ describe('createItem', () => {
     expect(item.pending_action).toBeNull()
     expect(item.plan_progress).toEqual([])
     expect(item.executed_action).toBeNull()
+    expect(item.plan_steps).toEqual([])
     expect(item.created_at).toBeTruthy()
   })
 })
@@ -114,6 +115,13 @@ describe('updateItem', () => {
     expect(executed.executed_action).toEqual({ tool: 'create_linear_task', input: { title: 'Fix bug' } })
     expect(executed.pending_action).toBeNull()
   })
+
+  it('plan_steps round-trips as an array', () => {
+    const item = createItem('play a track')
+    const steps = [{ id: 's1', tool: 'resolve_playback', args: { title: 'x', room: 'living room' } }]
+    const updated = updateItem(item.id, { plan_steps: steps })
+    expect(updated.plan_steps).toEqual(steps)
+  })
 })
 
 describe('favourites', () => {
@@ -135,6 +143,17 @@ describe('favourites', () => {
   it('createFavourite defaults tags to an empty array', () => {
     const fav = createFavourite({ label: 'Played something', tool: 'control_playback', input: {} })
     expect(fav.tags).toEqual([])
+  })
+
+  it('createFavourite defaults plan_steps to an empty array and round-trips house', () => {
+    const withoutSteps = createFavourite({ label: 'no program recorded', tool: 'create_linear_task', input: {} })
+    expect(withoutSteps.plan_steps).toEqual([])
+    expect(withoutSteps.house).toBeNull()
+
+    const steps = [{ id: 's1', tool: 'resolve_playback', args: { title: 'x', room: 'living room' } }]
+    const withSteps = createFavourite({ label: 'a program', tool: 'control_playback', input: {}, plan_steps: steps, house: 'home' })
+    expect(withSteps.plan_steps).toEqual(steps)
+    expect(withSteps.house).toBe('home')
   })
 
   it('getFavourite returns null for an unknown id', () => {
