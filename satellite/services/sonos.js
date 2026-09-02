@@ -112,6 +112,24 @@ export async function pause({ speaker }) {
   return { playing: false, speaker: { name: player.roomName } }
 }
 
+// Resumes a paused speaker from wherever it stopped — deliberately just
+// player.play(), not play() above: re-running setAVTransport with the
+// same URI reloads the track from the start rather than continuing, so
+// this is a genuinely different operation, not "play() with a
+// remembered track." No track/speaker body needed since the player
+// already has one loaded from the original play() call.
+export async function resume({ speaker }) {
+  await ready
+  const player = system.getPlayer(speaker.name)
+  if (!player) {
+    throw new Error(`Speaker "${speaker.name}" is no longer available`)
+  }
+  await player.play()
+  const previous = activity.get(player.roomName)
+  activity.set(player.roomName, { track: previous?.track ?? null, playing: true, at: new Date().toISOString() })
+  return { playing: true, speaker: { name: player.roomName } }
+}
+
 // Sets a specific speaker's volume (0-100) — same manual, ungated,
 // speaker-scoped shape as play()/pause(). Doesn't touch `activity`;
 // volume isn't something this satellite remembers, it's read live off

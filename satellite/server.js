@@ -130,6 +130,20 @@ app.post('/api/pause', async (req, reply) => {
   }
 })
 
+// Continues a paused speaker — distinct from /api/play, which always
+// reloads a track from the start; this just resumes wherever it stopped.
+app.post('/api/resume', async (req, reply) => {
+  const { speaker } = req.body ?? {}
+  if (!speaker?.name || typeof speaker.name !== 'string') {
+    return reply.code(400).send({ error: 'speaker.name is required' })
+  }
+  try {
+    return await sonos.resume({ speaker })
+  } catch (err) {
+    return reply.code(422).send({ error: err.message })
+  }
+})
+
 // Same manual, speaker-scoped shape as /api/pause — local control only,
 // never proposed/approved by the LLM plan system.
 app.post('/api/volume', async (req, reply) => {

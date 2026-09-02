@@ -426,7 +426,7 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 
 .item-result {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
   font-size: 12px;
@@ -440,9 +440,9 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 .btn-favourite {
   background: transparent;
   color: var(--text-dim);
-  font-size: 14px;
+  font-size: 22px;
   line-height: 1;
-  padding: 0 2px;
+  padding: 0 4px;
   flex-shrink: 0;
 }
 .btn-favourite:hover { color: var(--amber); }
