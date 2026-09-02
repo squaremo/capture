@@ -61,6 +61,9 @@ export async function searchTrack({ clientId, clientSecret, title, artist, album
     title: track.name,
     artist: track.artists?.[0]?.name ?? null,
     album: track.album?.name ?? null,
+    // Spotify returns several sizes, largest first — Sonos fetches and
+    // scales it itself, so the largest is fine.
+    image: track.album?.images?.[0]?.url ?? null,
     // Spotify's search doesn't return a relevance score — reuse the same
     // honesty heuristic the stub it replaces used: a caller-supplied
     // artist narrows the query enough to call it exact, otherwise

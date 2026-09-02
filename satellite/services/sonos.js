@@ -133,6 +133,7 @@ function spotifyPlayable(track) {
     `<dc:title>${escapeXml(track.title)}</dc:title>` +
     (track.artist ? `<dc:creator>${escapeXml(track.artist)}</dc:creator>` : '') +
     (track.album ? `<upnp:album>${escapeXml(track.album)}</upnp:album>` : '') +
+    (track.image ? `<upnp:albumArtURI>${escapeXml(track.image)}</upnp:albumArtURI>` : '') +
     '<upnp:class>object.item.audioItem.musicTrack</upnp:class>' +
     `<desc id="cdudn" nameSpace="urn:schemas-rinconnetworks-com:metadata-1-0/">${token}</desc></item></DIDL-Lite>`
 
