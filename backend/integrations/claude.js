@@ -129,7 +129,26 @@ if (SATELLITES_ENABLED) {
       const verb = result.action === 'off' ? 'turned off' : result.action === 'on' ? 'turned on' : `dimmed to ${result.brightness}%`
       return `Lights ${verb} in "${result.room.name}"`
     },
+    // Unlike control_playback's track (the whole point of that favourite)
+    // or create_linear_task's title (its actual content), action/brightness
+    // here are a state the form lets you re-tune each run, not the
+    // favourite's identity — the room is. So the label deliberately drops
+    // them rather than freezing "dimmed to 10%" as a name that goes stale
+    // the moment you replay it at a different level.
+    favouriteLabel: ({ room }) => `${room.name} lights`,
   }
+}
+
+// A tool can define favouriteLabel(input) to generate a stable name for
+// POST /api/items/:id/favourite instead of freezing the item's
+// action_result verbatim — worth doing when the acting tool's args mix a
+// stable identity (e.g. control_light's room) with a state the form lets
+// you edit each replay (action/brightness); freezing the specific state
+// into the label would go stale the first time it's replayed differently.
+// Most tools don't need this — action_result (the fallback) already says
+// exactly what happened and stays meaningful even if never re-edited.
+export function getFavouriteLabel(tool, input, fallback) {
+  return TOOL_REGISTRY[tool]?.favouriteLabel?.(input) ?? fallback
 }
 
 // control_playback's valid target_house names can change without a

@@ -1,11 +1,11 @@
 # Matter lighting: local control via Dirigera
 
-Status: implemented — `satellite/services/dirigera.js`,
-`POST /api/lights/resolve` + `POST /api/lights` on the satellite,
-`resolveLight()`/`commitLight()` in `backend/integrations/satellite.js`,
-and `resolve_light`/`control_light` in `TOOL_REGISTRY`. Not yet verified
-against a real hub (needs pairing on an actual satellite box — see
-`satellite/README.md`). Builds directly on `designs/satellites.md` —
+Status: implemented and verified against real hardware — dimming and
+favourite replay both confirmed working against an actual Dirigera hub.
+`satellite/services/dirigera.js`, `POST /api/lights/resolve` +
+`POST /api/lights` on the satellite, `resolveLight()`/`commitLight()` in
+`backend/integrations/satellite.js`, and `resolve_light`/`control_light`
+in `TOOL_REGISTRY`. Builds directly on `designs/satellites.md` —
 read that first. Hub → satellite dispatch, capability-checked routing,
 room-as-free-text resolved locally, and "approval always required, no
 same-house exception" all carry over unchanged; this doc only covers
@@ -175,8 +175,16 @@ see the Favourites entry in `TODO.md`.)
 - **Colour / colour temperature** — not needed for "dim," deferred.
 - **Approval friction for low-stakes actions** — flagged above; worth a
   deliberate call later rather than a silent exception now.
-- **Favouriting a light action** — the favourites feature (see `TODO.md`)
-  freezes and replays any single acting tool call already, so "dim the
-  living room to 20%" becomes favouritable for free once a real hub
-  confirms `control_light` works end to end — no lighting-specific work
-  needed there.
+- **Favouriting a light action** — confirmed working against real
+  hardware (see Status above). One real wrinkle found in practice:
+  `control_light`'s `action_result` bakes in the specific brightness
+  ("dimmed to 10%"), which the favourite's form then lets you replay at
+  a *different* level — freezing that string as the favourite's label
+  would go stale the moment you actually use the form. Fixed via
+  `favouriteLabel` on `control_light`'s `TOOL_REGISTRY` entry (checked
+  by `getFavouriteLabel()` in `claude.js`, called from
+  `POST /api/items/:id/favourite`): drops `action`/`brightness`, keeping
+  only the room ("Living Room lights") — the part of the favourite that
+  actually stays the same across replays. `control_playback` and
+  `create_linear_task` don't need this; their result strings describe
+  their actual identity (track, ticket title), not a re-tunable state.

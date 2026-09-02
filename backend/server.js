@@ -1,7 +1,7 @@
 import Fastify from 'fastify'
 import { fileURLToPath } from 'url'
 import { createItem, getItem, listItems, updateItem, createFavourite, getFavourite, listFavourites, deleteFavourite } from './db.js'
-import { processCapture, executeAction, runProgram, getFormFields, LINEAR_ENABLED, SATELLITES_ENABLED, SPOTIFY_ENABLED } from './integrations/claude.js'
+import { processCapture, executeAction, runProgram, getFormFields, getFavouriteLabel, LINEAR_ENABLED, SATELLITES_ENABLED, SPOTIFY_ENABLED } from './integrations/claude.js'
 import { listSatellites, getHouses } from './integrations/satellite.js'
 import { BACKEND_VERSION, getConfigVersion } from './version.js'
 
@@ -130,6 +130,13 @@ app.post('/api/items/:id/veto', async (req, reply) => {
 // call (status 'acted', with executed_action recorded on approval) qualify
 // — terminal items (triaged/reminder/urgent) never had a tool call to
 // replay, and a vetoed/failed item never executed one either.
+//
+// label defaults to the item's action_result, but a tool can override
+// that via favouriteLabel() in TOOL_REGISTRY (see getFavouriteLabel() in
+// claude.js) when its result string bakes in a value the form lets you
+// re-tune each replay — control_light's brightness, say — which would
+// otherwise freeze a label that goes stale the first time it's run
+// differently.
 app.post('/api/items/:id/favourite', async (req, reply) => {
   const item = getItem(req.params.id)
   if (!item) return reply.code(404).send({ error: 'Not found' })
@@ -137,7 +144,7 @@ app.post('/api/items/:id/favourite', async (req, reply) => {
     return reply.code(409).send({ error: 'Item has no executed action to favourite' })
   }
   const favourite = createFavourite({
-    label: item.action_result,
+    label: getFavouriteLabel(item.executed_action.tool, item.executed_action.input, item.action_result),
     tool: item.executed_action.tool,
     input: item.executed_action.input,
     tags: item.tags,

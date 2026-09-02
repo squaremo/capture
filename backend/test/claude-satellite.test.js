@@ -34,7 +34,7 @@ mockGetHouses.mockReturnValue({ home: 'http://localhost:4000' })
 process.env.SPOTIFY_CLIENT_ID = 'test-spotify-client'
 process.env.SPOTIFY_CLIENT_SECRET = 'test-spotify-secret'
 
-const { processCapture, executeAction, runProgram, getFormFields } = await import('../integrations/claude.js')
+const { processCapture, executeAction, runProgram, getFormFields, getFavouriteLabel } = await import('../integrations/claude.js')
 
 const track = { id: 'trk_abc123', title: 'Silver Machine', artist: 'Hawkwind', album: null, matchConfidence: 'exact' }
 const speaker = { name: 'Living Room', requested: 'living room', confidence: 'exact' }
@@ -315,6 +315,18 @@ describe('getFormFields for a resolved playback program', () => {
       { step: 's1', tool: 'resolve_playback', field: 'artist', value: 'Hawkwind', label: 'Artist', type: 'text' },
       { step: 's1', tool: 'resolve_playback', field: 'room', value: 'living room', label: 'Room', type: 'text' },
     ])
+  })
+})
+
+describe('getFavouriteLabel', () => {
+  it('drops action/brightness for control_light, keeping only the room', () => {
+    expect(getFavouriteLabel('control_light', { room, action: 'set_brightness', brightness: 10 }, 'Lights dimmed to 10% in "Living Room"'))
+      .toBe('Living Room lights')
+  })
+
+  it('falls back to the given fallback for a tool with no favouriteLabel', () => {
+    expect(getFavouriteLabel('control_playback', { track, speaker }, 'Played "Silver Machine" on Living Room'))
+      .toBe('Played "Silver Machine" on Living Room')
   })
 })
 

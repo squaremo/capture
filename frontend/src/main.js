@@ -72,7 +72,7 @@ async function init() {
   // backend/server.js. No new planning or approval happens on replay: the
   // human already approved this exact resolved action when it was favourited.
   const favouritesSidebar = createFavouritesSidebar({
-    onRun: (id) => handleFavouriteRun(id),
+    onRun: (id, overrides) => handleFavouriteRun(id, overrides),
     onDelete: (id) => handleFavouriteDelete(id),
   })
 

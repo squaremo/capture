@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest'
 
-const { mockProcessCapture, mockExecuteAction, mockRunProgram, mockGetFormFields, mockListSatellites, mockGetHouses } = vi.hoisted(() => ({
+const { mockProcessCapture, mockExecuteAction, mockRunProgram, mockGetFormFields, mockGetFavouriteLabel, mockListSatellites, mockGetHouses } = vi.hoisted(() => ({
   mockProcessCapture: vi.fn(),
   mockExecuteAction: vi.fn(),
   mockRunProgram: vi.fn(),
   mockGetFormFields: vi.fn(),
+  mockGetFavouriteLabel: vi.fn(),
   mockListSatellites: vi.fn(),
   mockGetHouses: vi.fn(),
 }))
@@ -14,6 +15,7 @@ vi.mock('../integrations/claude.js', () => ({
   executeAction: mockExecuteAction,
   runProgram: mockRunProgram,
   getFormFields: mockGetFormFields,
+  getFavouriteLabel: mockGetFavouriteLabel,
   LINEAR_ENABLED: true,
   SATELLITES_ENABLED: false,
   SPOTIFY_ENABLED: false,
@@ -32,10 +34,14 @@ beforeEach(() => {
   mockExecuteAction.mockClear()
   mockRunProgram.mockClear()
   mockGetFormFields.mockClear()
+  mockGetFavouriteLabel.mockClear()
   mockListSatellites.mockClear()
   mockGetHouses.mockClear()
   mockProcessCapture.mockResolvedValue({ status: 'triaged', tags: [], action_result: 'Saved to inbox.' })
   mockGetFormFields.mockReturnValue([]) // most tests don't care about the derived form — opt in per-test
+  // Matches the real getFavouriteLabel's fallback behavior for a tool with
+  // no favouriteLabel defined — most tests don't care, opt in per-test.
+  mockGetFavouriteLabel.mockImplementation((tool, input, fallback) => fallback)
   mockListSatellites.mockResolvedValue([])
   mockGetHouses.mockReturnValue({})
   delete process.env.TAILSCALE_SUBNET
@@ -405,6 +411,27 @@ describe('POST /api/items/:id/favourite', () => {
 
     const list = await app.inject({ method: 'GET', url: '/api/favourites' })
     expect(list.json().some(f => f.id === fav.id)).toBe(true)
+  })
+
+  it('uses getFavouriteLabel\'s label over action_result when the tool defines one', async () => {
+    // e.g. control_light's favouriteLabel drops the brightness baked into
+    // action_result ("dimmed to 10%") so the favourite doesn't go stale
+    // the moment it's replayed at a different level.
+    mockGetFavouriteLabel.mockReturnValue('Living Room lights')
+    const acted = await createActedItem('dim the living room lights to 10%', {
+      tool: 'control_light',
+      input: { room: { id: 'room_1', name: 'Living Room' }, action: 'set_brightness', brightness: 10 },
+      action_result: 'Lights dimmed to 10% in "Living Room"',
+    })
+
+    const reply = await app.inject({ method: 'POST', url: `/api/items/${acted.id}/favourite` })
+
+    expect(mockGetFavouriteLabel).toHaveBeenCalledWith(
+      'control_light',
+      { room: { id: 'room_1', name: 'Living Room' }, action: 'set_brightness', brightness: 10 },
+      'Lights dimmed to 10% in "Living Room"'
+    )
+    expect(reply.json().label).toBe('Living Room lights')
   })
 })
 
