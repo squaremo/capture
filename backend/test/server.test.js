@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest'
 
-const { mockProcessCapture, mockExecuteAction, mockListSatellites, mockGetHouses } = vi.hoisted(() => ({
+const { mockProcessCapture, mockExecuteAction, mockRunProgram, mockGetFormFields, mockListSatellites, mockGetHouses } = vi.hoisted(() => ({
   mockProcessCapture: vi.fn(),
   mockExecuteAction: vi.fn(),
+  mockRunProgram: vi.fn(),
+  mockGetFormFields: vi.fn(),
   mockListSatellites: vi.fn(),
   mockGetHouses: vi.fn(),
 }))
@@ -10,6 +12,8 @@ const { mockProcessCapture, mockExecuteAction, mockListSatellites, mockGetHouses
 vi.mock('../integrations/claude.js', () => ({
   processCapture: mockProcessCapture,
   executeAction: mockExecuteAction,
+  runProgram: mockRunProgram,
+  getFormFields: mockGetFormFields,
   LINEAR_ENABLED: true,
   SATELLITES_ENABLED: false,
   SPOTIFY_ENABLED: false,
@@ -21,13 +25,17 @@ vi.mock('../integrations/satellite.js', () => ({
 }))
 
 import { app } from '../server.js'
+import { createFavourite } from '../db.js'
 
 beforeEach(() => {
   mockProcessCapture.mockClear()
   mockExecuteAction.mockClear()
+  mockRunProgram.mockClear()
+  mockGetFormFields.mockClear()
   mockListSatellites.mockClear()
   mockGetHouses.mockClear()
   mockProcessCapture.mockResolvedValue({ status: 'triaged', tags: [], action_result: 'Saved to inbox.' })
+  mockGetFormFields.mockReturnValue([]) // most tests don't care about the derived form — opt in per-test
   mockListSatellites.mockResolvedValue([])
   mockGetHouses.mockReturnValue({})
   delete process.env.TAILSCALE_SUBNET
@@ -139,6 +147,14 @@ describe('GET /api/items/:id', () => {
     expect(reply.statusCode).toBe(200)
     expect(reply.json().id).toBe(created.id)
   })
+
+  it('attaches form_fields derived from the item\'s plan_steps', async () => {
+    const fields = [{ step: 's1', tool: 'create_linear_task', field: 'title', value: 'Fix bug', label: 'Title', type: 'text' }]
+    mockGetFormFields.mockReturnValue(fields)
+    const post = await app.inject({ method: 'POST', url: '/api/capture', payload: { text: 'get by id test' } })
+    const reply = await app.inject({ method: 'GET', url: `/api/items/${post.json().id}` })
+    expect(reply.json().form_fields).toEqual(fields)
+  })
 })
 
 describe('PATCH /api/items/:id', () => {
@@ -194,6 +210,63 @@ describe('POST /api/items/:id/approve', () => {
     expect(updated.status).toBe('acted')
     expect(updated.action_result).toBe('Linear task created: "Fix bug" — https://linear.app/x/1')
     expect(updated.pending_action).toBeNull()
+  })
+
+  it('re-runs plan_steps with overrides before executing, when a body is given', async () => {
+    const planSteps = [{ id: 's1', tool: 'create_linear_task', args: { title: 'Fix bug', tags: ['work'] } }]
+    mockProcessCapture.mockResolvedValue({
+      status: 'awaiting_approval',
+      tags: ['work'],
+      action_result: 'Proposed: create Linear task "Fix bug"',
+      pending_action: { tool: 'create_linear_task', input: { title: 'Fix bug' } },
+      plan_steps: planSteps,
+    })
+    const created = await createResolvedItem('fix the bug')
+
+    mockRunProgram.mockResolvedValue({
+      status: 'awaiting_approval',
+      tags: ['work'],
+      action_result: 'Proposed: create Linear task "Fix signup bug"',
+      pending_action: { tool: 'create_linear_task', input: { title: 'Fix signup bug' } },
+      plan_steps: [{ id: 's1', tool: 'create_linear_task', args: { title: 'Fix signup bug', tags: ['work'] } }],
+    })
+    mockExecuteAction.mockResolvedValue({ status: 'acted', action_result: 'Linear task created: "Fix signup bug" — https://linear.app/x/1' })
+
+    const reply = await app.inject({
+      method: 'POST',
+      url: `/api/items/${created.id}/approve`,
+      payload: { overrides: { s1: { title: 'Fix signup bug' } } },
+    })
+
+    expect(mockRunProgram).toHaveBeenCalledWith(planSteps, { house: null, overrides: { s1: { title: 'Fix signup bug' } } })
+    expect(mockExecuteAction).toHaveBeenCalledWith({ tool: 'create_linear_task', input: { title: 'Fix signup bug' } })
+    expect(reply.statusCode).toBe(200)
+    const updated = reply.json()
+    expect(updated.action_result).toBe('Linear task created: "Fix signup bug" — https://linear.app/x/1')
+    expect(updated.executed_action).toEqual({ tool: 'create_linear_task', input: { title: 'Fix signup bug' } })
+  })
+
+  it('422s without executing anything when edited overrides no longer resolve to an action', async () => {
+    const planSteps = [{ id: 's1', tool: 'create_linear_task', args: { title: 'Fix bug', tags: [] } }]
+    mockProcessCapture.mockResolvedValue({
+      status: 'awaiting_approval',
+      tags: [],
+      action_result: 'Proposed: create Linear task "Fix bug"',
+      pending_action: { tool: 'create_linear_task', input: { title: 'Fix bug' } },
+      plan_steps: planSteps,
+    })
+    const created = await createResolvedItem('fix the bug')
+
+    mockRunProgram.mockResolvedValue({ status: 'triaged', tags: [], action_result: 'Saved to inbox.' })
+
+    const reply = await app.inject({
+      method: 'POST',
+      url: `/api/items/${created.id}/approve`,
+      payload: { overrides: { s1: { title: '' } } },
+    })
+
+    expect(reply.statusCode).toBe(422)
+    expect(mockExecuteAction).not.toHaveBeenCalled()
   })
 
   it('marks the item failed if the action throws', async () => {
@@ -381,6 +454,39 @@ describe('POST /api/favourites/:id/run', () => {
     // Shows up in the inbox as its own item, for an audit trail.
     const list = await app.inject({ method: 'GET', url: '/api/items' })
     expect(list.json().some(i => i.id === item.id)).toBe(true)
+  })
+
+  it('re-resolves via runProgram with overrides when the favourite has a recorded program', async () => {
+    const planSteps = [{ id: 's1', tool: 'create_linear_task', args: { title: 'Fix bug', tags: ['work'] } }]
+    const fav = createFavourite({
+      label: 'Linear task created: "Fix bug" — https://linear.app/x/1',
+      tool: 'create_linear_task',
+      input: { title: 'Fix bug' },
+      tags: ['work'],
+      plan_steps: planSteps,
+      house: null,
+    })
+
+    mockRunProgram.mockResolvedValue({
+      status: 'awaiting_approval',
+      tags: ['work'],
+      action_result: 'Proposed: create Linear task "Fix bug v2"',
+      pending_action: { tool: 'create_linear_task', input: { title: 'Fix bug v2' } },
+      plan_steps: [{ id: 's1', tool: 'create_linear_task', args: { title: 'Fix bug v2', tags: ['work'] } }],
+    })
+    mockExecuteAction.mockResolvedValue({ status: 'acted', action_result: 'Linear task created: "Fix bug v2" — https://linear.app/x/3' })
+
+    const reply = await app.inject({
+      method: 'POST',
+      url: `/api/favourites/${fav.id}/run`,
+      payload: { overrides: { s1: { title: 'Fix bug v2' } } },
+    })
+
+    expect(mockRunProgram).toHaveBeenCalledWith(planSteps, { house: null, overrides: { s1: { title: 'Fix bug v2' } } })
+    expect(mockExecuteAction).toHaveBeenCalledWith({ tool: 'create_linear_task', input: { title: 'Fix bug v2' } })
+    expect(reply.statusCode).toBe(200)
+    const item = reply.json()
+    expect(item.action_result).toBe('Linear task created: "Fix bug v2" — https://linear.app/x/3')
   })
 
   it('marks the replayed item failed if the action throws, without touching the favourite', async () => {

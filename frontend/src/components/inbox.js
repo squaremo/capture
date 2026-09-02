@@ -1,4 +1,4 @@
-import { createItemEl, updateItemEl } from './item.js'
+import { createItemEl, updateItemEl, collectFormOverrides } from './item.js'
 
 // "Needs attention": still processing, classified but no action decided
 // yet, or an acting tool proposed something waiting on approve/veto.
@@ -29,9 +29,13 @@ export function createInbox({ onApprove, onVeto, onFavourite } = {}) {
   section.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-action]')
     if (!btn) return
-    const id = btn.closest('.item')?.dataset.id
+    const itemEl = btn.closest('.item')
+    const id = itemEl?.dataset.id
     if (!id) return
-    if (btn.dataset.action === 'approve') onApprove?.(id)
+    // approve() reads back whatever's currently in the item's form (if it
+    // has one) as overrides — a plain click with no edits sends the same
+    // resolved inputs the proposal already showed, unchanged.
+    if (btn.dataset.action === 'approve') onApprove?.(id, collectFormOverrides(itemEl))
     if (btn.dataset.action === 'veto') onVeto?.(id)
     if (btn.dataset.action === 'favourite') onFavourite?.(id)
   })

@@ -469,6 +469,12 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 
 .item-approval {
   display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.item-approval-actions {
+  display: flex;
   gap: 8px;
 }
 
@@ -481,6 +487,46 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 .btn-approve:hover { opacity: 0.85; }
 .btn-veto { background: transparent; color: var(--text-dim); }
 .btn-veto:hover { color: var(--red); border-color: var(--red); }
+
+/* ── Editable action form (proposal + favourite replay) ─────
+   The "program" behind an acting step, shown as inputs a human can tweak
+   before it fires — see getFormFields() on the backend. */
+.action-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0;
+}
+
+.action-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.action-form-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+}
+
+.action-form-field input,
+.action-form-field textarea {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 6px 8px;
+  resize: vertical;
+}
+.action-form-field input:focus,
+.action-form-field textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
 
 /* ── Shimmer (pending) ───────────────────────────────────── */
 .item-shimmer {
@@ -526,11 +572,14 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 }
 
 .favourite-item {
-  display: flex;
-  align-items: stretch;
   background: var(--bg-raised);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+}
+
+.favourite-row {
+  display: flex;
+  align-items: stretch;
 }
 
 .favourite-run {
@@ -552,6 +601,19 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   flex-shrink: 0;
 }
 .favourite-delete:hover { color: var(--red); }
+
+/* The favourite's own program, opened inline for editing before replay —
+   same fields/inputs as an item's proposal form (.action-form). */
+.favourite-form {
+  padding: 0 10px 10px;
+}
+.favourite-form[hidden] { display: none; }
+
+.favourite-confirm {
+  width: 100%;
+  padding: 6px 14px;
+  font-size: 12px;
+}
 
 /* ── Stats footer ────────────────────────────────────────── */
 .stats {

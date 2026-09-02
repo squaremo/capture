@@ -1,8 +1,14 @@
-import { escHtml } from './item.js'
+import { escHtml, renderForm, collectFormOverrides } from './item.js'
 
-// The sidebar of saved favourites — each one a frozen, previously-executed
-// tool call (see GET /api/favourites) that replays exactly as recorded, no
-// re-planning and no re-approval. Hidden entirely when there are none, same
+// The sidebar of saved favourites (see GET /api/favourites) — each one a
+// saved program (see plan_steps/form_fields on the backend) that replays
+// with no re-approval, the human having already approved this exact action
+// once, at favourite time. A favourite with no editable inputs (no
+// form_fields — e.g. one saved before this existed) runs immediately on
+// click, same as always; one with editable inputs opens them inline first,
+// prefilled with the values it was last run with, and only replays once
+// "run" is confirmed — this is what lets a favourite mean "the program",
+// not just "the frozen call". Hidden entirely when there are none, same
 // pattern as the house chooser hiding when there are no satellites.
 export function createFavouritesSidebar({ onRun, onDelete } = {}) {
   const aside = document.createElement('aside')
@@ -23,16 +29,35 @@ export function createFavouritesSidebar({ onRun, onDelete } = {}) {
     if (!li) return
     const id = li.dataset.id
     if (e.target.closest('[data-action="delete"]')) return onDelete?.(id)
-    if (e.target.closest('[data-action="run"]')) return onRun?.(id)
+    if (e.target.closest('[data-action="confirm"]')) return onRun?.(id, collectFormOverrides(li))
+    if (e.target.closest('[data-action="run"]')) {
+      const form = li.querySelector('.favourite-form')
+      // A favourite with edits to make opens its form on first click
+      // rather than firing straight away — a second click (the form's own
+      // "run" button, data-action="confirm") actually replays it.
+      if (form) { form.hidden = !form.hidden; return }
+      return onRun?.(id)
+    }
   })
 
   function render(favourites) {
-    list.innerHTML = favourites.map(fav => `
-      <li class="favourite-item" data-id="${fav.id}">
-        <button class="favourite-run" data-action="run" title="Run again">${escHtml(fav.label)}</button>
-        <button class="favourite-delete" data-action="delete" title="Remove from favourites" aria-label="Remove from favourites">&times;</button>
-      </li>
-    `).join('')
+    list.innerHTML = favourites.map(fav => {
+      const fields = fav.form_fields ?? []
+      return `
+        <li class="favourite-item" data-id="${fav.id}">
+          <div class="favourite-row">
+            <button class="favourite-run" data-action="run" title="Run again">${escHtml(fav.label)}</button>
+            <button class="favourite-delete" data-action="delete" title="Remove from favourites" aria-label="Remove from favourites">&times;</button>
+          </div>
+          ${fields.length
+            ? `<div class="favourite-form" hidden>
+                ${renderForm(fields)}
+                <button class="btn-approve favourite-confirm" data-action="confirm">run</button>
+              </div>`
+            : ''}
+        </li>
+      `
+    }).join('')
     aside.hidden = favourites.length === 0
   }
 
@@ -40,8 +65,9 @@ export function createFavouritesSidebar({ onRun, onDelete } = {}) {
   // second click can't fire the same acting tool twice (e.g. two Linear
   // tasks from one favourite) before the first request lands.
   function setRunning(id, running) {
-    const btn = list.querySelector(`[data-id="${id}"] .favourite-run`)
-    if (btn) btn.disabled = running
+    const item = list.querySelector(`[data-id="${id}"]`)
+    if (!item) return
+    item.querySelectorAll('.favourite-run, .favourite-confirm').forEach(btn => { btn.disabled = running })
   }
 
   return { el: aside, render, setRunning }

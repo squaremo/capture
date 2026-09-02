@@ -21,7 +21,7 @@ vi.mock('../integrations/linear.js', () => ({
 process.env.LINEAR_API_KEY = 'test-linear-key'
 process.env.LINEAR_TEAM_ID = 'test-team-id'
 
-const { processCapture, executeAction } = await import('../integrations/claude.js')
+const { processCapture, executeAction, runProgram, getFormFields } = await import('../integrations/claude.js')
 
 beforeEach(() => {
   mockCreate.mockClear()
@@ -43,9 +43,8 @@ describe('processCapture with Linear enabled', () => {
   })
 
   it('proposes the task without creating it, awaiting approval', async () => {
-    respondWithPlan([
-      { id: 's1', tool: 'create_linear_task', args: { title: 'Fix bug', description: 'details', tags: ['work'] } },
-    ])
+    const step = { id: 's1', tool: 'create_linear_task', args: { title: 'Fix bug', description: 'details', tags: ['work'] } }
+    respondWithPlan([step])
 
     const result = await processCapture('fix the login bug')
 
@@ -55,6 +54,7 @@ describe('processCapture with Linear enabled', () => {
       tags: ['work'],
       action_result: 'Proposed: create Linear task "Fix bug"',
       pending_action: { tool: 'create_linear_task', input: { title: 'Fix bug', description: 'details' } },
+      plan_steps: [step],
     })
   })
 
@@ -110,7 +110,45 @@ describe('processCapture with Linear enabled', () => {
       status: 'triaged',
       tags: ['work'],
       action_result: 'Already tracked: Login bug — https://linear.app/x/issue/1',
+      plan_steps: [
+        { id: 's1', tool: 'search_linear_issues', args: { query: 'login bug' } },
+        {
+          id: 's2',
+          tool: 'save_to_inbox',
+          args: { action_result: 'Already tracked: ${s1.matching_issue.title} — ${s1.matching_issue.url}', tags: ['work'] },
+          if: '${s1.duplicate_found}',
+        },
+      ],
     })
+  })
+})
+
+describe('getFormFields with Linear enabled', () => {
+  it('exposes a readonly step feeding an acting step as editable literal fields', () => {
+    const steps = [
+      { id: 's1', tool: 'search_linear_issues', args: { query: 'login bug' } },
+      { id: 's2', tool: 'create_linear_task', args: { title: 'Fix bug', description: 'details', tags: ['work'] }, unless: '${s1.duplicate_found}' },
+    ]
+    expect(getFormFields(steps)).toEqual([
+      { step: 's1', tool: 'search_linear_issues', field: 'query', value: 'login bug', label: 'Query', type: 'text' },
+      { step: 's2', tool: 'create_linear_task', field: 'title', value: 'Fix bug', label: 'Title', type: 'text' },
+      { step: 's2', tool: 'create_linear_task', field: 'description', value: 'details', label: 'Description', type: 'textarea' },
+    ])
+  })
+})
+
+describe('runProgram with overrides and Linear enabled', () => {
+  it('re-runs the readonly search with an edited query before proposing the acting step', async () => {
+    mockSearchLinearIssues.mockResolvedValue({ duplicate_found: false, matching_issue: null })
+    const steps = [
+      { id: 's1', tool: 'search_linear_issues', args: { query: 'login bug' } },
+      { id: 's2', tool: 'create_linear_task', args: { title: 'Fix bug', tags: ['work'] }, unless: '${s1.duplicate_found}' },
+    ]
+
+    const result = await runProgram(steps, { overrides: { s1: { query: 'signup bug' }, s2: { title: 'Fix signup' } } })
+
+    expect(mockSearchLinearIssues).toHaveBeenCalledWith({ apiKey: 'test-linear-key', teamId: 'test-team-id', query: 'signup bug' })
+    expect(result.pending_action).toEqual({ tool: 'create_linear_task', input: { title: 'Fix signup' } })
   })
 })
 
