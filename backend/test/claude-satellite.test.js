@@ -324,9 +324,14 @@ describe('getFavouriteLabel', () => {
       .toBe('Living Room lights')
   })
 
-  it('falls back to the given fallback for a tool with no favouriteLabel', () => {
-    expect(getFavouriteLabel('control_playback', { track, speaker }, 'Played "Silver Machine" on Living Room'))
-      .toBe('Played "Silver Machine" on Living Room')
+  it('drops track/artist for control_playback, keeping only the speaker', () => {
+    expect(getFavouriteLabel('control_playback', { track, speaker }, 'Played "Silver Machine" by Hawkwind on Living Room'))
+      .toBe('Living Room playback')
+  })
+
+  it('falls back to the given fallback for a tool with no favouriteLabel (e.g. create_linear_task)', () => {
+    expect(getFavouriteLabel('create_linear_task', { title: 'Fix bug' }, 'Linear task created: "Fix bug" — https://linear.app/x/1'))
+      .toBe('Linear task created: "Fix bug" — https://linear.app/x/1')
   })
 })
 

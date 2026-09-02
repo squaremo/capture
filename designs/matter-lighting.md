@@ -184,7 +184,12 @@ see the Favourites entry in `TODO.md`.)
   `favouriteLabel` on `control_light`'s `TOOL_REGISTRY` entry (checked
   by `getFavouriteLabel()` in `claude.js`, called from
   `POST /api/items/:id/favourite`): drops `action`/`brightness`, keeping
-  only the room ("Living Room lights") — the part of the favourite that
-  actually stays the same across replays. `control_playback` and
-  `create_linear_task` don't need this; their result strings describe
-  their actual identity (track, ticket title), not a re-tunable state.
+  only the room ("Living Room lights"). Not lighting-specific in the end
+  — `resolve_playback`'s `title`/`artist`/`room` are exactly as editable
+  via the form as `control_light`'s `action`/`brightness`, so
+  `control_playback` got the same treatment (`"Living Room playback"`,
+  dropping the track). `create_linear_task` is the one real exception:
+  its title *is* the content, with no separate "where" to fall back to,
+  so there's nothing more stable to drop down to — freezing the title
+  into the label stays the most useful choice there even though it's
+  just as editable as anything else.

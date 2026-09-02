@@ -99,6 +99,12 @@ if (PLAYBACK_ENABLED) {
       const result = await commitPlayback({ houses: getHouses(), house: target_house, track, speaker })
       return `Played "${result.track.title}"${result.track.artist ? ` by ${result.track.artist}` : ''} on ${result.speaker.name}`
     },
+    // resolve_playback's title/artist/room are just as editable via the
+    // form as control_light's action/brightness are — freezing the
+    // specific track into the label ("Played 'Silver Machine'...") goes
+    // stale the moment the form is used to play something else. Keep
+    // only the speaker, same reasoning as control_light keeping the room.
+    favouriteLabel: ({ speaker }) => `${speaker.name} playback`,
   }
 }
 
@@ -129,24 +135,29 @@ if (SATELLITES_ENABLED) {
       const verb = result.action === 'off' ? 'turned off' : result.action === 'on' ? 'turned on' : `dimmed to ${result.brightness}%`
       return `Lights ${verb} in "${result.room.name}"`
     },
-    // Unlike control_playback's track (the whole point of that favourite)
-    // or create_linear_task's title (its actual content), action/brightness
-    // here are a state the form lets you re-tune each run, not the
-    // favourite's identity — the room is. So the label deliberately drops
-    // them rather than freezing "dimmed to 10%" as a name that goes stale
-    // the moment you replay it at a different level.
+    // room is exactly as editable via the form as action/brightness are —
+    // there's no field here immune from being changed on replay. But room
+    // is the "where", action/brightness the "what", and a person is far
+    // more likely to reuse the same light favourite at a different level
+    // than to redirect a brightness favourite at a different room — so
+    // the label keeps the where and drops the what, rather than freezing
+    // "dimmed to 10%" as a name that goes stale the moment the form is
+    // used to replay at a different level. Same reasoning as
+    // control_playback's favouriteLabel above.
     favouriteLabel: ({ room }) => `${room.name} lights`,
   }
 }
 
 // A tool can define favouriteLabel(input) to generate a stable name for
 // POST /api/items/:id/favourite instead of freezing the item's
-// action_result verbatim — worth doing when the acting tool's args mix a
-// stable identity (e.g. control_light's room) with a state the form lets
-// you edit each replay (action/brightness); freezing the specific state
-// into the label would go stale the first time it's replayed differently.
-// Most tools don't need this — action_result (the fallback) already says
-// exactly what happened and stays meaningful even if never re-edited.
+// action_result verbatim — worth doing whenever the acting tool's editable
+// form has a "where" (room, speaker) distinct from a "what" (brightness,
+// track) that's more likely to be the thing edited on replay; freezing the
+// current "what" into the label goes stale the first time it's replayed
+// differently. create_linear_task doesn't get one: its title *is* the
+// content, with no separate "where" to fall back to, so there's nothing
+// more stable to drop down to — action_result (the fallback) stays the
+// most useful label even though title is just as editable.
 export function getFavouriteLabel(tool, input, fallback) {
   return TOOL_REGISTRY[tool]?.favouriteLabel?.(input) ?? fallback
 }
