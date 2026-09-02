@@ -111,6 +111,13 @@ export async function pause({ speaker }) {
 // Verified against real hardware with a fixed placeholder track id; only
 // depends on track.id, so the backend's real Spotify search result is a
 // drop-in — see designs/satellites.md.
+//
+// Deliberately diverges from the reference implementation on one point:
+// spotifyDef.js sends an empty <dc:title> for track-type items (Sonos
+// apparently expects to backfill display metadata itself from the
+// service link) — in practice that left the Sonos app showing "Unknown
+// content" instead of the track. Sending the real title/artist/album we
+// already have avoids depending on that backfill working.
 function spotifyPlayable(track) {
   const sid = system.getServiceId('Spotify')
   const serviceType = system.getServiceType('Spotify')
@@ -123,10 +130,24 @@ function spotifyPlayable(track) {
     '<DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" ' +
     'xmlns:r="urn:schemas-rinconnetworks-com:metadata-1-0/" xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/">' +
     `<item id="00032020spotify%3atrack%3a${encodedId}" parentID="00020000track:${track.id}" restricted="true">` +
-    '<dc:title></dc:title><upnp:class>object.item.audioItem.musicTrack</upnp:class>' +
+    `<dc:title>${escapeXml(track.title)}</dc:title>` +
+    (track.artist ? `<dc:creator>${escapeXml(track.artist)}</dc:creator>` : '') +
+    (track.album ? `<upnp:album>${escapeXml(track.album)}</upnp:album>` : '') +
+    '<upnp:class>object.item.audioItem.musicTrack</upnp:class>' +
     `<desc id="cdudn" nameSpace="urn:schemas-rinconnetworks-com:metadata-1-0/">${token}</desc></item></DIDL-Lite>`
 
   return { uri, metadata }
+}
+
+// track.title/artist/album come from Spotify's catalog — external data
+// being hand-embedded into XML, not trusted to already be safe.
+function escapeXml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
 }
 
 // Fuzzy-matches free text ("bedroom") against this house's actual,
