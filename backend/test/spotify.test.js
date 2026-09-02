@@ -53,6 +53,24 @@ describe('searchTrack', () => {
     expect(searchUrl.searchParams.get('type')).toBe('track')
   })
 
+  it('scopes the search to a market when given one', async () => {
+    mockFetch.mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(searchResponse([spotifyTrack]))
+
+    await searchTrack({ clientId: 'client-m', clientSecret: 'secret-m', title: 'Silver Machine', market: 'GB' })
+
+    const [searchUrl] = mockFetch.mock.calls[1]
+    expect(searchUrl.searchParams.get('market')).toBe('GB')
+  })
+
+  it('omits the market param when none is given, rather than sending an empty one', async () => {
+    mockFetch.mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(searchResponse([spotifyTrack]))
+
+    await searchTrack({ clientId: 'client-n', clientSecret: 'secret-n', title: 'Silver Machine' })
+
+    const [searchUrl] = mockFetch.mock.calls[1]
+    expect(searchUrl.searchParams.has('market')).toBe(false)
+  })
+
   it('returns the top match in this app\'s track shape', async () => {
     mockFetch.mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(searchResponse([spotifyTrack]))
 

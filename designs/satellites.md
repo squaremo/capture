@@ -401,16 +401,27 @@ explicitly if that's ever genuinely needed.
   already-resolved result verbatim) specifically so the hub can show a
   human the *exact* resolved match before anything plays — see Safety,
   above.
-- **Verified against real hardware, but not yet together**: a laptop run
-  on the home LAN found the actual speakers (e.g. "Living Room") and a
-  search + play round-trip produced real audio, including the
-  `x-sonos-spotify` URI/DIDL construction and the guessed default
-  `SPOTIFY_ACCOUNT_SN=1` (an empirically-determined, per-household UPnP
-  value with no way to discover it automatically — override via the
+- **Verified against real hardware, but not yet together** (now tried, and
+  fixed): a laptop run on the home LAN found the actual speakers (e.g.
+  "Living Room") and a search + play round-trip produced real audio,
+  including the `x-sonos-spotify` URI/DIDL construction and the guessed
+  default `SPOTIFY_ACCOUNT_SN=1` (an empirically-determined, per-household
+  UPnP value with no way to discover it automatically — override via the
   `SPOTIFY_ACCOUNT_SN` env var if it doesn't work elsewhere). That
   verification predates real Spotify search landing, so it used a fixed
-  placeholder track id rather than a live search result. `play()` only
-  ever depends on `track.id`, so the two pieces should combine without
-  further code changes — but that combined path (a real Spotify search
-  result actually played through real Sonos hardware) hasn't been
-  independently confirmed yet.
+  placeholder track id rather than a live search result. First real
+  combined run ("Silver Machine") reached Sonos fine — `SetAVTransportURI`
+  was accepted, so the URI/DIDL shape itself is sound — but playback then
+  failed inside the Sonos app, correctly naming the track, once Sonos
+  actually tried to stream it. Cause: `searchTrack()` (`spotify.js`) had
+  no `market` parameter, so client-credentials search could return an
+  edition of a track not actually licensed for the household's own
+  Spotify account/region — a track Spotify itself will report as playable
+  in general but not to that particular account. Fixed by adding
+  `market` (Spotify's ISO 3166-1 alpha-2 country code, e.g. `GB`) to the
+  search request, sourced from `SPOTIFY_MARKET` (plain config, not a
+  secret — see `infra/production.env`) and threaded through
+  `resolve_playback`. Worth remembering: a request Sonos *accepts* isn't
+  proof it will actually play — the accept/stream split means this class
+  of failure surfaces in the Sonos app, not as an error from this
+  codebase at all.

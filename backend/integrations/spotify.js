@@ -30,7 +30,16 @@ async function getAccessToken({ clientId, clientSecret }) {
 // client-credentials covers it fully. Runs on the central backend rather
 // than the satellite: unlike Sonos playback, catalog search has no
 // local-network dependency (see designs/satellites.md).
-export async function searchTrack({ clientId, clientSecret, title, artist, album }) {
+//
+// `market` matters more than it looks: without it, Spotify's catalog
+// search can return an edition of a track (a different regional release,
+// a compilation-only pressing, etc) that isn't actually licensed for
+// playback in the household's own Spotify account — Sonos then accepts
+// the SetAVTransportURI fine (the URI/DIDL shape is valid) but fails
+// once it actually tries to stream it, since that specific track isn't
+// available to that account. Scoping search to the account's own market
+// makes the returned id one Spotify itself considers playable there.
+export async function searchTrack({ clientId, clientSecret, title, artist, album, market }) {
   const token = await getAccessToken({ clientId, clientSecret })
 
   const q = [title, artist && `artist:${artist}`, album && `album:${album}`].filter(Boolean).join(' ')
@@ -38,6 +47,7 @@ export async function searchTrack({ clientId, clientSecret, title, artist, album
   url.searchParams.set('q', q)
   url.searchParams.set('type', 'track')
   url.searchParams.set('limit', '1')
+  if (market) url.searchParams.set('market', market)
 
   const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
   if (!res.ok) throw new Error(`Spotify search failed: ${res.status}`)

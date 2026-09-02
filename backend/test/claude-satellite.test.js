@@ -90,6 +90,7 @@ describe('processCapture with satellites and Spotify enabled', () => {
       title: 'Silver Machine',
       artist: 'Hawkwind',
       album: undefined,
+      market: undefined,
     })
     expect(mockResolveSpeaker).toHaveBeenCalledWith({
       houses: { home: 'http://localhost:4000' },
