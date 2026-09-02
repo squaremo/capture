@@ -25,10 +25,10 @@ export function getHouses() {
 // the house the config claims (catches a stale/mistyped satellites.json
 // entry or a satellite started with the wrong HOUSE_ID — never trust the
 // config's label over what the satellite itself reports), and supports
-// Sonos. Shared by resolvePlayback and commitPlayback below — both need
-// the same checks, done independently since approval can land a while
-// after proposal and either could have changed in between.
-async function verifySatellite(houses, house) {
+// the given capability. Shared by every resolve/commit pair below — each
+// needs the same checks, done independently since approval can land a
+// while after proposal and either could have changed in between.
+async function verifySatellite(houses, house, capability, label) {
   const address = houses[house]
   if (!address) throw new Error(`Unknown house: "${house}"`)
 
@@ -38,8 +38,8 @@ async function verifySatellite(houses, house) {
   if (status.house !== house) {
     throw new Error(`Satellite at "${house}"'s address reports house "${status.house}" — config/satellite mismatch`)
   }
-  if (!status.capabilities?.includes('sonos')) {
-    throw new Error(`"${house}" has no Sonos capability configured`)
+  if (!status.capabilities?.includes(capability)) {
+    throw new Error(`"${house}" has no ${label} capability configured`)
   }
   return address
 }
@@ -52,7 +52,7 @@ async function verifySatellite(houses, house) {
 // the exact resolved particulars, not a raw request that then gets
 // (re-)interpreted after the fact. See designs/satellites.md.
 export async function resolveSpeaker({ houses, house, room }) {
-  const address = await verifySatellite(houses, house)
+  const address = await verifySatellite(houses, house, 'sonos', 'Sonos')
 
   const res = await fetch(`${address}/api/search`, {
     method: 'POST',
@@ -70,7 +70,7 @@ export async function resolveSpeaker({ houses, house, room }) {
 // resolvePlayback call) — never re-searches, so this can't land on a
 // different result than whatever was approved.
 export async function commitPlayback({ houses, house, track, speaker }) {
-  const address = await verifySatellite(houses, house)
+  const address = await verifySatellite(houses, house, 'sonos', 'Sonos')
 
   const res = await fetch(`${address}/api/play`, {
     method: 'POST',
@@ -80,6 +80,42 @@ export async function commitPlayback({ houses, house, track, speaker }) {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
     throw new Error(body.error ?? `Satellite play failed: ${res.status}`)
+  }
+  return res.json()
+}
+
+// Resolves a room name (and validates action/brightness) without
+// changing any device state — same split as resolveSpeaker above. See
+// designs/matter-lighting.md.
+export async function resolveLight({ houses, house, room, action, brightness }) {
+  const address = await verifySatellite(houses, house, 'dirigera', 'Dirigera')
+
+  const res = await fetch(`${address}/api/lights/resolve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ room, action, brightness }),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.error ?? `Satellite light resolve failed: ${res.status}`)
+  }
+  return res.json()
+}
+
+// Commits an already-resolved room/action/brightness (from a prior
+// resolveLight call) — no free-text room accepted here, so this can't
+// land on a different room than whatever was resolved/approved.
+export async function commitLight({ houses, house, room, action, brightness }) {
+  const address = await verifySatellite(houses, house, 'dirigera', 'Dirigera')
+
+  const res = await fetch(`${address}/api/lights`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ room, action, brightness }),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.error ?? `Satellite light commit failed: ${res.status}`)
   }
   return res.json()
 }

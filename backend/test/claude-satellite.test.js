@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const { mockCreate, mockResolveSpeaker, mockCommitPlayback, mockGetHouses, mockSearchTrack } = vi.hoisted(() => ({
+const { mockCreate, mockResolveSpeaker, mockCommitPlayback, mockResolveLight, mockCommitLight, mockGetHouses, mockSearchTrack } = vi.hoisted(() => ({
   mockCreate: vi.fn(),
   mockResolveSpeaker: vi.fn(),
   mockCommitPlayback: vi.fn(),
+  mockResolveLight: vi.fn(),
+  mockCommitLight: vi.fn(),
   mockGetHouses: vi.fn(),
   mockSearchTrack: vi.fn(),
 }))
@@ -15,6 +17,8 @@ vi.mock('@anthropic-ai/sdk', () => ({
 vi.mock('../integrations/satellite.js', () => ({
   resolveSpeaker: mockResolveSpeaker,
   commitPlayback: mockCommitPlayback,
+  resolveLight: mockResolveLight,
+  commitLight: mockCommitLight,
   getHouses: mockGetHouses,
 }))
 
@@ -36,15 +40,20 @@ const track = { id: 'trk_abc123', title: 'Silver Machine', artist: 'Hawkwind', a
 const speaker = { name: 'Living Room', requested: 'living room', confidence: 'exact' }
 const resolved = { track, speaker }
 
+const room = { id: 'room_1', name: 'Living Room', requested: 'living room', confidence: 'exact' }
+
 beforeEach(() => {
   mockCreate.mockClear()
   mockResolveSpeaker.mockClear()
   mockCommitPlayback.mockClear()
+  mockResolveLight.mockClear()
+  mockCommitLight.mockClear()
   mockGetHouses.mockClear()
   mockSearchTrack.mockClear()
   mockGetHouses.mockReturnValue({ home: 'http://localhost:4000' })
   mockResolveSpeaker.mockResolvedValue({ speaker })
   mockSearchTrack.mockResolvedValue(track)
+  mockResolveLight.mockResolvedValue({ room, action: 'set_brightness', brightness: 20 })
 })
 
 function respondWithPlan(steps) {
@@ -62,6 +71,19 @@ function playbackPlan(resolveArgs, overrides = {}) {
       id: 's2',
       tool: 'control_playback',
       args: { target_house: '${s1.target_house}', track: '${s1.track}', speaker: '${s1.speaker}', tags: [], ...overrides },
+    },
+  ]
+}
+
+// Same two-step shape for lights: resolve_light (readonly) runs
+// automatically, control_light (acting) references its whole output.
+function lightPlan(resolveArgs, overrides = {}) {
+  return [
+    { id: 's1', tool: 'resolve_light', args: resolveArgs },
+    {
+      id: 's2',
+      tool: 'control_light',
+      args: { target_house: '${s1.target_house}', room: '${s1.room}', action: '${s1.action}', brightness: '${s1.brightness}', tags: [], ...overrides },
     },
   ]
 }
@@ -159,6 +181,71 @@ describe('processCapture with satellites and Spotify enabled', () => {
   })
 })
 
+describe('processCapture with lights enabled', () => {
+  it('offers resolve_light and control_light as tools', async () => {
+    respondWithPlan([{ id: 's1', tool: 'save_to_inbox', args: { action_result: 'ok', tags: [] } }])
+    await processCapture('anything')
+    const toolNames = mockCreate.mock.calls[0][0].tools[0].input_schema.properties.steps.items.properties.tool.enum
+    expect(toolNames).toContain('resolve_light')
+    expect(toolNames).toContain('control_light')
+  })
+
+  it('resolves before proposing, and the proposal shows the resolved room', async () => {
+    const plan = lightPlan({ room: 'living room', action: 'set_brightness', brightness: 20 })
+    respondWithPlan(plan)
+
+    const result = await processCapture('dim the living room lights to 20%')
+
+    expect(mockResolveLight).toHaveBeenCalledWith({
+      houses: { home: 'http://localhost:4000' },
+      house: null,
+      room: 'living room',
+      action: 'set_brightness',
+      brightness: 20,
+    })
+    expect(mockCommitLight).not.toHaveBeenCalled()
+    expect(result).toEqual({
+      status: 'awaiting_approval',
+      tags: [],
+      // The exact resolved room name, not the raw request text.
+      action_result: 'Proposed: dim to 20% lights in "Living Room"',
+      pending_action: {
+        tool: 'control_light',
+        input: { target_house: null, room, action: 'set_brightness', brightness: 20 },
+      },
+      plan_steps: plan,
+    })
+  })
+
+  it('defaults target_house on resolve_light to the capture origin when the text names no house', async () => {
+    respondWithPlan(lightPlan({ room: 'living room', action: 'off' }))
+    mockResolveLight.mockResolvedValue({ room, action: 'off', brightness: undefined })
+
+    const result = await processCapture('turn off the living room lights', { house: 'home' })
+
+    expect(mockResolveLight).toHaveBeenCalledWith(expect.objectContaining({ house: 'home' }))
+    expect(result.pending_action.input.target_house).toBe('home')
+    expect(result.action_result).toContain('(home)')
+  })
+
+  it('keeps an explicitly named target_house on resolve_light over the capture origin', async () => {
+    respondWithPlan(lightPlan({ room: 'living room', action: 'off', target_house: 'lake' }))
+    mockResolveLight.mockResolvedValue({ room, action: 'off', brightness: undefined })
+
+    const result = await processCapture('turn off the lake house living room lights', { house: 'home' })
+
+    expect(mockResolveLight).toHaveBeenCalledWith(expect.objectContaining({ house: 'lake' }))
+    expect(result.pending_action.input.target_house).toBe('lake')
+  })
+
+  it('propagates a resolve_light failure (e.g. no matching room) as a thrown error', async () => {
+    mockResolveLight.mockRejectedValue(new Error('No room matching "attic"'))
+    respondWithPlan(lightPlan({ room: 'attic', action: 'on' }))
+
+    await expect(processCapture('turn on the attic lights')).rejects.toThrow('No room matching')
+  })
+})
+
 describe('executeAction with satellites enabled', () => {
   it('commits exactly the resolved track/speaker and returns status acted', async () => {
     mockCommitPlayback.mockResolvedValue({ playing: true, ...resolved })
@@ -189,6 +276,37 @@ describe('executeAction with satellites enabled', () => {
   })
 })
 
+describe('control_light execution', () => {
+  it('commits exactly the resolved room and returns status acted', async () => {
+    mockCommitLight.mockResolvedValue({ room, action: 'set_brightness', brightness: 20 })
+
+    const result = await executeAction({
+      tool: 'control_light',
+      input: { target_house: 'home', room, action: 'set_brightness', brightness: 20 },
+    })
+
+    expect(mockGetHouses).toHaveBeenCalled()
+    expect(mockCommitLight).toHaveBeenCalledWith({
+      houses: { home: 'http://localhost:4000' },
+      house: 'home',
+      room,
+      action: 'set_brightness',
+      brightness: 20,
+    })
+    expect(result).toEqual({
+      status: 'acted',
+      action_result: 'Lights dimmed to 20% in "Living Room"',
+    })
+  })
+
+  it('propagates satellite errors as thrown exceptions', async () => {
+    mockCommitLight.mockRejectedValue(new Error('No room matching "attic"'))
+    await expect(
+      executeAction({ tool: 'control_light', input: { target_house: 'home', room: { id: 'x', name: 'Attic' }, action: 'on' } })
+    ).rejects.toThrow('No room matching')
+  })
+})
+
 describe('getFormFields for a resolved playback program', () => {
   it('exposes resolve_playback\'s literal request fields, not control_playback\'s resolved refs', () => {
     const plan = playbackPlan({ title: 'Silver Machine', artist: 'Hawkwind', room: 'living room' })
@@ -196,6 +314,17 @@ describe('getFormFields for a resolved playback program', () => {
       { step: 's1', tool: 'resolve_playback', field: 'title', value: 'Silver Machine', label: 'Title', type: 'text' },
       { step: 's1', tool: 'resolve_playback', field: 'artist', value: 'Hawkwind', label: 'Artist', type: 'text' },
       { step: 's1', tool: 'resolve_playback', field: 'room', value: 'living room', label: 'Room', type: 'text' },
+    ])
+  })
+})
+
+describe('getFormFields for a resolved lighting program', () => {
+  it('exposes resolve_light\'s literal request fields, not control_light\'s resolved refs', () => {
+    const plan = lightPlan({ room: 'living room', action: 'set_brightness', brightness: 20 })
+    expect(getFormFields(plan)).toEqual([
+      { step: 's1', tool: 'resolve_light', field: 'room', value: 'living room', label: 'Room', type: 'text' },
+      { step: 's1', tool: 'resolve_light', field: 'action', value: 'set_brightness', label: 'Action', type: 'text' },
+      { step: 's1', tool: 'resolve_light', field: 'brightness', value: 20, label: 'Brightness', type: 'number' },
     ])
   })
 })

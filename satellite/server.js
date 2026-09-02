@@ -5,6 +5,7 @@ import { networkInterfaces } from 'os'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
 import * as sonos from './services/sonos.js'
+import * as dirigera from './services/dirigera.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -36,10 +37,12 @@ const BACKEND_URL = process.env.BACKEND_URL ?? null
 // a frontend build nearby.
 const FRONTEND_DIST = process.env.FRONTEND_DIST_PATH ?? join(__dirname, '../frontend/dist')
 
-// Which local services this satellite can currently reach. Only Sonos is
-// wired up so far; the hub checks this before dispatching an action rather
-// than firing blind into an unsupported house.
-const CAPABILITIES = ['sonos']
+// Which local services this satellite can currently reach. Sonos is
+// always listed (real discovery — see services/sonos.js); Dirigera only
+// when a token is actually configured. The hub checks this before
+// dispatching an action rather than firing blind into an unsupported
+// house.
+const CAPABILITIES = ['sonos', ...(dirigera.isConfigured() ? ['dirigera'] : [])]
 
 const testPageHtml = readFileSync(join(__dirname, 'public/index.html'), 'utf8')
 
@@ -69,14 +72,15 @@ if (existsSync(join(FRONTEND_DIST, 'index.html'))) {
   app.get('/', async (req, reply) => reply.type('text/html').send(testPageHtml))
 }
 // Kept at a fixed path regardless of whether the real frontend is being
-// served at / — useful for exercising /api/search + /api/play directly
-// without a full capture round-trip. Superseded once the real frontend
-// gets its own local now-playing panel (see Open questions).
+// served at / — useful for exercising /api/search + /api/play (and the
+// Dirigera equivalents below) directly without a full capture round-trip.
+// Superseded once the real frontend gets its own local now-playing panel
+// (see Open questions).
 app.get('/test', async (req, reply) => reply.type('text/html').send(testPageHtml))
 
 // ── Controller API ─────────────────────────────────────────
 // The central backend (or, for now, the UI above) calls these to reach
-// whatever this house needs locally. Only Sonos is wired up so far.
+// whatever this house needs locally.
 
 app.get('/api/status', async () => ({
   house: HOUSE_ID,
@@ -156,6 +160,42 @@ app.post('/api/volume', async (req, reply) => {
   }
   try {
     return await sonos.setVolume({ speaker, level })
+  } catch (err) {
+    return reply.code(422).send({ error: err.message })
+  }
+})
+
+// Resolves a room name (and validates action/brightness) without
+// changing any device state — same search-then-commit split as
+// /api/search + /api/play above. See designs/matter-lighting.md.
+app.post('/api/lights/resolve', async (req, reply) => {
+  if (!dirigera.isConfigured()) {
+    return reply.code(400).send({ error: 'Dirigera not configured on this satellite' })
+  }
+  const { room, action, brightness } = req.body ?? {}
+  if (!room || typeof room !== 'string' || !room.trim()) {
+    return reply.code(400).send({ error: 'room is required' })
+  }
+  try {
+    return await dirigera.resolveLight({ room: room.trim(), action, brightness })
+  } catch (err) {
+    return reply.code(422).send({ error: err.message })
+  }
+})
+
+// Commits an already-resolved room/action/brightness (from a prior
+// /api/lights/resolve) — no free-text room accepted here, so this can't
+// land on a different room than whatever was resolved/approved.
+app.post('/api/lights', async (req, reply) => {
+  if (!dirigera.isConfigured()) {
+    return reply.code(400).send({ error: 'Dirigera not configured on this satellite' })
+  }
+  const { room, action, brightness } = req.body ?? {}
+  if (!room?.id || typeof room.id !== 'string') {
+    return reply.code(400).send({ error: 'room (a resolved room object) is required' })
+  }
+  try {
+    return await dirigera.commitLight({ room, action, brightness })
   } catch (err) {
     return reply.code(422).send({ error: err.message })
   }

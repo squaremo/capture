@@ -32,7 +32,15 @@
     <button id="play">play</button>
     <button id="pause">pause</button>
   </div>
+  <div class="row">
+    <input id="lightRoom" placeholder="room" size="12">
+    <input id="brightness" placeholder="%" size="4" type="number" min="1" max="100">
+    <button id="lightOn">on</button>
+    <button id="lightOff">off</button>
+    <button id="lightDim">dim</button>
+  </div>
   <div id="status">…</div>
+  <div id="lightStatus"></div>
 
 <script>
 // The last speaker a search resolved to — pause needs to be told which
@@ -105,6 +113,40 @@ document.getElementById('pause').onclick = async () => {
   }
   document.getElementById('status').textContent = `[${lastSpeaker.name}] paused`
 }
+
+// Same search-then-commit shape as play/pause above: resolve first (can
+// fail, changes nothing), then commit exactly that resolved room.
+async function setLight(action) {
+  const room = document.getElementById('lightRoom').value.trim()
+  const brightness = Number(document.getElementById('brightness').value)
+  if (!room) return
+
+  const resolveRes = await fetch('/api/lights/resolve', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ room, action, brightness: action === 'set_brightness' ? brightness : undefined }),
+  })
+  if (!resolveRes.ok) {
+    const { error } = await resolveRes.json()
+    document.getElementById('lightStatus').textContent = `error: ${error}`
+    return
+  }
+  const resolved = await resolveRes.json()
+
+  const commitRes = await fetch('/api/lights', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(resolved),
+  })
+  const body = await commitRes.json()
+  document.getElementById('lightStatus').textContent = commitRes.ok
+    ? `${body.room.name}: ${body.action}${body.brightness ? ` ${body.brightness}%` : ''}`
+    : `error: ${body.error}`
+}
+
+document.getElementById('lightOn').onclick = () => setLight('on')
+document.getElementById('lightOff').onclick = () => setLight('off')
+document.getElementById('lightDim').onclick = () => setLight('set_brightness')
 
 refresh()
 </script>
