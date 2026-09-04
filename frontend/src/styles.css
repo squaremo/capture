@@ -593,6 +593,15 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 }
 .favourite-run:hover { color: var(--amber); }
 
+.favourite-edit {
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 13px;
+  padding: 0 8px;
+  flex-shrink: 0;
+}
+.favourite-edit:hover { color: var(--accent); }
+
 .favourite-delete {
   background: transparent;
   color: var(--text-dim);

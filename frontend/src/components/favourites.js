@@ -3,13 +3,15 @@ import { escHtml, renderForm, collectFormOverrides } from './item.js'
 // The sidebar of saved favourites (see GET /api/favourites) — each one a
 // saved program (see plan_steps/form_fields on the backend) that replays
 // with no re-approval, the human having already approved this exact action
-// once, at favourite time. A favourite with no editable inputs (no
-// form_fields — e.g. one saved before this existed) runs immediately on
-// click, same as always; one with editable inputs opens them inline first,
+// once, at favourite time. Clicking the label always replays it exactly as
+// last run — no form, no detour — since that's the common case even for a
+// favourite that *has* editable inputs. A favourite with editable inputs
+// (form_fields) additionally gets an edit button that opens them inline,
 // prefilled with the values it was last run with, and only replays once
-// "run" is confirmed — this is what lets a favourite mean "the program",
-// not just "the frozen call". Hidden entirely when there are none, same
-// pattern as the house chooser hiding when there are no satellites.
+// "run" is confirmed there — this is what lets a favourite mean "the
+// program", not just "the frozen call", without making every replay pay
+// for that flexibility. Hidden entirely when there are none, same pattern
+// as the house chooser hiding when there are no satellites.
 export function createFavouritesSidebar({ onRun, onDelete } = {}) {
   const aside = document.createElement('aside')
   aside.className = 'favourites'
@@ -40,15 +42,14 @@ export function createFavouritesSidebar({ onRun, onDelete } = {}) {
       if (form) form.hidden = true
       return
     }
-    if (e.target.closest('[data-action="run"]')) {
+    if (e.target.closest('[data-action="edit"]')) {
       const form = li.querySelector('.favourite-form')
-      // A favourite with edits to make opens its form on first click
-      // rather than firing straight away — a second click on the same
-      // label closes it again (same toggle the cancel button uses), and
-      // the form's own "run" button (data-action="confirm") replays it.
-      if (form) { form.hidden = !form.hidden; return }
-      return onRun?.(id)
+      // Toggles the inline form open/closed — same toggle the cancel
+      // button uses. Only rendered when the favourite has form_fields.
+      if (form) form.hidden = !form.hidden
+      return
     }
+    if (e.target.closest('[data-action="run"]')) return onRun?.(id)
   })
 
   function render(favourites) {
@@ -57,7 +58,10 @@ export function createFavouritesSidebar({ onRun, onDelete } = {}) {
       return `
         <li class="favourite-item" data-id="${fav.id}">
           <div class="favourite-row">
-            <button class="favourite-run" data-action="run" title="Run again">${escHtml(fav.label)}</button>
+            <button class="favourite-run" data-action="run" title="Run again, exactly as before">${escHtml(fav.label)}</button>
+            ${fields.length
+              ? `<button class="favourite-edit" data-action="edit" title="Edit before running" aria-label="Edit before running">&#9998;</button>`
+              : ''}
             <button class="favourite-delete" data-action="delete" title="Remove from favourites" aria-label="Remove from favourites">&times;</button>
           </div>
           ${fields.length
