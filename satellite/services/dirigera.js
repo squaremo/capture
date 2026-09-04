@@ -75,18 +75,34 @@ function normalizeColor(color) {
   return `#${m[1].toLowerCase()}`
 }
 
+// 'set_brightness'/'set_color' were the original two single-attribute
+// actions, before a request could set both at once — kept working as
+// synonyms for 'set' (each implying "only this one attribute was given")
+// so a favourite/plan_steps saved under the old names still replays
+// rather than hitting "Unknown light action" after this change.
+function normalizeAction(action) {
+  return action === 'set_brightness' || action === 'set_color' ? 'set' : action
+}
+
 // Resolves a room name (and validates action/brightness/color) without
 // changing any device state — a bad request fails here, before ever
-// reaching approval, rather than at commit time.
+// reaching approval, rather than at commit time. 'set' takes brightness
+// and/or color — whichever the capture actually specified ("dim to 20%
+// and make it red" -> both; "dim to 20%" -> brightness only) — and sets
+// only those, rather than forcing one attribute per call.
 export async function resolveLight({ room, action, brightness, color }) {
   const client = await getClient()
   const match = await matchRoom(client, room)
-  if (!['on', 'off', 'set_brightness', 'set_color'].includes(action)) {
+  const normalizedAction = normalizeAction(action)
+  if (!['on', 'off', 'set'].includes(normalizedAction)) {
     throw new Error(`Unknown light action: "${action}"`)
   }
-  const level = action === 'set_brightness' ? normalizeBrightness(brightness) : brightness
-  const normalizedColor = action === 'set_color' ? normalizeColor(color) : color
-  return { room: match, action, brightness: level, color: normalizedColor }
+  if (normalizedAction === 'set' && brightness == null && color == null) {
+    throw new Error('set requires brightness and/or color')
+  }
+  const level = brightness != null ? normalizeBrightness(brightness) : undefined
+  const normalizedColor = color != null ? normalizeColor(color) : undefined
+  return { room: match, action: normalizedAction, brightness: level, color: normalizedColor }
 }
 
 // Hex (sRGB, 0-255 per channel) to the hue (0-359) + saturation (0-1)
@@ -117,41 +133,43 @@ function hexToHueSaturation(hex) {
   return { colorHue: Math.round(hue), colorSaturation: Math.round(saturation * 100) / 100 }
 }
 
-// Commits an already-resolved room/action/brightness (from a prior
+// Commits an already-resolved room/action/brightness/color (from a prior
 // resolveLight() call) — no matching happens here, so this can't land on
 // a different room than what was resolved and shown for approval.
 // Affects every light in the room (rooms.setAttributes with
 // deviceType: 'light' is a group operation — no need to iterate
 // individual devices).
 //
-// isOn and lightLevel are independent Dirigera attributes, and the
-// client's own docs warn some attributes can't be combined in one
-// setAttributes call — so set_brightness issues two calls (isOn:true,
-// then lightLevel), never one. A brightness set on lights that are off
-// wouldn't otherwise be visible.
+// isOn, lightLevel, and the colorHue/colorSaturation pair are treated as
+// three independent Dirigera attributes that each get their own
+// setAttributes call, never combined into one — the client's own docs
+// warn some attributes can't be combined, and hue+saturation are kept
+// together as the exception (they're the two halves of one "colour"
+// concept, and the client's own setLightColor() wrapper sets them
+// together too). isOn:true always goes first when setting brightness
+// and/or color, since a level or colour change on an off light wouldn't
+// otherwise be visible; only the attributes actually given are touched,
+// so "set" with just brightness never overwrites the current colour and
+// vice versa.
 export async function commitLight({ room, action, brightness, color }) {
   const client = await getClient()
+  const normalizedAction = normalizeAction(action)
 
-  if (action === 'on' || action === 'off') {
-    await client.rooms.setAttributes({ id: room.id, deviceType: 'light', attributes: { isOn: action === 'on' } })
-    return { room, action }
+  if (normalizedAction === 'on' || normalizedAction === 'off') {
+    await client.rooms.setAttributes({ id: room.id, deviceType: 'light', attributes: { isOn: normalizedAction === 'on' } })
+    return { room, action: normalizedAction }
   }
 
-  if (action === 'set_brightness') {
+  if (normalizedAction === 'set') {
+    if (brightness == null && color == null) throw new Error('set requires brightness and/or color')
     await client.rooms.setAttributes({ id: room.id, deviceType: 'light', attributes: { isOn: true } })
-    await client.rooms.setAttributes({ id: room.id, deviceType: 'light', attributes: { lightLevel: brightness } })
-    return { room, action, brightness }
-  }
-
-  if (action === 'set_color') {
-    // hue+saturation are set together deliberately — unlike isOn/
-    // lightLevel, they're the two halves of one "colour" concept and the
-    // client's own setLightColor() wrapper sets them in a single call, so
-    // there's no reason to believe they need splitting the way isOn and
-    // lightLevel did.
-    await client.rooms.setAttributes({ id: room.id, deviceType: 'light', attributes: { isOn: true } })
-    await client.rooms.setAttributes({ id: room.id, deviceType: 'light', attributes: hexToHueSaturation(color) })
-    return { room, action, color }
+    if (brightness != null) {
+      await client.rooms.setAttributes({ id: room.id, deviceType: 'light', attributes: { lightLevel: brightness } })
+    }
+    if (color != null) {
+      await client.rooms.setAttributes({ id: room.id, deviceType: 'light', attributes: hexToHueSaturation(color) })
+    }
+    return { room, action: normalizedAction, brightness, color }
   }
 
   throw new Error(`Unknown light action: "${action}"`)

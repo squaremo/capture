@@ -109,7 +109,7 @@ the `SATELLITES_ENABLED` block, mirroring `resolve_playback`/
 
 ```
 resolve_light — kind: 'readonly', resolvesHouse: true
-  args: { room, action: 'on' | 'off' | 'set_brightness' | 'set_color', brightness?, color?, target_house? }
+  args: { room, action: 'on' | 'off' | 'set', brightness?, color?, target_house? }
   output: { target_house, room: { id, name, requested, confidence }, action, brightness, color }
 
 control_light — kind: 'acting'
@@ -117,6 +117,17 @@ control_light — kind: 'acting'
   (always follows resolve_light in the same plan, referencing its output
   via "${s1.room}" etc — never called standalone)
 ```
+
+`set` takes `brightness` and/or `color` — whichever the capture actually
+asked for, both if it asked for both ("dim the living room to 20% and
+make it red" → one `set` step, `brightness: 20, color: "#ff0000"`), never
+forcing two separate proposals for one request. `set_brightness`/
+`set_color` were the original, single-attribute-only actions; `set`
+replaced them as the one Claude is instructed to emit, but `dirigera.js`
+still accepts the two old names as synonyms (each implying "just this one
+attribute") so an already-saved favourite/`plan_steps` under the old
+names keeps replaying rather than hitting "Unknown light action" —
+see `normalizeAction()`.
 
 `color` is a 6-digit hex string (`"#ff0000"`) — what an HTML
 `<input type="color">` produces natively, and plain enough for Claude to
@@ -140,39 +151,49 @@ house-resolving readonly tool was the trigger to turn that into a flag
 any `TOOL_REGISTRY` entry can set, checked generically, rather than
 growing a list of hardcoded tool names.
 
-Claude extracts `action`/`brightness` from the capture text the same
-one-shot way it extracts `title`/`artist`/`album` for `resolve_playback`
-— "dim ... to 20%" → `{ action: 'set_brightness', brightness: 20 }`;
-"turn off the lights" → `{ action: 'off' }`. `control_light`'s `describe()`
-shows the *resolved* room name (`room.name`), not the raw request text —
-a human approves exactly what's about to happen, same reasoning as
-`control_playback` showing the resolved track/speaker rather than a
-guess that gets re-interpreted after the fact.
+Claude extracts `action`/`brightness`/`color` from the capture text the
+same one-shot way it extracts `title`/`artist`/`album` for
+`resolve_playback` — "dim ... to 20%" → `{ action: 'set', brightness: 20
+}`; "turn off the lights" → `{ action: 'off' }`; "dim to 20% and make it
+red" → `{ action: 'set', brightness: 20, color: '#ff0000' }`.
+`control_light`'s `describe()` shows the *resolved* room name
+(`room.name`), not the raw request text, and joins whichever of
+brightness/colour were actually given ("dim to 20% and change colour to
+#ff0000") rather than assuming exactly one — a human approves exactly
+what's about to happen, same reasoning as `control_playback` showing the
+resolved track/speaker rather than a guess that gets re-interpreted
+after the fact.
 
 One Dirigera-specific wrinkle, handled inside `dirigera.js` rather than
-exposed to the plan: `isOn` and `lightLevel` are independent attributes,
-so setting brightness on a light that's off doesn't visibly do anything
-until it's also turned on — and Dirigera's own client docs warn some
-attributes can't be combined in a single `setAttributes` call, so
-`commitLight`'s `set_brightness` path issues two calls (`isOn: true`,
-then `lightLevel`) rather than one. `set_color` has the same `isOn: true`
-prerequisite call, then a single combined `{ colorHue, colorSaturation }`
-call — those two are treated as one "colour" concept (matching the
-client's own `setLightColor()` convenience wrapper, which sets both
-together), unlike `isOn`/`lightLevel` which apparently can't share a
-call. Either way the tool's single verb (`set_brightness`/`set_color`)
-hides the multi-call reality — the interpreter and Claude never see it.
-Same "vendor quirks are the satellite's problem, not the LLM's" reasoning
+exposed to the plan: `isOn`, `lightLevel`, and the `colorHue`/
+`colorSaturation` pair are treated as three independent attributes, each
+getting its own `setAttributes` call — Dirigera's own client docs warn
+some attributes can't be combined, so nothing risks combining `isOn`
+with a level or colour change. Hue and saturation are the one exception,
+kept together in a single call (matching the client's own
+`setLightColor()` convenience wrapper, which sets both together) since
+they're the two halves of one "colour" concept, not independent
+attributes the way `isOn`/`lightLevel` are. `commitLight`'s `set` path
+always sends `isOn: true` first (a level or colour change on an off
+light wouldn't otherwise be visible), then only the attribute calls for
+whichever of brightness/color were actually given — setting one never
+touches the other. The tool's single `set` verb hides all of this
+multi-call reality — the interpreter and Claude never see it. Same
+"vendor quirks are the satellite's problem, not the LLM's" reasoning
 already applied to Sonos track search and speaker matching.
 
 The satellite's manual test page (`satellite/public/index.html`) got an
 `<input type="color">` alongside the brightness field — a native colour
 picker, not raw RGB number inputs, since that's both simpler to wire up
 and gives the same hex format the rest of the pipeline expects with no
-conversion. The main app's editable-form rendering (`getFormFields()` /
-`item.js`) picks up a `color`-typed field the same way — a saved
-favourite's colour field renders as a colour swatch too, not a raw text
-box, wherever `color` shows up as an editable field.
+conversion. A checkbox next to each of brightness/colour lets the page
+mirror the "set whichever is given" behaviour directly — tick one, tick
+both, one `set` button either way, rather than separate dim/colour
+buttons implying they're mutually exclusive. The main app's editable-form
+rendering (`getFormFields()` / `item.js`) picks up a `color`-typed field
+the same way — a saved favourite's colour field renders as a colour
+swatch too, not a raw text box, wherever `color` shows up as an editable
+field.
 
 ## Safety
 
@@ -189,10 +210,10 @@ see the Favourites entry in `TODO.md`.)
 
 ## Open questions
 
-- **Mixed initial states** — resolved: `set_brightness` always turns the
-  whole room's lights on and sets them all to the given level (the
-  `rooms.setAttributes` group call has no per-device conditional), rather
-  than only touching lights already on.
+- **Mixed initial states** — resolved: `set` always turns the whole
+  room's lights on and applies whichever of brightness/colour were given
+  to all of them (the `rooms.setAttributes` group call has no per-device
+  conditional), rather than only touching lights already on.
 - **Non-IKEA Matter devices bridged through Dirigera** — assumed to
   behave identically for brightness through Dirigera's normalized API,
   not verified without real hardware.

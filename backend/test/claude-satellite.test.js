@@ -53,7 +53,7 @@ beforeEach(() => {
   mockGetHouses.mockReturnValue({ home: 'http://localhost:4000' })
   mockResolveSpeaker.mockResolvedValue({ speaker })
   mockSearchTrack.mockResolvedValue(track)
-  mockResolveLight.mockResolvedValue({ room, action: 'set_brightness', brightness: 20, color: undefined })
+  mockResolveLight.mockResolvedValue({ room, action: 'set', brightness: 20, color: undefined })
 })
 
 function respondWithPlan(steps) {
@@ -191,7 +191,7 @@ describe('processCapture with lights enabled', () => {
   })
 
   it('resolves before proposing, and the proposal shows the resolved room', async () => {
-    const plan = lightPlan({ room: 'living room', action: 'set_brightness', brightness: 20 })
+    const plan = lightPlan({ room: 'living room', action: 'set', brightness: 20 })
     respondWithPlan(plan)
 
     const result = await processCapture('dim the living room lights to 20%')
@@ -200,7 +200,7 @@ describe('processCapture with lights enabled', () => {
       houses: { home: 'http://localhost:4000' },
       house: null,
       room: 'living room',
-      action: 'set_brightness',
+      action: 'set',
       brightness: 20,
     })
     expect(mockCommitLight).not.toHaveBeenCalled()
@@ -211,10 +211,30 @@ describe('processCapture with lights enabled', () => {
       action_result: 'Proposed: dim to 20% lights in "Living Room"',
       pending_action: {
         tool: 'control_light',
-        input: { target_house: null, room, action: 'set_brightness', brightness: 20 },
+        input: { target_house: null, room, action: 'set', brightness: 20 },
       },
       plan_steps: plan,
     })
+  })
+
+  it('resolves a combined brightness+colour request in one set action', async () => {
+    mockResolveLight.mockResolvedValue({ room, action: 'set', brightness: 20, color: '#ff0000' })
+    const plan = lightPlan({ room: 'living room', action: 'set', brightness: 20, color: '#ff0000' })
+    respondWithPlan(plan)
+
+    const result = await processCapture('dim the living room to 20% and make it red')
+
+    expect(mockResolveLight).toHaveBeenCalledWith({
+      houses: { home: 'http://localhost:4000' },
+      house: null,
+      room: 'living room',
+      action: 'set',
+      brightness: 20,
+      color: '#ff0000',
+    })
+    // Both changes named in one proposal, not two separate ones.
+    expect(result.action_result).toBe('Proposed: dim to 20% and change colour to #ff0000 lights in "Living Room"')
+    expect(result.pending_action.input).toEqual({ target_house: null, room, action: 'set', brightness: 20, color: '#ff0000' })
   })
 
   it('defaults target_house on resolve_light to the capture origin when the text names no house', async () => {
@@ -245,9 +265,9 @@ describe('processCapture with lights enabled', () => {
     await expect(processCapture('turn on the attic lights')).rejects.toThrow('No room matching')
   })
 
-  it('resolves a set_color request, and the proposal shows the resolved colour', async () => {
-    mockResolveLight.mockResolvedValue({ room, action: 'set_color', brightness: undefined, color: '#ff0000' })
-    const plan = lightPlan({ room: 'living room', action: 'set_color', color: '#ff0000' })
+  it('resolves a colour-only set request, and the proposal shows the resolved colour', async () => {
+    mockResolveLight.mockResolvedValue({ room, action: 'set', brightness: undefined, color: '#ff0000' })
+    const plan = lightPlan({ room: 'living room', action: 'set', color: '#ff0000' })
     respondWithPlan(plan)
 
     const result = await processCapture('make the living room lights red')
@@ -256,11 +276,11 @@ describe('processCapture with lights enabled', () => {
       houses: { home: 'http://localhost:4000' },
       house: null,
       room: 'living room',
-      action: 'set_color',
+      action: 'set',
       color: '#ff0000',
     })
     expect(result.action_result).toBe('Proposed: change colour to #ff0000 lights in "Living Room"')
-    expect(result.pending_action.input).toEqual({ target_house: null, room, action: 'set_color', color: '#ff0000' })
+    expect(result.pending_action.input).toEqual({ target_house: null, room, action: 'set', color: '#ff0000' })
   })
 })
 
@@ -296,11 +316,11 @@ describe('executeAction with satellites enabled', () => {
 
 describe('control_light execution', () => {
   it('commits exactly the resolved room and returns status acted', async () => {
-    mockCommitLight.mockResolvedValue({ room, action: 'set_brightness', brightness: 20 })
+    mockCommitLight.mockResolvedValue({ room, action: 'set', brightness: 20 })
 
     const result = await executeAction({
       tool: 'control_light',
-      input: { target_house: 'home', room, action: 'set_brightness', brightness: 20 },
+      input: { target_house: 'home', room, action: 'set', brightness: 20 },
     })
 
     expect(mockGetHouses).toHaveBeenCalled()
@@ -308,7 +328,7 @@ describe('control_light execution', () => {
       houses: { home: 'http://localhost:4000' },
       house: 'home',
       room,
-      action: 'set_brightness',
+      action: 'set',
       brightness: 20,
     })
     expect(result).toEqual({
@@ -324,24 +344,38 @@ describe('control_light execution', () => {
     ).rejects.toThrow('No room matching')
   })
 
-  it('commits a set_color request and returns status acted', async () => {
-    mockCommitLight.mockResolvedValue({ room, action: 'set_color', color: '#ff0000' })
+  it('commits a colour-only set request and returns status acted', async () => {
+    mockCommitLight.mockResolvedValue({ room, action: 'set', color: '#ff0000' })
 
     const result = await executeAction({
       tool: 'control_light',
-      input: { target_house: 'home', room, action: 'set_color', color: '#ff0000' },
+      input: { target_house: 'home', room, action: 'set', color: '#ff0000' },
     })
 
     expect(mockCommitLight).toHaveBeenCalledWith({
       houses: { home: 'http://localhost:4000' },
       house: 'home',
       room,
-      action: 'set_color',
+      action: 'set',
       color: '#ff0000',
     })
     expect(result).toEqual({
       status: 'acted',
       action_result: 'Lights changed colour to #ff0000 in "Living Room"',
+    })
+  })
+
+  it('commits a combined brightness+colour set request and describes both in the result', async () => {
+    mockCommitLight.mockResolvedValue({ room, action: 'set', brightness: 20, color: '#ff0000' })
+
+    const result = await executeAction({
+      tool: 'control_light',
+      input: { target_house: 'home', room, action: 'set', brightness: 20, color: '#ff0000' },
+    })
+
+    expect(result).toEqual({
+      status: 'acted',
+      action_result: 'Lights dimmed to 20% and changed colour to #ff0000 in "Living Room"',
     })
   })
 })
@@ -359,17 +393,22 @@ describe('getFormFields for a resolved playback program', () => {
 
 describe('getFavouriteLabel', () => {
   it('renders control_light as a live template, not a frozen result string', () => {
-    expect(getFavouriteLabel('control_light', { room, action: 'set_brightness', brightness: 10 }, 'Lights dimmed to 10% in "Living Room"'))
+    expect(getFavouriteLabel('control_light', { room, action: 'set', brightness: 10 }, 'Lights dimmed to 10% in "Living Room"'))
       .toBe('Living Room lights (10%)')
     // Same input, different brightness — the label tracks it, which is
     // the whole point: it's recomputed from current input, not frozen.
-    expect(getFavouriteLabel('control_light', { room, action: 'set_brightness', brightness: 90 }, 'irrelevant'))
+    expect(getFavouriteLabel('control_light', { room, action: 'set', brightness: 90 }, 'irrelevant'))
       .toBe('Living Room lights (90%)')
   })
 
-  it('renders control_light\'s colour into the template for set_color', () => {
-    expect(getFavouriteLabel('control_light', { room, action: 'set_color', color: '#ff0000' }, 'irrelevant'))
+  it('renders control_light\'s colour into the template for a colour-only set', () => {
+    expect(getFavouriteLabel('control_light', { room, action: 'set', color: '#ff0000' }, 'irrelevant'))
       .toBe('Living Room lights (#ff0000)')
+  })
+
+  it('renders both brightness and colour when a set combines them', () => {
+    expect(getFavouriteLabel('control_light', { room, action: 'set', brightness: 20, color: '#ff0000' }, 'irrelevant'))
+      .toBe('Living Room lights (20%, #ff0000)')
   })
 
   it('renders control_playback as a live template', () => {
@@ -385,19 +424,29 @@ describe('getFavouriteLabel', () => {
 
 describe('getFormFields for a resolved lighting program', () => {
   it('exposes resolve_light\'s literal request fields, not control_light\'s resolved refs', () => {
-    const plan = lightPlan({ room: 'living room', action: 'set_brightness', brightness: 20 })
+    const plan = lightPlan({ room: 'living room', action: 'set', brightness: 20 })
     expect(getFormFields(plan)).toEqual([
       { step: 's1', tool: 'resolve_light', field: 'room', value: 'living room', label: 'Room', type: 'text' },
-      { step: 's1', tool: 'resolve_light', field: 'action', value: 'set_brightness', label: 'Action', type: 'text' },
+      { step: 's1', tool: 'resolve_light', field: 'action', value: 'set', label: 'Action', type: 'text' },
       { step: 's1', tool: 'resolve_light', field: 'brightness', value: 20, label: 'Brightness', type: 'number' },
     ])
   })
 
-  it('gives a set_color request\'s colour field a "color" input type, for a colour-picker form control', () => {
-    const plan = lightPlan({ room: 'living room', action: 'set_color', color: '#ff0000' })
+  it('gives a set request\'s colour field a "color" input type, for a colour-picker form control', () => {
+    const plan = lightPlan({ room: 'living room', action: 'set', color: '#ff0000' })
     expect(getFormFields(plan)).toEqual([
       { step: 's1', tool: 'resolve_light', field: 'room', value: 'living room', label: 'Room', type: 'text' },
-      { step: 's1', tool: 'resolve_light', field: 'action', value: 'set_color', label: 'Action', type: 'text' },
+      { step: 's1', tool: 'resolve_light', field: 'action', value: 'set', label: 'Action', type: 'text' },
+      { step: 's1', tool: 'resolve_light', field: 'color', value: '#ff0000', label: 'Color', type: 'color' },
+    ])
+  })
+
+  it('exposes both brightness and colour fields when a set combines them', () => {
+    const plan = lightPlan({ room: 'living room', action: 'set', brightness: 20, color: '#ff0000' })
+    expect(getFormFields(plan)).toEqual([
+      { step: 's1', tool: 'resolve_light', field: 'room', value: 'living room', label: 'Room', type: 'text' },
+      { step: 's1', tool: 'resolve_light', field: 'action', value: 'set', label: 'Action', type: 'text' },
+      { step: 's1', tool: 'resolve_light', field: 'brightness', value: 20, label: 'Brightness', type: 'number' },
       { step: 's1', tool: 'resolve_light', field: 'color', value: '#ff0000', label: 'Color', type: 'color' },
     ])
   })

@@ -141,21 +141,34 @@ if (SATELLITES_ENABLED) {
     // time, so it tracks whatever level/colour this would actually
     // replay at.
     favouriteLabel: ({ room, action, brightness, color }) => {
-      const state = action === 'off' ? 'off' : action === 'on' ? 'on' : action === 'set_color' ? color : `${brightness}%`
+      const state = action === 'off' ? 'off' : action === 'on' ? 'on' : lightState(brightness, color)
       return `${room.name} lights (${state})`
     },
   }
 }
 
 // Shared between control_light's describe()/execute()/favouriteLabel so
-// "off"/"on"/"dim to X%"/"change colour to X" (or their past-tense forms
-// for the actually-executed result) aren't three separately-maintained
-// ternary chains.
+// "off"/"on"/"dim to X% and change colour to Y" (or their past-tense
+// forms for the actually-executed result) aren't three separately-
+// maintained chains. A 'set' action carries brightness and/or color —
+// whichever the capture actually specified — so the phrasing joins
+// whichever of the two are present rather than assuming exactly one.
 function lightVerb(action, brightness, color, { past = false } = {}) {
   if (action === 'off') return past ? 'turned off' : 'turn off'
   if (action === 'on') return past ? 'turned on' : 'turn on'
-  if (action === 'set_color') return `${past ? 'changed' : 'change'} colour to ${color}`
-  return `${past ? 'dimmed' : 'dim'} to ${brightness}%`
+  const parts = []
+  if (brightness != null) parts.push(`${past ? 'dimmed' : 'dim'} to ${brightness}%`)
+  if (color != null) parts.push(`${past ? 'changed' : 'change'} colour to ${color}`)
+  return parts.join(' and ')
+}
+
+// The compact "(...)" form for favouriteLabel — same brightness/color
+// join as lightVerb, without the verb.
+function lightState(brightness, color) {
+  const parts = []
+  if (brightness != null) parts.push(`${brightness}%`)
+  if (color != null) parts.push(color)
+  return parts.join(', ')
 }
 
 // A tool can define favouriteLabel(input) to render its label as a live
@@ -189,7 +202,7 @@ Resolve it by calling propose_plan with an ordered list of steps. Available tool
 - create_linear_task (acting — only proposes; a human must approve before anything is actually created): args { title, description?, tags }. Real project/engineering work that should be tracked in Linear (e.g. "fix the login bug", "add dark mode").` : ''}${PLAYBACK_ENABLED ? `
 - resolve_playback (read-only — runs automatically, no approval needed): args { title, artist?, album?, room, target_house? }. Looks up the actual matching track and speaker for a Sonos playback request — never guess a specific speaker name or track yourself, this does the matching. room is free text like "living room" or "bedroom", passed through as written. target_house should only be set when the capture text unambiguously names one of these houses: ${houseNames.join(', ')}. Leave it unset otherwise — the app fills in the house the capture came from. Outputs: { target_house, track: { title, artist, album, image, matchConfidence }, speaker: { name, confidence } }.
 - control_playback (acting — proposes the exact resolved track and speaker; a human must approve before anything plays): args { target_house, track, speaker, tags }. Always follows resolve_playback in the same plan, referencing its whole output rather than re-stating anything: target_house: "\${s1.target_house}", track: "\${s1.track}", speaker: "\${s1.speaker}" (using whichever step id you gave resolve_playback). Never call control_playback without a resolve_playback step earlier in the same plan.` : ''}${SATELLITES_ENABLED ? `
-- resolve_light (read-only — runs automatically, no approval needed): args { room, action, brightness?, color?, target_house? }. Looks up the actual matching room for a light-control request via the house's Matter hub — never guess a specific room name yourself, this does the matching. room is free text like "living room", passed through as written. action is "on", "off", "set_brightness" (with brightness 1-100, e.g. "dim the living room to 20%" -> action "set_brightness", brightness 20), or "set_color" (with color as a 6-digit hex string, e.g. "make the living room lights red" -> action "set_color", color "#ff0000" — figure out the hex value yourself from the named colour, same as you would for any other colour question; room matching is the only thing that gets resolved locally). target_house follows the same rule as resolve_playback's. Outputs: { target_house, room: { name, confidence }, action, brightness, color }.
+- resolve_light (read-only — runs automatically, no approval needed): args { room, action, brightness?, color?, target_house? }. Looks up the actual matching room for a light-control request via the house's Matter hub — never guess a specific room name yourself, this does the matching. room is free text like "living room", passed through as written. action is "on", "off", or "set" (with brightness — 1-100 — and/or color — a 6-digit hex string — whichever the capture actually specifies; give both when it asks for both, e.g. "dim the living room to 20% and make it red" -> action "set", brightness 20, color "#ff0000". For color, figure out the hex value yourself from the named colour, same as you would for any other colour question — room matching is the only thing that gets resolved locally). target_house follows the same rule as resolve_playback's. Outputs: { target_house, room: { name, confidence }, action, brightness, color }.
 - control_light (acting — proposes the exact resolved room; a human must approve before anything happens): args { target_house, room, action, brightness, color, tags }. Always follows resolve_light in the same plan, referencing its whole output: target_house: "\${s1.target_house}", room: "\${s1.room}", action: "\${s1.action}", brightness: "\${s1.brightness}", color: "\${s1.color}" (using whichever step id you gave resolve_light). Never call control_light without a resolve_light step earlier in the same plan.` : ''}
 
 action_result is a short natural-language description of what was done, e.g. "Saved to inbox", "Reminder set: 'Call dentist' — Tomorrow, 9:00am", "Flagged as urgent". Not needed for create_linear_task, control_playback, or control_light — their descriptions are generated automatically. tags is an array of 1–3 lowercase tags.
