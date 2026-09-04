@@ -87,13 +87,13 @@ export async function commitPlayback({ houses, house, track, speaker }) {
 // Resolves a room name (and validates action/brightness) without
 // changing any device state — same split as resolveSpeaker above. See
 // designs/matter-lighting.md.
-export async function resolveLight({ houses, house, room, action, brightness }) {
+export async function resolveLight({ houses, house, room, action, brightness, color }) {
   const address = await verifySatellite(houses, house, 'dirigera', 'Dirigera')
 
   const res = await fetch(`${address}/api/lights/resolve`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ room, action, brightness }),
+    body: JSON.stringify({ room, action, brightness, color }),
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
@@ -105,13 +105,13 @@ export async function resolveLight({ houses, house, room, action, brightness }) 
 // Commits an already-resolved room/action/brightness (from a prior
 // resolveLight call) — no free-text room accepted here, so this can't
 // land on a different room than whatever was resolved/approved.
-export async function commitLight({ houses, house, room, action, brightness }) {
+export async function commitLight({ houses, house, room, action, brightness, color }) {
   const address = await verifySatellite(houses, house, 'dirigera', 'Dirigera')
 
   const res = await fetch(`${address}/api/lights`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ room, action, brightness }),
+    body: JSON.stringify({ room, action, brightness, color }),
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))

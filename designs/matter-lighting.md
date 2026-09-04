@@ -109,14 +109,29 @@ the `SATELLITES_ENABLED` block, mirroring `resolve_playback`/
 
 ```
 resolve_light — kind: 'readonly', resolvesHouse: true
-  args: { room, action: 'on' | 'off' | 'set_brightness', brightness?, target_house? }
-  output: { target_house, room: { id, name, requested, confidence }, action, brightness }
+  args: { room, action: 'on' | 'off' | 'set_brightness' | 'set_color', brightness?, color?, target_house? }
+  output: { target_house, room: { id, name, requested, confidence }, action, brightness, color }
 
 control_light — kind: 'acting'
-  args: { target_house, room, action, brightness, tags }
+  args: { target_house, room, action, brightness, color, tags }
   (always follows resolve_light in the same plan, referencing its output
   via "${s1.room}" etc — never called standalone)
 ```
+
+`color` is a 6-digit hex string (`"#ff0000"`) — what an HTML
+`<input type="color">` produces natively, and plain enough for Claude to
+produce directly from a colour name ("make the living room red" →
+`color: "#ff0000"`). Unlike `room`, a colour name isn't tied to any
+per-household state the satellite would need to look up — there's
+nothing to resolve locally, so this is the one field in the whole
+resolve/commit split that Claude is trusted to produce outright rather
+than passing through as free text for local matching.
+`dirigera.js`'s `resolveLight()` still validates the shape (rejects
+anything that isn't a hex string) before it ever reaches approval.
+`commitLight()` converts hex → the `colorHue`/`colorSaturation` pair
+Dirigera's API actually wants (there's no RGB attribute on the device) —
+standard RGB→HSV math, done satellite-side so neither the capture pipeline
+nor the picker UI needs to know Dirigera's colour model.
 
 `resolvesHouse` is a small generalization made here: `runProgram()`'s
 "default target_house to the capture's house of origin" logic used to
@@ -140,10 +155,24 @@ so setting brightness on a light that's off doesn't visibly do anything
 until it's also turned on — and Dirigera's own client docs warn some
 attributes can't be combined in a single `setAttributes` call, so
 `commitLight`'s `set_brightness` path issues two calls (`isOn: true`,
-then `lightLevel`) rather than one. The tool's single `set_brightness`
-verb hides both of these — the interpreter and Claude never see two
-steps. Same "vendor quirks are the satellite's problem, not the LLM's"
-reasoning already applied to Sonos track search and speaker matching.
+then `lightLevel`) rather than one. `set_color` has the same `isOn: true`
+prerequisite call, then a single combined `{ colorHue, colorSaturation }`
+call — those two are treated as one "colour" concept (matching the
+client's own `setLightColor()` convenience wrapper, which sets both
+together), unlike `isOn`/`lightLevel` which apparently can't share a
+call. Either way the tool's single verb (`set_brightness`/`set_color`)
+hides the multi-call reality — the interpreter and Claude never see it.
+Same "vendor quirks are the satellite's problem, not the LLM's" reasoning
+already applied to Sonos track search and speaker matching.
+
+The satellite's manual test page (`satellite/public/index.html`) got an
+`<input type="color">` alongside the brightness field — a native colour
+picker, not raw RGB number inputs, since that's both simpler to wire up
+and gives the same hex format the rest of the pipeline expects with no
+conversion. The main app's editable-form rendering (`getFormFields()` /
+`item.js`) picks up a `color`-typed field the same way — a saved
+favourite's colour field renders as a colour swatch too, not a raw text
+box, wherever `color` shows up as an editable field.
 
 ## Safety
 
@@ -172,7 +201,16 @@ see the Favourites entry in `TODO.md`.)
   should extend to a more general `resolve_device`/`control_device` pair
   later without a redesign, rather than growing parallel one-off tools
   per device type.
-- **Colour / colour temperature** — not needed for "dim," deferred.
+- **Colour** — implemented (`set_color`, hex → hue/saturation). Not yet
+  verified against real hardware: white-only bulbs presumably just
+  ignore or error on `colorHue`/`colorSaturation` (Dirigera's room-level
+  `setAttributes` targets every light in the room regardless of what it
+  actually supports), and there's no per-device capability check before
+  sending it — first real thing to check once there's a mixed-bulb room
+  to test against.
+- **Colour temperature** (warm/cool white via `colorTemperature`,
+  distinct from `set_color`'s hue/saturation) — not implemented, not
+  asked for yet.
 - **Approval friction for low-stakes actions** — flagged above; worth a
   deliberate call later rather than a silent exception now.
 - **Favouriting a light action** — confirmed working against real

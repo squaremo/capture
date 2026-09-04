@@ -53,7 +53,7 @@ beforeEach(() => {
   mockGetHouses.mockReturnValue({ home: 'http://localhost:4000' })
   mockResolveSpeaker.mockResolvedValue({ speaker })
   mockSearchTrack.mockResolvedValue(track)
-  mockResolveLight.mockResolvedValue({ room, action: 'set_brightness', brightness: 20 })
+  mockResolveLight.mockResolvedValue({ room, action: 'set_brightness', brightness: 20, color: undefined })
 })
 
 function respondWithPlan(steps) {
@@ -83,7 +83,7 @@ function lightPlan(resolveArgs, overrides = {}) {
     {
       id: 's2',
       tool: 'control_light',
-      args: { target_house: '${s1.target_house}', room: '${s1.room}', action: '${s1.action}', brightness: '${s1.brightness}', tags: [], ...overrides },
+      args: { target_house: '${s1.target_house}', room: '${s1.room}', action: '${s1.action}', brightness: '${s1.brightness}', color: '${s1.color}', tags: [], ...overrides },
     },
   ]
 }
@@ -219,7 +219,7 @@ describe('processCapture with lights enabled', () => {
 
   it('defaults target_house on resolve_light to the capture origin when the text names no house', async () => {
     respondWithPlan(lightPlan({ room: 'living room', action: 'off' }))
-    mockResolveLight.mockResolvedValue({ room, action: 'off', brightness: undefined })
+    mockResolveLight.mockResolvedValue({ room, action: 'off', brightness: undefined, color: undefined })
 
     const result = await processCapture('turn off the living room lights', { house: 'home' })
 
@@ -230,7 +230,7 @@ describe('processCapture with lights enabled', () => {
 
   it('keeps an explicitly named target_house on resolve_light over the capture origin', async () => {
     respondWithPlan(lightPlan({ room: 'living room', action: 'off', target_house: 'lake' }))
-    mockResolveLight.mockResolvedValue({ room, action: 'off', brightness: undefined })
+    mockResolveLight.mockResolvedValue({ room, action: 'off', brightness: undefined, color: undefined })
 
     const result = await processCapture('turn off the lake house living room lights', { house: 'home' })
 
@@ -243,6 +243,24 @@ describe('processCapture with lights enabled', () => {
     respondWithPlan(lightPlan({ room: 'attic', action: 'on' }))
 
     await expect(processCapture('turn on the attic lights')).rejects.toThrow('No room matching')
+  })
+
+  it('resolves a set_color request, and the proposal shows the resolved colour', async () => {
+    mockResolveLight.mockResolvedValue({ room, action: 'set_color', brightness: undefined, color: '#ff0000' })
+    const plan = lightPlan({ room: 'living room', action: 'set_color', color: '#ff0000' })
+    respondWithPlan(plan)
+
+    const result = await processCapture('make the living room lights red')
+
+    expect(mockResolveLight).toHaveBeenCalledWith({
+      houses: { home: 'http://localhost:4000' },
+      house: null,
+      room: 'living room',
+      action: 'set_color',
+      color: '#ff0000',
+    })
+    expect(result.action_result).toBe('Proposed: change colour to #ff0000 lights in "Living Room"')
+    expect(result.pending_action.input).toEqual({ target_house: null, room, action: 'set_color', color: '#ff0000' })
   })
 })
 
@@ -305,6 +323,27 @@ describe('control_light execution', () => {
       executeAction({ tool: 'control_light', input: { target_house: 'home', room: { id: 'x', name: 'Attic' }, action: 'on' } })
     ).rejects.toThrow('No room matching')
   })
+
+  it('commits a set_color request and returns status acted', async () => {
+    mockCommitLight.mockResolvedValue({ room, action: 'set_color', color: '#ff0000' })
+
+    const result = await executeAction({
+      tool: 'control_light',
+      input: { target_house: 'home', room, action: 'set_color', color: '#ff0000' },
+    })
+
+    expect(mockCommitLight).toHaveBeenCalledWith({
+      houses: { home: 'http://localhost:4000' },
+      house: 'home',
+      room,
+      action: 'set_color',
+      color: '#ff0000',
+    })
+    expect(result).toEqual({
+      status: 'acted',
+      action_result: 'Lights changed colour to #ff0000 in "Living Room"',
+    })
+  })
 })
 
 describe('getFormFields for a resolved playback program', () => {
@@ -328,6 +367,11 @@ describe('getFavouriteLabel', () => {
       .toBe('Living Room lights (90%)')
   })
 
+  it('renders control_light\'s colour into the template for set_color', () => {
+    expect(getFavouriteLabel('control_light', { room, action: 'set_color', color: '#ff0000' }, 'irrelevant'))
+      .toBe('Living Room lights (#ff0000)')
+  })
+
   it('renders control_playback as a live template', () => {
     expect(getFavouriteLabel('control_playback', { track, speaker }, 'Played "Silver Machine" by Hawkwind on Living Room'))
       .toBe('Living Room: "Silver Machine" by Hawkwind')
@@ -346,6 +390,15 @@ describe('getFormFields for a resolved lighting program', () => {
       { step: 's1', tool: 'resolve_light', field: 'room', value: 'living room', label: 'Room', type: 'text' },
       { step: 's1', tool: 'resolve_light', field: 'action', value: 'set_brightness', label: 'Action', type: 'text' },
       { step: 's1', tool: 'resolve_light', field: 'brightness', value: 20, label: 'Brightness', type: 'number' },
+    ])
+  })
+
+  it('gives a set_color request\'s colour field a "color" input type, for a colour-picker form control', () => {
+    const plan = lightPlan({ room: 'living room', action: 'set_color', color: '#ff0000' })
+    expect(getFormFields(plan)).toEqual([
+      { step: 's1', tool: 'resolve_light', field: 'room', value: 'living room', label: 'Room', type: 'text' },
+      { step: 's1', tool: 'resolve_light', field: 'action', value: 'set_color', label: 'Action', type: 'text' },
+      { step: 's1', tool: 'resolve_light', field: 'color', value: '#ff0000', label: 'Color', type: 'color' },
     ])
   })
 })

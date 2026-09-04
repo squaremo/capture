@@ -172,12 +172,12 @@ app.post('/api/lights/resolve', async (req, reply) => {
   if (!dirigera.isConfigured()) {
     return reply.code(400).send({ error: 'Dirigera not configured on this satellite' })
   }
-  const { room, action, brightness } = req.body ?? {}
+  const { room, action, brightness, color } = req.body ?? {}
   if (!room || typeof room !== 'string' || !room.trim()) {
     return reply.code(400).send({ error: 'room is required' })
   }
   try {
-    return await dirigera.resolveLight({ room: room.trim(), action, brightness })
+    return await dirigera.resolveLight({ room: room.trim(), action, brightness, color })
   } catch (err) {
     return reply.code(422).send({ error: err.message })
   }
@@ -190,12 +190,12 @@ app.post('/api/lights', async (req, reply) => {
   if (!dirigera.isConfigured()) {
     return reply.code(400).send({ error: 'Dirigera not configured on this satellite' })
   }
-  const { room, action, brightness } = req.body ?? {}
+  const { room, action, brightness, color } = req.body ?? {}
   if (!room?.id || typeof room.id !== 'string') {
     return reply.code(400).send({ error: 'room (a resolved room object) is required' })
   }
   try {
-    return await dirigera.commitLight({ room, action, brightness })
+    return await dirigera.commitLight({ room, action, brightness, color })
   } catch (err) {
     return reply.code(422).send({ error: err.message })
   }

@@ -527,6 +527,11 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   outline: none;
   border-color: var(--accent);
 }
+.action-form-field input[type="color"] {
+  width: 3rem;
+  padding: 2px;
+  cursor: pointer;
+}
 
 /* ── Shimmer (pending) ───────────────────────────────────── */
 .item-shimmer {

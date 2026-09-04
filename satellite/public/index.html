@@ -20,6 +20,7 @@
   }
   button { cursor: pointer; border-color: #c8f060; color: #c8f060; }
   button:hover { background: #c8f060; color: #0d0d0d; }
+  input[type="color"] { padding: 0.2rem; width: 2.4rem; cursor: pointer; }
   #status { color: #7eb8f7; font-size: 0.9rem; }
 </style>
 </head>
@@ -35,9 +36,11 @@
   <div class="row">
     <input id="lightRoom" placeholder="room" size="12">
     <input id="brightness" placeholder="%" size="4" type="number" min="1" max="100">
+    <input id="lightColor" type="color" value="#ff8800" title="colour">
     <button id="lightOn">on</button>
     <button id="lightOff">off</button>
     <button id="lightDim">dim</button>
+    <button id="lightColorBtn">colour</button>
   </div>
   <div id="status">…</div>
   <div id="lightStatus"></div>
@@ -119,12 +122,18 @@ document.getElementById('pause').onclick = async () => {
 async function setLight(action) {
   const room = document.getElementById('lightRoom').value.trim()
   const brightness = Number(document.getElementById('brightness').value)
+  const color = document.getElementById('lightColor').value
   if (!room) return
 
   const resolveRes = await fetch('/api/lights/resolve', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ room, action, brightness: action === 'set_brightness' ? brightness : undefined }),
+    body: JSON.stringify({
+      room,
+      action,
+      brightness: action === 'set_brightness' ? brightness : undefined,
+      color: action === 'set_color' ? color : undefined,
+    }),
   })
   if (!resolveRes.ok) {
     const { error } = await resolveRes.json()
@@ -140,13 +149,14 @@ async function setLight(action) {
   })
   const body = await commitRes.json()
   document.getElementById('lightStatus').textContent = commitRes.ok
-    ? `${body.room.name}: ${body.action}${body.brightness ? ` ${body.brightness}%` : ''}`
+    ? `${body.room.name}: ${body.action}${body.brightness ? ` ${body.brightness}%` : ''}${body.color ? ` ${body.color}` : ''}`
     : `error: ${body.error}`
 }
 
 document.getElementById('lightOn').onclick = () => setLight('on')
 document.getElementById('lightOff').onclick = () => setLight('off')
 document.getElementById('lightDim').onclick = () => setLight('set_brightness')
+document.getElementById('lightColorBtn').onclick = () => setLight('set_color')
 
 refresh()
 </script>

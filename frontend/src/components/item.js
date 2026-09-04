@@ -75,9 +75,10 @@ export function renderForm(fields) {
 
 function renderField(f) {
   const value = escHtml(String(f.value))
+  const inputType = f.type === 'number' ? 'number' : f.type === 'color' ? 'color' : 'text'
   const control = f.type === 'textarea'
     ? `<textarea data-step="${escHtml(f.step)}" data-field="${escHtml(f.field)}" rows="2">${value}</textarea>`
-    : `<input type="${f.type === 'number' ? 'number' : 'text'}" data-step="${escHtml(f.step)}" data-field="${escHtml(f.field)}" value="${value}">`
+    : `<input type="${inputType}" data-step="${escHtml(f.step)}" data-field="${escHtml(f.field)}" value="${value}">`
   return `
     <label class="action-form-field">
       <span class="action-form-label">${escHtml(f.label)}</span>

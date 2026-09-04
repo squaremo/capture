@@ -139,6 +139,19 @@ describe('resolveLight', () => {
 
     await expect(resolveLight({ houses, house: 'home', room: 'attic', action: 'on' })).rejects.toThrow('No room matching')
   })
+
+  it('posts color for a set_color request', async () => {
+    const resolveResult = { room: { id: 'room_1', name: 'Living Room', requested: 'living room', confidence: 'exact' }, action: 'set_color', color: '#ff0000' }
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse({ house: 'home', capabilities: ['dirigera'] }))
+      .mockResolvedValueOnce(jsonResponse(resolveResult))
+
+    const result = await resolveLight({ houses, house: 'home', room: 'living room', action: 'set_color', color: '#ff0000' })
+
+    expect(result).toEqual(resolveResult)
+    const [, options] = mockFetch.mock.calls[1]
+    expect(JSON.parse(options.body)).toEqual({ room: 'living room', action: 'set_color', color: '#ff0000' })
+  })
 })
 
 describe('commitLight', () => {
@@ -174,6 +187,19 @@ describe('commitLight', () => {
       .mockResolvedValueOnce(jsonResponse({ error: 'room (a resolved room object) is required' }, false, 400))
 
     await expect(commitLight({ houses, house: 'home', room: {}, action: 'on' })).rejects.toThrow('room (a resolved room object) is required')
+  })
+
+  it('posts color for a set_color request', async () => {
+    const commitResult = { room, action: 'set_color', color: '#ff0000' }
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse({ house: 'home', capabilities: ['dirigera'] }))
+      .mockResolvedValueOnce(jsonResponse(commitResult))
+
+    const result = await commitLight({ houses, house: 'home', room, action: 'set_color', color: '#ff0000' })
+
+    expect(result).toEqual(commitResult)
+    const [, options] = mockFetch.mock.calls[1]
+    expect(JSON.parse(options.body)).toEqual({ room, action: 'set_color', color: '#ff0000' })
   })
 })
 
