@@ -158,6 +158,8 @@ Edit `.env`:
     BACKEND_URL=https://<backend-host>
     DIRIGERA_ACCESS_TOKEN=...
     DIRIGERA_HOST=...
+    TLS_CERT_PATH=/etc/tailscale/certs/app.crt
+    TLS_KEY_PATH=/etc/tailscale/certs/app.key
 
 then just:
 
@@ -181,12 +183,32 @@ for a one-off override of a single var without touching `.env`.
 
 ### Either way
 
-Open `http://localhost:4000`. `HOUSE_ID` is required — it's what a real
-deployment would bake in at provisioning (see "Running modes" in the
-design doc); on a laptop, just set it to whichever house you're currently
-standing in and stop the process when you leave. `BACKEND_URL` is needed
-for the real frontend to work (see above); `SPOTIFY_ACCOUNT_SN` is
-optional, see Protocol above.
+Open `http://localhost:4000` (or `https://` — see below). `HOUSE_ID` is
+required — it's what a real deployment would bake in at provisioning (see
+"Running modes" in the design doc); on a laptop, just set it to whichever
+house you're currently standing in and stop the process when you leave.
+`BACKEND_URL` is needed for the real frontend to work (see above);
+`SPOTIFY_ACCOUNT_SN` is optional, see Protocol above.
+
+### HTTPS (needed for voice capture)
+
+Without `TLS_CERT_PATH`/`TLS_KEY_PATH` set, the satellite listens on plain
+HTTP — fine for `localhost`, but once it's reached at its Tailscale
+hostname (the point of running this at all) the served frontend's voice
+capture (Web Speech API) silently stops working: browsers only allow it
+in a secure context, and a non-localhost `http://` origin isn't one.
+
+Set both to terminate HTTPS directly in this process, no nginx needed —
+mint the cert/key the same way the central server's does (`tailscale cert`,
+see `infra/cloud-init.yaml.tpl`), for this box's own MagicDNS hostname:
+
+    tailscale cert --cert-file=/etc/tailscale/certs/app.crt \
+                    --key-file=/etc/tailscale/certs/app.key \
+                    satellite-home.<tailnet>.ts.net
+
+Tailscale certs expire (90 days) and nothing here renews them
+automatically yet — re-run the command above and restart the satellite
+process to pick up a fresh one.
 
 Since discovery is real, this only finds speakers if you actually run it
 on the same network as your Sonos system — a satellite started on this

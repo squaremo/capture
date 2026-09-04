@@ -37,6 +37,21 @@ const BACKEND_URL = process.env.BACKEND_URL ?? null
 // a frontend build nearby.
 const FRONTEND_DIST = process.env.FRONTEND_DIST_PATH ?? join(__dirname, '../frontend/dist')
 
+// Optional: terminate HTTPS directly in this process, using a cert minted
+// via `tailscale cert <hostname>` for this satellite's own MagicDNS name
+// (same mechanism the central server's nginx already uses — see
+// infra/cloud-init.yaml.tpl). Without these, the satellite listens on
+// plain HTTP, which is fine for the controller API (Tailscale already
+// encrypts that at the WireGuard layer — see Hub → satellite dispatch in
+// the design doc) but breaks browser features that require a secure
+// context on a non-localhost origin, notably the Web Speech API used for
+// voice capture: it's silently unavailable, not just degraded.
+const TLS_CERT_PATH = process.env.TLS_CERT_PATH ?? null
+const TLS_KEY_PATH = process.env.TLS_KEY_PATH ?? null
+const tlsOptions = TLS_CERT_PATH && TLS_KEY_PATH
+  ? { cert: readFileSync(TLS_CERT_PATH), key: readFileSync(TLS_KEY_PATH) }
+  : undefined
+
 // Which local services this satellite can currently reach. Sonos is
 // always listed (real discovery — see services/sonos.js); Dirigera only
 // when a token is actually configured. The hub checks this before
@@ -46,7 +61,7 @@ const CAPABILITIES = ['sonos', ...(dirigera.isConfigured() ? ['dirigera'] : [])]
 
 const testPageHtml = readFileSync(join(__dirname, 'public/index.html'), 'utf8')
 
-export const app = Fastify({ logger: true })
+export const app = Fastify({ logger: true, https: tlsOptions })
 
 // ── Runtime config for the frontend ─────────────────────────
 // Replaces what used to be a frontend build-time constant (DEFAULT_HOUSE)
@@ -205,7 +220,15 @@ app.post('/api/lights', async (req, reply) => {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   try {
     await app.listen({ port: PORT, host: HOST })
-    app.log.info(`satellite "${HOUSE_ID}" listening on ${HOST}:${PORT}`)
+    const scheme = tlsOptions ? 'https' : 'http'
+    app.log.info(`satellite "${HOUSE_ID}" listening on ${scheme}://${HOST}:${PORT}`)
+    if (!tlsOptions) {
+      app.log.warn(
+        'No TLS_CERT_PATH/TLS_KEY_PATH set — serving plain HTTP. Voice capture ' +
+        '(Web Speech API) needs a secure context and will be unavailable at a ' +
+        'non-localhost address. See README.md.'
+      )
+    }
   } catch (err) {
     app.log.error(err)
     process.exit(1)
