@@ -153,18 +153,22 @@ describe('processCapture with satellites and Spotify enabled', () => {
     expect(result.pending_action.input.target_house).toBe('lake')
   })
 
-  it('propagates a resolve_playback failure (e.g. no matching speaker) as a thrown error', async () => {
+  it('propagates a resolve_playback failure (e.g. no matching speaker), staged as a resolution failure', async () => {
     mockResolveSpeaker.mockRejectedValue(new Error('No speaker matching "garage"'))
     respondWithPlan(playbackPlan({ title: 'x', room: 'garage' }))
 
-    await expect(processCapture('play x in the garage')).rejects.toThrow('No speaker matching')
+    await expect(processCapture('play x in the garage')).rejects.toThrow(
+      'resolving "Finding matching track and speaker" failed: No speaker matching "garage"'
+    )
   })
 
-  it('propagates a Spotify search failure as a thrown error', async () => {
+  it('propagates a Spotify search failure, staged as a resolution failure', async () => {
     mockSearchTrack.mockRejectedValue(new Error('No Spotify track matching "x"'))
     respondWithPlan(playbackPlan({ title: 'x', room: 'living room' }))
 
-    await expect(processCapture('play x in the living room')).rejects.toThrow('No Spotify track matching')
+    await expect(processCapture('play x in the living room')).rejects.toThrow(
+      'resolving "Finding matching track and speaker" failed: No Spotify track matching "x"'
+    )
   })
 
   it('reflects a house added to getHouses() since startup, without re-importing', async () => {

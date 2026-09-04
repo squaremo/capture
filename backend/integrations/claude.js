@@ -275,14 +275,19 @@ function conditionHolds(step, bindings) {
 }
 
 export async function processCapture(text, { onStep, house } = {}) {
-  const response = await client.messages.create({
-    model: 'claude-opus-4-6',
-    max_tokens: 1024,
-    system: buildSystemPrompt(),
-    tools: [buildProposePlanTool()],
-    tool_choice: { type: 'tool', name: 'propose_plan' },
-    messages: [{ role: 'user', content: text }],
-  })
+  let response
+  try {
+    response = await client.messages.create({
+      model: 'claude-opus-4-6',
+      max_tokens: 1024,
+      system: buildSystemPrompt(),
+      tools: [buildProposePlanTool()],
+      tool_choice: { type: 'tool', name: 'propose_plan' },
+      messages: [{ role: 'user', content: text }],
+    })
+  } catch (err) {
+    throw new Error(`Claude API error: ${err.message}`)
+  }
 
   const toolUse = response.content.find(b => b.type === 'tool_use')
   const steps = toolUse?.input?.steps
@@ -353,7 +358,11 @@ export async function runProgram(steps, { house, onStep, overrides } = {}) {
     }
 
     // readonly: run it now, bind its output for later steps to reference
-    bindings[step.id] = await def.execute(args)
+    try {
+      bindings[step.id] = await def.execute(args)
+    } catch (err) {
+      throw new Error(`resolving "${def.label ?? step.tool}" failed: ${err.message}`)
+    }
     onStep?.({ label: def.label ?? step.tool })
   }
 
