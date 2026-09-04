@@ -62,7 +62,11 @@ app.post('/api/capture', async (req, reply) => {
     })
     .catch(err => {
       app.log.error({ err, itemId: item.id }, 'Claude processing failed')
-      updateItem(item.id, { status: 'failed', action_result: 'Processing failed.' })
+      // err.message is already staged by claude.js (a Claude API error, a
+      // malformed plan, or a readonly step's resolution failing) — this is
+      // the "figuring out what to do" half of the pipeline, so say so and
+      // let the underlying message say why.
+      updateItem(item.id, { status: 'failed', action_result: `Couldn't figure out what to do — ${err.message}` })
     })
 
   return reply.code(201).send(withFormFields(item))
@@ -110,7 +114,10 @@ app.post('/api/items/:id/approve', async (req, reply) => {
     return withFormFields(updateItem(item.id, { status, action_result, pending_action: null, executed_action: pending_action, plan_steps, tags }))
   } catch (err) {
     app.log.error({ err, itemId: item.id }, 'Approved action failed')
-    return withFormFields(updateItem(item.id, { status: 'failed', action_result: 'Action failed.', pending_action: null }))
+    // Distinct from the capture-time failure above: the plan was already
+    // figured out and approved — this is the "doing it" half failing, e.g.
+    // the Linear/Spotify/satellite API call itself erroring.
+    return withFormFields(updateItem(item.id, { status: 'failed', action_result: `Couldn't complete the action — ${err.message}`, pending_action: null }))
   }
 })
 
@@ -226,7 +233,10 @@ app.post('/api/favourites/:id/run', async (req, reply) => {
     }))
   } catch (err) {
     app.log.error({ err, favouriteId: favourite.id }, 'Favourite replay failed')
-    return withFormFields(updateItem(item.id, { status: 'failed', action_result: 'Replay failed.' }))
+    // Same "doing it" stage as the approve catch above — a favourite skips
+    // straight to executeAction(), so there's no separate planning stage
+    // to distinguish here.
+    return withFormFields(updateItem(item.id, { status: 'failed', action_result: `Couldn't complete the replay — ${err.message}` }))
   }
 })
 

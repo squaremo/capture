@@ -90,6 +90,20 @@ describe('POST /api/capture', () => {
     const poll = await app.inject({ method: 'GET', url: `/api/items/${item.id}` })
     expect(poll.json().status).toBe('reminder')
   })
+
+  it('marks the item failed with a staged message if processCapture throws', async () => {
+    // claude.js already stages this message ("Claude API error: ...", or
+    // 'resolving "X" failed: ...') — this is the "figuring out what to do"
+    // half, so the surfaced text says so rather than a generic
+    // "Processing failed.", distinct from an approve-time action failure.
+    mockProcessCapture.mockRejectedValue(new Error('Claude API error: overloaded'))
+    const created = await createResolvedItem('buy milk')
+
+    const poll = await app.inject({ method: 'GET', url: `/api/items/${created.id}` })
+    const item = poll.json()
+    expect(item.status).toBe('failed')
+    expect(item.action_result).toBe("Couldn't figure out what to do — Claude API error: overloaded")
+  })
 })
 
 describe('GET /api/version', () => {
@@ -291,6 +305,10 @@ describe('POST /api/items/:id/approve', () => {
     const updated = reply.json()
     expect(updated.status).toBe('failed')
     expect(updated.pending_action).toBeNull()
+    // Staged distinctly from a capture-processing failure below — this is
+    // the "doing it" half, so the message says so and carries the real
+    // underlying error rather than a generic "Action failed."
+    expect(updated.action_result).toBe("Couldn't complete the action — Linear API error: 401")
   })
 })
 
@@ -567,6 +585,7 @@ describe('POST /api/favourites/:id/run', () => {
     const reply = await app.inject({ method: 'POST', url: `/api/favourites/${fav.id}/run` })
     expect(reply.statusCode).toBe(200)
     expect(reply.json().status).toBe('failed')
+    expect(reply.json().action_result).toBe("Couldn't complete the replay — Linear API error: 401")
 
     // A failed run must not become the new default — only a successful
     // run persists back onto the favourite.

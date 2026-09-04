@@ -64,9 +64,9 @@ describe('processCapture', () => {
     expect(result.tags).toEqual([])
   })
 
-  it('propagates API errors as thrown exceptions', async () => {
+  it('stages an API error as a Claude API error, distinct from a resolution failure', async () => {
     mockCreate.mockRejectedValue(new Error('API unavailable'))
-    await expect(processCapture('test')).rejects.toThrow('API unavailable')
+    await expect(processCapture('test')).rejects.toThrow('Claude API error: API unavailable')
   })
 
   it('throws when a step references an unknown tool', async () => {
