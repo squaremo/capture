@@ -112,6 +112,27 @@ describe('POST /api/capture', () => {
     expect(resolved.text).toBe('Swimming kit\n- [ ] goggles\n- [ ] towel')
   })
 
+  it('recall_checklist resolution persists recalled_checklist_id for the frontend to act on', async () => {
+    let resolve
+    mockProcessCapture.mockReturnValue(new Promise(r => { resolve = r }))
+
+    const reply = await app.inject({ method: 'POST', url: '/api/capture', payload: { text: 'swimming checklist' } })
+    const item = reply.json()
+
+    resolve({
+      status: 'acted',
+      tags: [],
+      action_result: 'Reset "Swimming kit" checklist',
+      recalled_checklist_id: 'existing-checklist-id',
+    })
+    await new Promise(r => setTimeout(r, 20))
+
+    const poll = await app.inject({ method: 'GET', url: `/api/items/${item.id}` })
+    const resolved = poll.json()
+    expect(resolved.status).toBe('acted')
+    expect(resolved.recalled_checklist_id).toBe('existing-checklist-id')
+  })
+
   it('marks the item failed with a staged message if processCapture throws', async () => {
     // claude.js already stages this message ("Claude API error: ...", or
     // 'resolving "X" failed: ...') — this is the "figuring out what to do"

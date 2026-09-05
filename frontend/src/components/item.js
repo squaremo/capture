@@ -12,11 +12,14 @@ const STATUS_LABELS = {
 
 // A checklist item's text IS a markdown task list (see save_checklist in
 // backend/integrations/claude.js) — an optional title line followed by
-// "- [ ] thing"/"- [x] thing" lines. Parsing/serializing here, rather than
-// storing a separate structured field, is what makes it "just a special
-// format of note": the text is plain markdown a human could read or edit
-// directly, and ticking a box in the browser is just flipping one line and
-// writing the whole thing back via the ordinary PATCH /api/items/:id.
+// "- [ ] thing" lines. That's what makes it "just a special format of
+// note": the text is plain markdown a human could read or edit directly.
+// But which boxes are *ticked* is deliberately NOT part of this text — it
+// lives only in this browser's localStorage (see loadLocalChecked() below),
+// keyed by item id. Sharing tick state through the server would let two
+// devices (or two people) using the same checklist at once stomp on each
+// other's ticks through one shared field; keeping it local avoids that
+// entirely, at the cost of it not following you to another device.
 const CHECKLIST_LINE_RE = /^-\s*\[([ xX])\]\s*(.*)$/
 
 export function parseChecklist(text) {
@@ -24,15 +27,56 @@ export function parseChecklist(text) {
   const items = []
   for (const line of (text ?? '').split('\n')) {
     const m = line.match(CHECKLIST_LINE_RE)
-    if (m) items.push({ checked: m[1].toLowerCase() === 'x', text: m[2] })
+    if (m) items.push(m[2])
     else if (line.trim() && items.length === 0) title.push(line.trim())
   }
   return { title: title.join(' '), items }
 }
 
-export function serializeChecklist(title, items) {
-  const heading = title ? `${title}\n` : ''
-  return heading + items.map(i => `- [${i.checked ? 'x' : ' '}] ${i.text}`).join('\n')
+const LOCAL_CHECKLIST_PREFIX = 'capture:checklist:'
+
+// Reads this device's ticked state for a checklist item, sized/padded to
+// match its current item count — if the checklist's items changed (or
+// nothing's been ticked yet on this device), missing entries default to
+// unchecked rather than throwing. Wrapped in try/catch: localStorage can
+// throw in some contexts (private browsing, storage disabled), and a
+// checklist should still render — just always unchecked — rather than break.
+function loadLocalChecked(itemId, count) {
+  try {
+    const raw = localStorage.getItem(LOCAL_CHECKLIST_PREFIX + itemId)
+    const saved = raw ? JSON.parse(raw) : []
+    return Array.from({ length: count }, (_, i) => Boolean(saved[i]))
+  } catch {
+    return Array(count).fill(false)
+  }
+}
+
+function saveLocalChecked(itemId, checked) {
+  try {
+    localStorage.setItem(LOCAL_CHECKLIST_PREFIX + itemId, JSON.stringify(checked))
+  } catch {
+    // Storage unavailable — the tick just won't survive a refresh this time.
+  }
+}
+
+// Flips one item's ticked state for this device. Called on checkbox click —
+// see inbox.js's click handler, which re-renders the item immediately after.
+export function toggleLocalChecklistItem(itemId, index, itemCount) {
+  const checked = loadLocalChecked(itemId, itemCount)
+  checked[index] = !checked[index]
+  saveLocalChecked(itemId, checked)
+}
+
+// Clears this device's ticks for a checklist — used by both the "reset"
+// button and by recall_checklist's effect (see inbox.js's updateItem(),
+// which calls this when a newly-resolved item carries
+// recalled_checklist_id naming this checklist).
+export function clearLocalChecked(itemId) {
+  try {
+    localStorage.removeItem(LOCAL_CHECKLIST_PREFIX + itemId)
+  } catch {
+    // Storage unavailable — nothing to clear.
+  }
 }
 
 export function createItemEl(item) {
@@ -70,7 +114,7 @@ function renderItem(item) {
     ${steps.length
       ? `<ul class="item-steps">${steps.map(s => `<li><span class="item-step-check">✓</span>${escHtml(s.label)}</li>`).join('')}</ul>`
       : ''}
-    ${isChecklist ? renderChecklist(checklist) : ''}
+    ${isChecklist ? renderChecklist(item.id, checklist) : ''}
     ${!isChecklist && isPending
       ? `<div class="item-shimmer"></div>`
       : !isChecklist && item.action_result
@@ -98,15 +142,19 @@ function renderItem(item) {
 // again — resetting it (rather than starting a new "run") is the whole
 // mechanism for reusing it next time, matching the "just a note" model:
 // there's one persistent item, not a template plus a history of runs.
-function renderChecklist({ items }) {
-  const checkedCount = items.filter(i => i.checked).length
+// `items` here is just the list of labels (the shared definition); the
+// ticked state overlaid on top of them is this device's own, from
+// localStorage — see loadLocalChecked() above.
+function renderChecklist(itemId, { items }) {
+  const checked = loadLocalChecked(itemId, items.length)
+  const checkedCount = checked.filter(Boolean).length
   return `
     <ul class="checklist">
-      ${items.map((it, i) => `
-        <li class="checklist-item${it.checked ? ' checklist-item--checked' : ''}">
+      ${items.map((text, i) => `
+        <li class="checklist-item${checked[i] ? ' checklist-item--checked' : ''}">
           <label>
-            <input type="checkbox" data-action="toggle-checklist" data-index="${i}" ${it.checked ? 'checked' : ''}>
-            <span>${escHtml(it.text)}</span>
+            <input type="checkbox" data-action="toggle-checklist" data-index="${i}" ${checked[i] ? 'checked' : ''}>
+            <span>${escHtml(text)}</span>
           </label>
         </li>
       `).join('')}
