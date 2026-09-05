@@ -76,12 +76,17 @@ describe('updateItem', () => {
     expect(updated.tags).toEqual(['work', 'health'])
   })
 
-  it('text can be rewritten — used to turn a capture into a checklist, or tick/reset one', () => {
+  it('text can be rewritten — used to turn a capture into a checklist', () => {
     const item = createItem('checklist for swimming: goggles, towel')
     const updated = updateItem(item.id, { status: 'checklist', text: 'Swimming kit\n- [ ] goggles\n- [ ] towel' })
     expect(updated.text).toBe('Swimming kit\n- [ ] goggles\n- [ ] towel')
-    const ticked = updateItem(item.id, { text: 'Swimming kit\n- [x] goggles\n- [ ] towel' })
-    expect(ticked.text).toBe('Swimming kit\n- [x] goggles\n- [ ] towel')
+  })
+
+  it('recalled_checklist_id round-trips as a plain string — how the frontend knows which checklist to clear local ticks for', () => {
+    const checklist = createItem('checklist for cycling: helmet')
+    const recallItem = createItem('cycling checklist')
+    const updated = updateItem(recallItem.id, { status: 'acted', recalled_checklist_id: checklist.id })
+    expect(updated.recalled_checklist_id).toBe(checklist.id)
   })
 
   it('returns unchanged item when no fields provided', () => {

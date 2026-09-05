@@ -67,7 +67,7 @@ describe('processCapture', () => {
     expect(result.text).toBe('- [ ] milk\n- [ ] eggs')
   })
 
-  it('"swimming checklist" (find_checklist → recall_checklist) resets the existing checklist in place', async () => {
+  it('"swimming checklist" (find_checklist → recall_checklist) names the existing checklist to reset, without touching its server text', async () => {
     const item = createItem('checklist for swimming: goggles, towel')
     updateItem(item.id, { status: 'checklist', text: 'Swimming kit\n- [x] goggles\n- [ ] towel' })
 
@@ -79,9 +79,14 @@ describe('processCapture', () => {
 
     expect(result.status).toBe('acted')
     expect(result.action_result).toBe('Reset "Swimming kit" checklist')
-    // The existing item was reset in place — this capture didn't spawn a
-    // second checklist item alongside it.
-    expect(getItem(item.id).text).toBe('Swimming kit\n- [ ] goggles\n- [ ] towel')
+    // recalled_checklist_id is how the frontend knows which checklist to
+    // clear its own local (per-device) ticks for — the existing item's
+    // server-side text is untouched, since ticked state was never stored
+    // there in the first place (see item.js's localStorage-backed
+    // rendering) and two devices/people using the same checklist
+    // shouldn't be able to stomp on each other's ticks through it.
+    expect(result.recalled_checklist_id).toBe(item.id)
+    expect(getItem(item.id).text).toBe('Swimming kit\n- [x] goggles\n- [ ] towel')
   })
 
   it('find_checklist "unless found" falls back to save_to_inbox when nothing matches', async () => {
@@ -150,8 +155,8 @@ describe('processCapture', () => {
   })
 })
 
-describe('needsApproval is a property of the final step, not implied by having a side effect', () => {
-  it('recall_checklist has a real side effect but resolves immediately, no approval', async () => {
+describe('needsApproval is a property of the final step, not implied by whether it causes something to happen', () => {
+  it('recall_checklist causes a real, visible effect (the checklist resets) but resolves immediately, no approval', async () => {
     const item = createItem('checklist for cycling: helmet, lights')
     updateItem(item.id, { status: 'checklist', text: 'Cycling kit\n- [x] helmet\n- [x] lights' })
 
@@ -160,12 +165,17 @@ describe('needsApproval is a property of the final step, not implied by having a
       { id: 's2', tool: 'recall_checklist', args: { item_id: '${s1.item.id}', title: '${s1.item.title}', tags: [] }, if: '${s1.found}' },
     ])
     // Resolves straight to 'acted' — never 'awaiting_approval' — even
-    // though it mutated another item's text. Contrast create_linear_task's
-    // "awaiting_approval" tests in claude-linear.test.js: same 'final'
-    // kind, but needsApproval: true there means nothing runs until a
-    // human approves — the two tools differ only in that one property.
+    // though it names another item to reset (recalled_checklist_id, for
+    // the frontend to act on — see clearLocalChecked() in item.js).
+    // Contrast create_linear_task's "awaiting_approval" tests in
+    // claude-linear.test.js: same 'final' kind, but needsApproval: true
+    // there means nothing runs until a human approves — the two tools
+    // differ only in that one property, not in whether they do anything.
     expect(result.status).toBe('acted')
-    expect(getItem(item.id).text).toBe('Cycling kit\n- [ ] helmet\n- [ ] lights')
+    expect(result.recalled_checklist_id).toBe(item.id)
+    // The server-side record itself is untouched — ticked state was
+    // never stored there to begin with.
+    expect(getItem(item.id).text).toBe('Cycling kit\n- [x] helmet\n- [x] lights')
   })
 })
 

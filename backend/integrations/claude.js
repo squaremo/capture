@@ -3,7 +3,7 @@ import { resolveEnv } from '../secrets.js'
 import { createLinearTask, searchLinearIssues } from './linear.js'
 import { resolveSpeaker, commitPlayback, resolveLight, commitLight, getHouses } from './satellite.js'
 import { searchTrack } from './spotify.js'
-import { listItems, getItem as getItemFromDb, updateItem as updateItemInDb } from '../db.js'
+import { listItems, getItem as getItemFromDb } from '../db.js'
 
 const client = new Anthropic({ apiKey: await resolveEnv('ANTHROPIC_API_KEY') })
 
@@ -42,15 +42,16 @@ const PLAYBACK_ENABLED = SATELLITES_ENABLED && SPOTIFY_ENABLED
 //   its output is bound to the step's id for later steps to reference
 // - final: ends the plan. Whether it just happens or waits on a human is its
 //   own explicit property, needsApproval (defaults to false) — not implied
-//   by having a side effect. recall_checklist below has a real side effect
-//   (it resets another item) but needsApproval is false: resetting your own
-//   checklist carries none of the risk an external action like
-//   control_playback does, so it just happens, like ticking a box would.
-//   needsApproval: true requires `describe`/`execute` — it ends the plan as
-//   a proposal, and approval later calls `execute` directly via
-//   POST /api/items/:id/approve. needsApproval: false (or omitted) requires
-//   `status`, and may define `extra` to perform a side effect and/or merge
-//   extra fields into the resolved output (see save_checklist/recall_checklist).
+//   by whether the tool causes something to actually happen. recall_checklist
+//   below causes a real, visible effect (the checklist resets on screen) but
+//   needsApproval is false: resetting your own checklist carries none of the
+//   risk an external action like control_playback does, so it just happens,
+//   like ticking a box would. needsApproval: true requires `describe`/`execute`
+//   — it ends the plan as a proposal, and approval later calls `execute`
+//   directly via POST /api/items/:id/approve. needsApproval: false (or
+//   omitted) requires `status`, and may define `extra` to compute a side
+//   effect and/or merge extra fields into the resolved output (see
+//   save_checklist/recall_checklist).
 const TOOL_REGISTRY = {
   save_to_inbox: { kind: 'final', status: 'triaged' },
   create_reminder: { kind: 'final', status: 'reminder' },
@@ -58,10 +59,12 @@ const TOOL_REGISTRY = {
   // Unlike the other terminal tools, this one rewrites the item's own text
   // into a markdown task list — see buildChecklistText() below — rather
   // than leaving the raw capture text in place. That's what makes a
-  // checklist "just a special format of note": it's rendered and ticked
-  // off as real checkboxes in the browser, and stays around indefinitely
-  // (status 'checklist' never resolves to acted/vetoed/failed) to be
-  // recalled and reset for next time, instead of being triaged away.
+  // checklist "just a special format of note": it's rendered as real
+  // checkboxes in the browser, and stays around indefinitely (status
+  // 'checklist' never resolves to acted/vetoed/failed) to be recalled and
+  // reset for next time, instead of being triaged away. Ticked state is
+  // NOT part of this text (see find_checklist/recall_checklist below) —
+  // it always describes the checklist unchecked, as a definition.
   save_checklist: {
     kind: 'final',
     status: 'checklist',
@@ -82,25 +85,27 @@ const TOOL_REGISTRY = {
       return { found: Boolean(match), item: match ? { id: match.id, title: parseChecklistText(match.text).title } : null }
     },
   },
-  // "Recall" means "reset and bring back the same checklist," not "make
-  // another one" — this resets the *existing* item found by find_checklist
-  // in place (same mutation the UI's own reset button performs) rather
-  // than the new capture becoming a second checklist item. needsApproval
-  // is left at its default (false): resetting your own checklist has no
-  // external effect to guard against, unlike the needsApproval: true
-  // tools below — it's the same local edit ticking a box is. The capture
-  // itself is just logged as the (already-'acted') audit record of having
-  // done it.
+  // "Recall" means "bring back this checklist unchecked" — but which boxes
+  // are ticked lives client-side only, in that browser's localStorage, not
+  // in this item's text: two devices (or two people) using the same
+  // checklist at once would otherwise stomp on each other's ticks through
+  // a single shared server field. So this tool has no server-side
+  // mutation at all — it just confirms the checklist found by
+  // find_checklist still exists, and hands back recalled_checklist_id, a
+  // field on the *new* capture's own resolved item that tells the
+  // frontend which checklist to clear its local ticks for (see
+  // clearLocalChecked()'s use in inbox.js). needsApproval stays at its
+  // default (false) regardless — even when this did reset shared state,
+  // resetting your own checklist never carried the kind of risk
+  // control_playback/control_light/create_linear_task guard against.
   recall_checklist: {
     kind: 'final',
     status: 'acted',
-    extra: async ({ item_id, title }) => {
+    extra: ({ item_id, title }) => {
       const existing = getItemFromDb(item_id)
       if (!existing) throw new Error(`Checklist "${title}" no longer exists`)
-      const { title: currentTitle, items } = parseChecklistText(existing.text)
-      const resetItems = items.map(item => ({ ...item, checked: false }))
-      updateItemInDb(item_id, { text: buildChecklistText(currentTitle || title, resetItems) })
-      return { action_result: `Reset "${currentTitle || title}" checklist` }
+      const currentTitle = parseChecklistText(existing.text).title
+      return { action_result: `Reset "${currentTitle || title}" checklist`, recalled_checklist_id: item_id }
     },
   },
 }
@@ -125,10 +130,7 @@ function parseChecklistText(text) {
 
 function buildChecklistText(title, items) {
   const heading = title ? `${title}\n` : ''
-  const lines = items.map(item =>
-    typeof item === 'string' ? `- [ ] ${item}` : `- [${item.checked ? 'x' : ' '}] ${item.text}`
-  )
-  return heading + lines.join('\n')
+  return heading + items.map(item => `- [ ] ${item}`).join('\n')
 }
 
 if (LINEAR_ENABLED) {

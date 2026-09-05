@@ -4,11 +4,10 @@ import { createInbox } from './components/inbox.js'
 import { createVersionInfo } from './components/versionInfo.js'
 import { createFavouritesSidebar } from './components/favourites.js'
 import { createLocalActivity } from './components/localActivity.js'
-import { parseChecklist, serializeChecklist } from './components/item.js'
 import { loadConfig } from './config.js'
 import {
   configureApi, postCapture, getItem, getItems, approveItem, vetoItem, getVersion, getSatellites,
-  favouriteItem, getFavourites, runFavourite, deleteFavourite, patchItem,
+  favouriteItem, getFavourites, runFavourite, deleteFavourite,
 } from './api.js'
 
 // Runtime config (see config.js) has to resolve before anything below
@@ -47,12 +46,13 @@ async function init() {
   // ── Inbox ─────────────────────────────────────────────────
   const inFlight = new Set() // item ids currently being approved/vetoed/favourited
 
+  // Checklist ticking/resetting is handled entirely inside inbox.js —
+  // ticked state lives only in this browser's localStorage (see item.js),
+  // so there's no server call and nothing for main.js to wire up here.
   const inbox = createInbox({
     onApprove: (id, overrides) => handleDecision(id, () => approveItem(id, overrides)),
     onVeto: (id) => handleDecision(id, () => vetoItem(id)),
     onFavourite: (id) => handleFavourite(id),
-    onChecklistToggle: (id, index) => handleChecklistEdit(id, ({ items }) => { items[index].checked = !items[index].checked }),
-    onChecklistReset: (id) => handleChecklistEdit(id, ({ items }) => { items.forEach(i => { i.checked = false }) }),
   })
 
   async function handleDecision(id, action) {
@@ -62,28 +62,6 @@ async function init() {
       const updated = await action()
       inbox.updateItem(updated)
       updateStats()
-    } catch (err) {
-      console.error(err)
-    } finally {
-      inFlight.delete(id)
-    }
-  }
-
-  // A checklist's state lives entirely in its item's text (see
-  // parseChecklist/serializeChecklist in item.js) — toggling a box or
-  // resetting is just: read the current item back from the inbox, mutate
-  // the parsed { title, items }, write the re-serialized text back via the
-  // ordinary PATCH /api/items/:id, same endpoint any other item edit uses.
-  async function handleChecklistEdit(id, mutate) {
-    if (inFlight.has(id)) return
-    const item = inbox.getItem(id)
-    if (!item) return
-    inFlight.add(id)
-    try {
-      const checklist = parseChecklist(item.text)
-      mutate(checklist)
-      const updated = await patchItem(id, { text: serializeChecklist(checklist.title, checklist.items) })
-      inbox.updateItem(updated)
     } catch (err) {
       console.error(err)
     } finally {

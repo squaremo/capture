@@ -57,12 +57,20 @@ app.post('/api/capture', async (req, reply) => {
       updateItem(item.id, { plan_progress: planProgress })
     },
   })
-    .then(({ status, tags, action_result, pending_action, plan_steps, text }) => {
+    .then(({ status, tags, action_result, pending_action, plan_steps, text, recalled_checklist_id }) => {
       // text is only present for save_checklist — it rewrites the item's
       // own text into the checklist's markdown task list (see
       // buildChecklistText() in claude.js). Every other tool leaves the
-      // original captured text untouched.
-      updateItem(item.id, { status, tags, action_result, pending_action: pending_action ?? null, plan_steps, ...(text !== undefined ? { text } : {}) })
+      // original captured text untouched. recalled_checklist_id is only
+      // present for recall_checklist — it names the *other*, already-
+      // existing item whose local (client-side) ticks the frontend should
+      // clear, since this capture's own item never touches that item's
+      // server-side data (see recall_checklist in claude.js).
+      updateItem(item.id, {
+        status, tags, action_result, pending_action: pending_action ?? null, plan_steps,
+        ...(text !== undefined ? { text } : {}),
+        ...(recalled_checklist_id !== undefined ? { recalled_checklist_id } : {}),
+      })
     })
     .catch(err => {
       app.log.error({ err, itemId: item.id }, 'Claude processing failed')

@@ -1,4 +1,4 @@
-import { createItemEl, updateItemEl, collectFormOverrides } from './item.js'
+import { createItemEl, updateItemEl, collectFormOverrides, parseChecklist, toggleLocalChecklistItem, clearLocalChecked } from './item.js'
 
 // "Needs attention": still processing, classified but no action decided
 // yet, or an acting tool proposed something waiting on approve/veto.
@@ -8,7 +8,7 @@ import { createItemEl, updateItemEl, collectFormOverrides } from './item.js'
 const NEEDS_ATTENTION = ['pending', 'triaged', 'reminder', 'urgent', 'awaiting_approval']
 const RESOLVED = ['acted', 'vetoed', 'failed']
 
-export function createInbox({ onApprove, onVeto, onFavourite, onChecklistToggle, onChecklistReset } = {}) {
+export function createInbox({ onApprove, onVeto, onFavourite } = {}) {
   const section = document.createElement('section')
   section.className = 'inbox'
 
@@ -33,6 +33,16 @@ export function createInbox({ onApprove, onVeto, onFavourite, onChecklistToggle,
     items.forEach(item => groupFor(item.status).list.appendChild(createItemEl(item)))
   }
 
+  // Toggling/resetting a checklist never leaves the browser — no server
+  // call, no callback out to main.js — since ticked state lives only in
+  // this device's localStorage (see item.js). Re-rendering the one item's
+  // DOM is enough: renderChecklist() reads local storage fresh each time.
+  function rerenderItem(id) {
+    const item = items.find(i => i.id === id)
+    const el = section.querySelector(`[data-id="${id}"]`)
+    if (item && el) updateItemEl(el, item)
+  }
+
   section.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-action]')
     if (!btn) return
@@ -45,8 +55,17 @@ export function createInbox({ onApprove, onVeto, onFavourite, onChecklistToggle,
     if (btn.dataset.action === 'approve') onApprove?.(id, collectFormOverrides(itemEl))
     if (btn.dataset.action === 'veto') onVeto?.(id)
     if (btn.dataset.action === 'favourite') onFavourite?.(id)
-    if (btn.dataset.action === 'toggle-checklist') onChecklistToggle?.(id, parseInt(btn.dataset.index, 10))
-    if (btn.dataset.action === 'reset-checklist') onChecklistReset?.(id)
+    if (btn.dataset.action === 'toggle-checklist') {
+      const item = items.find(i => i.id === id)
+      if (item) {
+        toggleLocalChecklistItem(id, parseInt(btn.dataset.index, 10), parseChecklist(item.text).items.length)
+        rerenderItem(id)
+      }
+    }
+    if (btn.dataset.action === 'reset-checklist') {
+      clearLocalChecked(id)
+      rerenderItem(id)
+    }
   })
 
   return {
@@ -68,14 +87,23 @@ export function createInbox({ onApprove, onVeto, onFavourite, onChecklistToggle,
       items[idx] = updated
       if (movedGroup) {
         render() // crossed from needs-attention to resolved (or back) — relocate it
-        return
-      }
-      const el = section.querySelector(`[data-id="${matchId}"]`)
-      if (el) {
-        el.dataset.id = updated.id
-        updateItemEl(el, updated)
       } else {
-        render()
+        const el = section.querySelector(`[data-id="${matchId}"]`)
+        if (el) {
+          el.dataset.id = updated.id
+          updateItemEl(el, updated)
+        } else {
+          render()
+        }
+      }
+      // A resolved recall_checklist sets this to the *other*, already-
+      // existing checklist item it named (see recall_checklist in
+      // claude.js) — clearing that item's local ticks and re-rendering it
+      // is this device's half of "recalling a checklist resets it": the
+      // server never touched that item at all.
+      if (updated.recalled_checklist_id) {
+        clearLocalChecked(updated.recalled_checklist_id)
+        rerenderItem(updated.recalled_checklist_id)
       }
     },
 
@@ -98,11 +126,6 @@ export function createInbox({ onApprove, onVeto, onFavourite, onChecklistToggle,
       btn.disabled = true
       btn.title = 'Saved as favourite'
     },
-
-    // Lets a caller (checklist toggle/reset in main.js) read back an item's
-    // current text before editing and PATCHing it — there's no other way
-    // to get at what's currently rendered without re-fetching.
-    getItem(id) { return items.find(i => i.id === id) },
 
     get itemCount() { return items.length },
     get pendingCount() { return items.filter(i => NEEDS_ATTENTION.includes(i.status)).length },
