@@ -74,34 +74,42 @@ turns on how Obsidian syncing works):
   file changes whether or not Obsidian is open at that moment.
 - **`obsidian-git`** (community plugin) — wraps the vault, or a subfolder
   of it, in an ordinary git repo and does `add`/`commit`/`push`/`pull`
-  against a remote, on an interval or a hotkey. The backend would
-  `git commit` + `git push` after each capture; every device gets the
-  plugin and pulls. Real upsides over Syncthing: an actual commit history
-  (each capture becomes a diffable, revertable commit, not just "the file
-  changed at some point") and git's three-way text merge, a better fit
-  for concurrent markdown edits than Syncthing's raw conflicted-copy
-  files. The disqualifying downside for this app specifically: pulling
-  only happens *inside Obsidian's own process* (on its interval, at
-  startup, or manually) — exactly the satellite-shaped dependency ruled
-  out earlier for the Local REST API plugin. A note written by the
-  backend at 9am doesn't show up on your phone until you next open
-  Obsidian there, whereas Syncthing delivers it in the background
-  regardless. It also needs a git remote to push to — a private GitHub
+  against a remote, on an interval, at startup, or a hotkey. The backend
+  would `git commit` + `git push` after each capture; every device gets
+  the plugin and pulls. Real upsides over Syncthing: an actual commit
+  history (each capture becomes a diffable, revertable commit, not just
+  "the file changed at some point") and git's three-way text merge, a
+  better fit for concurrent markdown edits than Syncthing's raw
+  conflicted-copy files. Pulling only happens *inside Obsidian's own
+  process*, but that's less of a gap than it first looks: with
+  pull-on-startup enabled, opening Obsidian is exactly the "next time I
+  look" moment, so a note the backend wrote earlier just shows up (after
+  a few seconds' fetch-and-merge, not instant the way an already-replicated
+  Syncthing file is) — this isn't the same satellite-shaped dependency the
+  Local REST API plugin had, since nothing needs to be *already running*
+  for the note to arrive, just opened. The sharper real risk is mobile
+  specifically: iOS/Android both restrict background execution, and
+  there are reported cases of `obsidian-git`'s scheduled/startup pulls
+  not firing reliably on phones the way they do on desktop — worth
+  testing directly rather than assuming, given phone is capture's primary
+  interface. It also needs a git remote to push to — a private GitHub
   repo reintroduces the "third party holding your notes" tension Sync's
   relay has, and a self-hosted remote (Gitea, or a bare repo on the VM
   itself) is one more service to run for a benefit (history, merge
   quality) this write-only-from-the-backend pattern doesn't really need.
 
 Recommend **Syncthing** for v1: no new secret class to store, no beta
-dependency, no dependency on Obsidian's own process being open to
-propagate a change, and the actual write pattern here (single append to
-a daily note from one writer — the backend) makes both Syncthing's lack
-of smart merging and `obsidian-git`'s better merge/history less of a
-deciding factor than they'd be for a genuinely two-way editing workflow.
-Revisit `obsidian-headless` once it's out of beta, or `obsidian-git` if
+dependency, no reliance on a plugin's pull timing (startup, interval, or
+otherwise) to propagate a change — it's just already there — and the
+actual write pattern here (single append to a daily note from one writer
+— the backend) makes both Syncthing's lack of smart merging and
+`obsidian-git`'s better merge/history less of a deciding factor than
+they'd be for a genuinely two-way editing workflow. Revisit
+`obsidian-headless` once it's out of beta, or `obsidian-git` if
 per-capture history ever turns out to matter more than it looks like it
-will right now; revisit either sooner if Obsidian Sync is already the
-sync mechanism in use for other devices and running two sync layers side
+will right now (and mobile pull reliability checks out); revisit either
+sooner if Obsidian Sync is already the sync mechanism in use for other
+devices and running two sync layers side
 by side feels worse than the tradeoffs above.
 
 Shape: a `syncthing` service added to `docker-compose.yml` (own image,
