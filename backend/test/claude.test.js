@@ -48,6 +48,24 @@ describe('processCapture', () => {
     expect(result.status).toBe('urgent')
   })
 
+  it('maps save_checklist → checklist, rewriting text to a markdown task list', async () => {
+    respondWithStep('save_checklist', {
+      title: 'Swimming kit',
+      items: ['goggles', 'towel', 'costume'],
+      tags: ['swimming'],
+    })
+    const result = await processCapture('checklist for swimming: goggles, towel, costume')
+    expect(result.status).toBe('checklist')
+    expect(result.tags).toEqual(['swimming'])
+    expect(result.text).toBe('Swimming kit\n- [ ] goggles\n- [ ] towel\n- [ ] costume')
+  })
+
+  it('save_checklist omits the title line when none is given', async () => {
+    respondWithStep('save_checklist', { items: ['milk', 'eggs'], tags: [] })
+    const result = await processCapture('shopping list: milk, eggs')
+    expect(result.text).toBe('- [ ] milk\n- [ ] eggs')
+  })
+
   it('throws when the plan has no steps', async () => {
     respondWithPlan([])
     await expect(processCapture('random text')).rejects.toThrow('empty plan')

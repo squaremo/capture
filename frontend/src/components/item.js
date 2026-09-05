@@ -1,12 +1,38 @@
 const STATUS_LABELS = {
-  pending:           { label: 'pending',  color: 'var(--text-dim)' },
-  triaged:           { label: 'triaged',  color: 'var(--blue)' },
-  reminder:          { label: 'reminder', color: 'var(--amber)' },
-  urgent:            { label: 'urgent',   color: 'var(--red)' },
-  awaiting_approval: { label: 'review',   color: 'var(--amber)' },
-  acted:             { label: 'acted',    color: 'var(--accent)' },
-  vetoed:            { label: 'vetoed',   color: 'var(--text-dim)' },
-  failed:            { label: 'failed',   color: 'var(--red)' },
+  pending:           { label: 'pending',   color: 'var(--text-dim)' },
+  triaged:           { label: 'triaged',   color: 'var(--blue)' },
+  reminder:          { label: 'reminder',  color: 'var(--amber)' },
+  urgent:            { label: 'urgent',    color: 'var(--red)' },
+  awaiting_approval: { label: 'review',    color: 'var(--amber)' },
+  acted:             { label: 'acted',     color: 'var(--accent)' },
+  vetoed:            { label: 'vetoed',    color: 'var(--text-dim)' },
+  failed:            { label: 'failed',    color: 'var(--red)' },
+  checklist:         { label: 'checklist', color: 'var(--blue)' },
+}
+
+// A checklist item's text IS a markdown task list (see save_checklist in
+// backend/integrations/claude.js) — an optional title line followed by
+// "- [ ] thing"/"- [x] thing" lines. Parsing/serializing here, rather than
+// storing a separate structured field, is what makes it "just a special
+// format of note": the text is plain markdown a human could read or edit
+// directly, and ticking a box in the browser is just flipping one line and
+// writing the whole thing back via the ordinary PATCH /api/items/:id.
+const CHECKLIST_LINE_RE = /^-\s*\[([ xX])\]\s*(.*)$/
+
+export function parseChecklist(text) {
+  const title = []
+  const items = []
+  for (const line of (text ?? '').split('\n')) {
+    const m = line.match(CHECKLIST_LINE_RE)
+    if (m) items.push({ checked: m[1].toLowerCase() === 'x', text: m[2] })
+    else if (line.trim() && items.length === 0) title.push(line.trim())
+  }
+  return { title: title.join(' '), items }
+}
+
+export function serializeChecklist(title, items) {
+  const heading = title ? `${title}\n` : ''
+  return heading + items.map(i => `- [${i.checked ? 'x' : ' '}] ${i.text}`).join('\n')
 }
 
 export function createItemEl(item) {
@@ -26,6 +52,7 @@ function renderItem(item) {
   const { label, color } = STATUS_LABELS[item.status] ?? STATUS_LABELS.pending
   const isPending = item.status === 'pending'
   const isAwaitingApproval = item.status === 'awaiting_approval'
+  const isChecklist = item.status === 'checklist'
   // Only an item that actually executed an acting-tool call (status
   // 'acted', with executed_action recorded on approval) has a { tool, input }
   // to freeze into a favourite — a terminal item (triaged/reminder/urgent)
@@ -33,18 +60,20 @@ function renderItem(item) {
   const isFavouritable = item.status === 'acted' && Boolean(item.executed_action)
   const steps = item.plan_progress ?? []
   const formFields = item.form_fields ?? []
+  const checklist = isChecklist ? parseChecklist(item.text) : null
 
   return `
     <div class="item-body">
-      <span class="item-text">${escHtml(item.text)}</span>
+      <span class="item-text">${escHtml(isChecklist ? (checklist.title || 'Checklist') : item.text)}</span>
       <span class="item-status" style="color:${color}">${label}</span>
     </div>
     ${steps.length
       ? `<ul class="item-steps">${steps.map(s => `<li><span class="item-step-check">✓</span>${escHtml(s.label)}</li>`).join('')}</ul>`
       : ''}
-    ${isPending
+    ${isChecklist ? renderChecklist(checklist) : ''}
+    ${!isChecklist && isPending
       ? `<div class="item-shimmer"></div>`
-      : item.action_result
+      : !isChecklist && item.action_result
         ? `<div class="item-result" style="border-color:${color}">
             <span class="item-result-text">${escHtml(item.action_result)}</span>
             ${isFavouritable
@@ -62,6 +91,30 @@ function renderItem(item) {
         </div>`
       : ''}
     <time class="item-time">${relativeTime(item.created_at)}</time>
+  `
+}
+
+// A checklist stays around indefinitely to be recalled and ticked off
+// again — resetting it (rather than starting a new "run") is the whole
+// mechanism for reusing it next time, matching the "just a note" model:
+// there's one persistent item, not a template plus a history of runs.
+function renderChecklist({ items }) {
+  const checkedCount = items.filter(i => i.checked).length
+  return `
+    <ul class="checklist">
+      ${items.map((it, i) => `
+        <li class="checklist-item${it.checked ? ' checklist-item--checked' : ''}">
+          <label>
+            <input type="checkbox" data-action="toggle-checklist" data-index="${i}" ${it.checked ? 'checked' : ''}>
+            <span>${escHtml(it.text)}</span>
+          </label>
+        </li>
+      `).join('')}
+    </ul>
+    <div class="checklist-footer">
+      <span class="checklist-count">${checkedCount}/${items.length} done</span>
+      <button class="btn-checklist-reset" data-action="reset-checklist">reset</button>
+    </div>
   `
 }
 

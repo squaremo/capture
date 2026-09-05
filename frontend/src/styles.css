@@ -375,6 +375,7 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 }
 
 .inbox-group--attention .inbox-group-title { color: var(--accent); }
+.inbox-group--checklists .inbox-group-title { color: var(--blue); }
 
 .inbox-group--resolved {
   opacity: 0.7;
@@ -466,6 +467,55 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   font-size: 11px;
   color: var(--text-dim);
 }
+
+/* ── Checklist (item.status === 'checklist') ─────────────────
+   Text IS a markdown task list — see parseChecklist()/renderChecklist()
+   in item.js — so this just renders real checkboxes over parsed lines. */
+.checklist {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.checklist-item label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.checklist-item input[type="checkbox"] {
+  margin-top: 2px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.checklist-item--checked span {
+  color: var(--text-dim);
+  text-decoration: line-through;
+}
+
+.checklist-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 4px;
+}
+
+.checklist-count {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.btn-checklist-reset {
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+}
+.btn-checklist-reset:hover { color: var(--text); border-color: var(--text-dim); }
 
 .item-approval {
   display: flex;

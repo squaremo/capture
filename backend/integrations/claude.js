@@ -46,6 +46,23 @@ const TOOL_REGISTRY = {
   save_to_inbox: { kind: 'terminal', status: 'triaged' },
   create_reminder: { kind: 'terminal', status: 'reminder' },
   flag_urgent: { kind: 'terminal', status: 'urgent' },
+  // Unlike the other terminal tools, this one rewrites the item's own text
+  // into a markdown task list — see buildChecklistText() below — rather
+  // than leaving the raw capture text in place. That's what makes a
+  // checklist "just a special format of note": it's rendered and ticked
+  // off as real checkboxes in the browser, and stays around indefinitely
+  // (status 'checklist' never resolves to acted/vetoed/failed) to be
+  // recalled and reset for next time, instead of being triaged away.
+  save_checklist: {
+    kind: 'terminal',
+    status: 'checklist',
+    extra: ({ title, items }) => ({ text: buildChecklistText(title, items) }),
+  },
+}
+
+function buildChecklistText(title, items) {
+  const heading = title ? `${title}\n` : ''
+  return heading + items.map(item => `- [ ] ${item}`).join('\n')
 }
 
 if (LINEAR_ENABLED) {
@@ -197,7 +214,8 @@ Resolve it by calling propose_plan with an ordered list of steps. Available tool
 
 - save_to_inbox (terminal — ends the plan): args { action_result, tags }. A general note or task to triage later.
 - create_reminder (terminal): args { action_result, tags }. Something time-sensitive that should become a calendar event or reminder.
-- flag_urgent (terminal): args { action_result, tags }. Something that needs immediate attention.${LINEAR_ENABLED ? `
+- flag_urgent (terminal): args { action_result, tags }. Something that needs immediate attention.
+- save_checklist (terminal): args { title?, items, tags }. Use when the capture is asking to create a reusable checklist or kit list to recall and tick off repeatedly — e.g. "checklist for swimming: goggles, towel, costume, £2 for locker" or "school morning list: brush teeth, pack lunch, homework, water bottle". items is an array of short strings, one per line item, taken directly from the capture. title is a short optional name for the list (e.g. "Swimming kit"); leave it unset if the capture doesn't suggest one. Don't use this for a single one-off task or reminder — only when the capture is clearly building a list to be reused, not just noted once.${LINEAR_ENABLED ? `
 - search_linear_issues (read-only — runs automatically, no approval needed): args { query }. Searches existing Linear issues for a similar title. Outputs: { duplicate_found: boolean, matching_issue: { title, url } | null }.
 - create_linear_task (acting — only proposes; a human must approve before anything is actually created): args { title, description?, tags }. Real project/engineering work that should be tracked in Linear (e.g. "fix the login bug", "add dark mode").` : ''}${PLAYBACK_ENABLED ? `
 - resolve_playback (read-only — runs automatically, no approval needed): args { title, artist?, album?, room, target_house? }. Looks up the actual matching track and speaker for a Sonos playback request — never guess a specific speaker name or track yourself, this does the matching. room is free text like "living room" or "bedroom", passed through as written. target_house should only be set when the capture text unambiguously names one of these houses: ${houseNames.join(', ')}. Leave it unset otherwise — the app fills in the house the capture came from. Outputs: { target_house, track: { title, artist, album, image, matchConfidence }, speaker: { name, confidence } }.
@@ -343,7 +361,7 @@ export async function runProgram(steps, { house, onStep, overrides } = {}) {
 
     if (def.kind === 'terminal') {
       const { action_result = 'Saved to inbox.', tags = [] } = args
-      return { status: def.status, tags, action_result, plan_steps: executedSteps }
+      return { status: def.status, tags, action_result, plan_steps: executedSteps, ...(def.extra?.(args) ?? {}) }
     }
 
     if (def.kind === 'acting') {

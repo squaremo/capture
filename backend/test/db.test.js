@@ -76,6 +76,14 @@ describe('updateItem', () => {
     expect(updated.tags).toEqual(['work', 'health'])
   })
 
+  it('text can be rewritten — used to turn a capture into a checklist, or tick/reset one', () => {
+    const item = createItem('checklist for swimming: goggles, towel')
+    const updated = updateItem(item.id, { status: 'checklist', text: 'Swimming kit\n- [ ] goggles\n- [ ] towel' })
+    expect(updated.text).toBe('Swimming kit\n- [ ] goggles\n- [ ] towel')
+    const ticked = updateItem(item.id, { text: 'Swimming kit\n- [x] goggles\n- [ ] towel' })
+    expect(ticked.text).toBe('Swimming kit\n- [x] goggles\n- [ ] towel')
+  })
+
   it('returns unchanged item when no fields provided', () => {
     const item = createItem('no-op update')
     const result = updateItem(item.id, {})
