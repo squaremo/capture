@@ -3,6 +3,7 @@ import { resolveEnv } from '../secrets.js'
 import { createLinearTask, searchLinearIssues } from './linear.js'
 import { resolveSpeaker, commitPlayback, resolveLight, commitLight, getHouses } from './satellite.js'
 import { searchTrack } from './spotify.js'
+import { listItems, getItem as getItemFromDb, updateItem as updateItemInDb } from '../db.js'
 
 const client = new Anthropic({ apiKey: await resolveEnv('ANTHROPIC_API_KEY') })
 
@@ -46,6 +47,79 @@ const TOOL_REGISTRY = {
   save_to_inbox: { kind: 'terminal', status: 'triaged' },
   create_reminder: { kind: 'terminal', status: 'reminder' },
   flag_urgent: { kind: 'terminal', status: 'urgent' },
+  // Unlike the other terminal tools, this one rewrites the item's own text
+  // into a markdown task list — see buildChecklistText() below — rather
+  // than leaving the raw capture text in place. That's what makes a
+  // checklist "just a special format of note": it's rendered and ticked
+  // off as real checkboxes in the browser, and stays around indefinitely
+  // (status 'checklist' never resolves to acted/vetoed/failed) to be
+  // recalled and reset for next time, instead of being triaged away.
+  save_checklist: {
+    kind: 'terminal',
+    status: 'checklist',
+    extra: ({ title, items }) => ({ text: buildChecklistText(title, items) }),
+  },
+  // Lets "swimming checklist" find the existing one instead of save_checklist
+  // spawning a duplicate — same shape as search_linear_issues avoiding a
+  // duplicate Linear issue: a readonly lookup the plan branches on.
+  find_checklist: {
+    kind: 'readonly',
+    label: 'Looking for an existing checklist',
+    execute: ({ query }) => {
+      const q = (query ?? '').toLowerCase().trim()
+      const match = listItems({ status: 'checklist' }).find(item => {
+        const title = parseChecklistText(item.text).title.toLowerCase()
+        return title && (title.includes(q) || q.includes(title))
+      })
+      return { found: Boolean(match), item: match ? { id: match.id, title: parseChecklistText(match.text).title } : null }
+    },
+  },
+  // "Recall" means "reset and bring back the same checklist," not "make
+  // another one" — this resets the *existing* item found by find_checklist
+  // in place (same mutation the UI's own reset button performs) rather
+  // than the new capture becoming a second checklist item. No approval
+  // gate: unlike the acting tools, resetting your own checklist has no
+  // external effect to guard — it's the same local edit ticking a box is.
+  // The capture itself is just logged as the (already-'acted') audit
+  // record of having done it.
+  recall_checklist: {
+    kind: 'terminal',
+    status: 'acted',
+    extra: async ({ item_id, title }) => {
+      const existing = getItemFromDb(item_id)
+      if (!existing) throw new Error(`Checklist "${title}" no longer exists`)
+      const { title: currentTitle, items } = parseChecklistText(existing.text)
+      const resetItems = items.map(item => ({ ...item, checked: false }))
+      updateItemInDb(item_id, { text: buildChecklistText(currentTitle || title, resetItems) })
+      return { action_result: `Reset "${currentTitle || title}" checklist` }
+    },
+  },
+}
+
+// A checklist item's text IS a markdown task list (title line, then
+// "- [ ] thing" lines) — see buildChecklistText() below and the matching
+// parseChecklist() in frontend/src/components/item.js. Kept as a small,
+// independent parser here (rather than a shared module) since the two
+// runtimes don't otherwise share code.
+const CHECKLIST_LINE_RE = /^-\s*\[([ xX])\]\s*(.*)$/
+
+function parseChecklistText(text) {
+  const titleLines = []
+  const items = []
+  for (const line of (text ?? '').split('\n')) {
+    const m = line.match(CHECKLIST_LINE_RE)
+    if (m) items.push({ checked: m[1].toLowerCase() === 'x', text: m[2] })
+    else if (line.trim() && items.length === 0) titleLines.push(line.trim())
+  }
+  return { title: titleLines.join(' '), items }
+}
+
+function buildChecklistText(title, items) {
+  const heading = title ? `${title}\n` : ''
+  const lines = items.map(item =>
+    typeof item === 'string' ? `- [ ] ${item}` : `- [${item.checked ? 'x' : ' '}] ${item.text}`
+  )
+  return heading + lines.join('\n')
 }
 
 if (LINEAR_ENABLED) {
@@ -197,7 +271,12 @@ Resolve it by calling propose_plan with an ordered list of steps. Available tool
 
 - save_to_inbox (terminal — ends the plan): args { action_result, tags }. A general note or task to triage later.
 - create_reminder (terminal): args { action_result, tags }. Something time-sensitive that should become a calendar event or reminder.
-- flag_urgent (terminal): args { action_result, tags }. Something that needs immediate attention.${LINEAR_ENABLED ? `
+- flag_urgent (terminal): args { action_result, tags }. Something that needs immediate attention.
+- save_checklist (terminal): args { title?, items, tags }. Use when the capture lists actual items to build a reusable checklist or kit list from — e.g. "checklist for swimming: goggles, towel, costume, £2 for locker" or "school morning list: brush teeth, pack lunch, homework, water bottle". items is an array of short strings, one per line item, taken directly from the capture. title is a short optional name for the list (e.g. "Swimming kit"); leave it unset if the capture doesn't suggest one. Don't use this for a single one-off task or reminder — only when the capture is clearly building a list to be reused, not just noted once.
+- find_checklist (read-only — runs automatically, no approval needed): args { query }. Use when the capture just names an existing checklist with no items listed — e.g. "swimming checklist", "school list", "reset the shopping list" — meaning: bring that checklist back unchecked, don't build a new one. query is the checklist's name/topic as free text. Outputs: { found: boolean, item: { id, title } | null }.
+- recall_checklist (terminal — resets the existing checklist item in place; no approval needed, it's a local edit like ticking a box): args { item_id, title, tags }. Always follows find_checklist in the same plan when found is true, referencing its whole output rather than re-stating anything: item_id: "\${s1.item.id}", title: "\${s1.item.title}" (using whichever step id you gave find_checklist). Never call recall_checklist without a find_checklist step earlier in the same plan confirming found is true.
+
+For a capture that just names a checklist with no items (recalling one): find_checklist first, then "if" found go to recall_checklist referencing the match, "unless" found go to a terminal step (save_to_inbox) with action_result noting no matching checklist was found, so they know to capture one with items instead.${LINEAR_ENABLED ? `
 - search_linear_issues (read-only — runs automatically, no approval needed): args { query }. Searches existing Linear issues for a similar title. Outputs: { duplicate_found: boolean, matching_issue: { title, url } | null }.
 - create_linear_task (acting — only proposes; a human must approve before anything is actually created): args { title, description?, tags }. Real project/engineering work that should be tracked in Linear (e.g. "fix the login bug", "add dark mode").` : ''}${PLAYBACK_ENABLED ? `
 - resolve_playback (read-only — runs automatically, no approval needed): args { title, artist?, album?, room, target_house? }. Looks up the actual matching track and speaker for a Sonos playback request — never guess a specific speaker name or track yourself, this does the matching. room is free text like "living room" or "bedroom", passed through as written. target_house should only be set when the capture text unambiguously names one of these houses: ${houseNames.join(', ')}. Leave it unset otherwise — the app fills in the house the capture came from. Outputs: { target_house, track: { title, artist, album, image, matchConfidence }, speaker: { name, confidence } }.
@@ -343,7 +422,15 @@ export async function runProgram(steps, { house, onStep, overrides } = {}) {
 
     if (def.kind === 'terminal') {
       const { action_result = 'Saved to inbox.', tags = [] } = args
-      return { status: def.status, tags, action_result, plan_steps: executedSteps }
+      let extra = {}
+      if (def.extra) {
+        try {
+          extra = (await def.extra(args)) ?? {}
+        } catch (err) {
+          throw new Error(`resolving "${step.tool}" failed: ${err.message}`)
+        }
+      }
+      return { status: def.status, tags, action_result, plan_steps: executedSteps, ...extra }
     }
 
     if (def.kind === 'acting') {

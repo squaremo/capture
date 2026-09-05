@@ -91,6 +91,27 @@ describe('POST /api/capture', () => {
     expect(poll.json().status).toBe('reminder')
   })
 
+  it('save_checklist resolution rewrites the item text to the markdown task list', async () => {
+    let resolve
+    mockProcessCapture.mockReturnValue(new Promise(r => { resolve = r }))
+
+    const reply = await app.inject({ method: 'POST', url: '/api/capture', payload: { text: 'checklist for swimming: goggles, towel' } })
+    const item = reply.json()
+
+    resolve({
+      status: 'checklist',
+      tags: ['swimming'],
+      action_result: 'Saved to inbox.',
+      text: 'Swimming kit\n- [ ] goggles\n- [ ] towel',
+    })
+    await new Promise(r => setTimeout(r, 20))
+
+    const poll = await app.inject({ method: 'GET', url: `/api/items/${item.id}` })
+    const resolved = poll.json()
+    expect(resolved.status).toBe('checklist')
+    expect(resolved.text).toBe('Swimming kit\n- [ ] goggles\n- [ ] towel')
+  })
+
   it('marks the item failed with a staged message if processCapture throws', async () => {
     // claude.js already stages this message ("Claude API error: ...", or
     // 'resolving "X" failed: ...') — this is the "figuring out what to do"
@@ -197,6 +218,19 @@ describe('PATCH /api/items/:id', () => {
     expect(updated.status).toBe('acted')
     expect(updated.action_result).toBe('Done!')
     expect(updated.text).toBe('patch test item')
+  })
+
+  it('rewrites text — how the UI ticks/resets a checklist item', async () => {
+    const post = await app.inject({ method: 'POST', url: '/api/capture', payload: { text: 'checklist stub' } })
+    const created = post.json()
+
+    const reply = await app.inject({
+      method: 'PATCH',
+      url: `/api/items/${created.id}`,
+      payload: { text: 'Swimming kit\n- [x] goggles\n- [ ] towel' },
+    })
+    expect(reply.statusCode).toBe(200)
+    expect(reply.json().text).toBe('Swimming kit\n- [x] goggles\n- [ ] towel')
   })
 })
 

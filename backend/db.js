@@ -95,9 +95,10 @@ export function listItems({ status } = {}) {
   return rows.map(parseItem)
 }
 
-export function updateItem(id, { status, tags, action_result, pending_action, plan_progress, executed_action, plan_steps }) {
+export function updateItem(id, { status, tags, action_result, pending_action, plan_progress, executed_action, plan_steps, text }) {
   const fields = []
   const values = []
+  if (text !== undefined)           { fields.push('text = ?');           values.push(text) }
   if (status !== undefined)         { fields.push('status = ?');         values.push(status) }
   if (tags !== undefined)           { fields.push('tags = ?');           values.push(JSON.stringify(tags)) }
   if (action_result !== undefined)  { fields.push('action_result = ?');  values.push(action_result) }

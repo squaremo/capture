@@ -3,26 +3,33 @@ import { createItemEl, updateItemEl, collectFormOverrides } from './item.js'
 // "Needs attention": still processing, classified but no action decided
 // yet, or an acting tool proposed something waiting on approve/veto.
 // "Resolved": an action was taken, declined, or failed — audit trail.
+// "Checklists": items that never resolve away — they sit here permanently
+// to be recalled and ticked off/reset, not triaged into either group above.
 const NEEDS_ATTENTION = ['pending', 'triaged', 'reminder', 'urgent', 'awaiting_approval']
 const RESOLVED = ['acted', 'vetoed', 'failed']
 
-export function createInbox({ onApprove, onVeto, onFavourite } = {}) {
+export function createInbox({ onApprove, onVeto, onFavourite, onChecklistToggle, onChecklistReset } = {}) {
   const section = document.createElement('section')
   section.className = 'inbox'
 
+  const checklists = createGroup('checklists', 'checklists')
+  checklists.el.hidden = true // shown only once a first checklist item exists
   const needsAttention = createGroup('needs attention', 'attention')
   const resolved = createGroup('resolved', 'resolved')
-  section.append(needsAttention.el, resolved.el)
+  section.append(checklists.el, needsAttention.el, resolved.el)
 
   let items = []
 
   function groupFor(status) {
+    if (status === 'checklist') return checklists
     return RESOLVED.includes(status) ? resolved : needsAttention
   }
 
   function render() {
+    checklists.list.innerHTML = ''
     needsAttention.list.innerHTML = ''
     resolved.list.innerHTML = ''
+    checklists.el.hidden = !items.some(i => i.status === 'checklist')
     items.forEach(item => groupFor(item.status).list.appendChild(createItemEl(item)))
   }
 
@@ -38,6 +45,8 @@ export function createInbox({ onApprove, onVeto, onFavourite } = {}) {
     if (btn.dataset.action === 'approve') onApprove?.(id, collectFormOverrides(itemEl))
     if (btn.dataset.action === 'veto') onVeto?.(id)
     if (btn.dataset.action === 'favourite') onFavourite?.(id)
+    if (btn.dataset.action === 'toggle-checklist') onChecklistToggle?.(id, parseInt(btn.dataset.index, 10))
+    if (btn.dataset.action === 'reset-checklist') onChecklistReset?.(id)
   })
 
   return {
@@ -45,6 +54,7 @@ export function createInbox({ onApprove, onVeto, onFavourite } = {}) {
 
     addItem(item) {
       items.unshift(item)
+      if (item.status === 'checklist') checklists.el.hidden = false
       groupFor(item.status).list.prepend(createItemEl(item))
     },
 
@@ -88,6 +98,11 @@ export function createInbox({ onApprove, onVeto, onFavourite } = {}) {
       btn.disabled = true
       btn.title = 'Saved as favourite'
     },
+
+    // Lets a caller (checklist toggle/reset in main.js) read back an item's
+    // current text before editing and PATCHing it — there's no other way
+    // to get at what's currently rendered without re-fetching.
+    getItem(id) { return items.find(i => i.id === id) },
 
     get itemCount() { return items.length },
     get pendingCount() { return items.filter(i => NEEDS_ATTENTION.includes(i.status)).length },

@@ -7,6 +7,7 @@ vi.mock('@anthropic-ai/sdk', () => ({
 }))
 
 import { processCapture, runProgram, getFormFields } from '../integrations/claude.js'
+import { createItem, getItem, updateItem } from '../db.js'
 
 beforeEach(() => {
   mockCreate.mockClear()
@@ -46,6 +47,56 @@ describe('processCapture', () => {
     respondWithStep('flag_urgent', { action_result: 'Flagged as urgent.', tags: ['urgent'] })
     const result = await processCapture('server is down!')
     expect(result.status).toBe('urgent')
+  })
+
+  it('maps save_checklist → checklist, rewriting text to a markdown task list', async () => {
+    respondWithStep('save_checklist', {
+      title: 'Swimming kit',
+      items: ['goggles', 'towel', 'costume'],
+      tags: ['swimming'],
+    })
+    const result = await processCapture('checklist for swimming: goggles, towel, costume')
+    expect(result.status).toBe('checklist')
+    expect(result.tags).toEqual(['swimming'])
+    expect(result.text).toBe('Swimming kit\n- [ ] goggles\n- [ ] towel\n- [ ] costume')
+  })
+
+  it('save_checklist omits the title line when none is given', async () => {
+    respondWithStep('save_checklist', { items: ['milk', 'eggs'], tags: [] })
+    const result = await processCapture('shopping list: milk, eggs')
+    expect(result.text).toBe('- [ ] milk\n- [ ] eggs')
+  })
+
+  it('"swimming checklist" (find_checklist → recall_checklist) resets the existing checklist in place', async () => {
+    const item = createItem('checklist for swimming: goggles, towel')
+    updateItem(item.id, { status: 'checklist', text: 'Swimming kit\n- [x] goggles\n- [ ] towel' })
+
+    respondWithPlan([
+      { id: 's1', tool: 'find_checklist', args: { query: 'swimming' } },
+      { id: 's2', tool: 'recall_checklist', args: { item_id: '${s1.item.id}', title: '${s1.item.title}', tags: [] }, if: '${s1.found}' },
+    ])
+    const result = await processCapture('swimming checklist')
+
+    expect(result.status).toBe('acted')
+    expect(result.action_result).toBe('Reset "Swimming kit" checklist')
+    // The existing item was reset in place — this capture didn't spawn a
+    // second checklist item alongside it.
+    expect(getItem(item.id).text).toBe('Swimming kit\n- [ ] goggles\n- [ ] towel')
+  })
+
+  it('find_checklist "unless found" falls back to save_to_inbox when nothing matches', async () => {
+    respondWithPlan([
+      { id: 's1', tool: 'find_checklist', args: { query: 'unicorn' } },
+      { id: 's2', tool: 'save_to_inbox', args: { action_result: 'No matching checklist found.', tags: [] }, unless: '${s1.found}' },
+    ])
+    const result = await processCapture('unicorn checklist')
+    expect(result.status).toBe('triaged')
+    expect(result.action_result).toBe('No matching checklist found.')
+  })
+
+  it('recall_checklist fails clearly if the target item no longer exists', async () => {
+    respondWithStep('recall_checklist', { item_id: 'missing-id', title: 'Ghost list', tags: [] })
+    await expect(processCapture('ghost checklist')).rejects.toThrow('no longer exists')
   })
 
   it('throws when the plan has no steps', async () => {

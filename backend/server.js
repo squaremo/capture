@@ -57,8 +57,12 @@ app.post('/api/capture', async (req, reply) => {
       updateItem(item.id, { plan_progress: planProgress })
     },
   })
-    .then(({ status, tags, action_result, pending_action, plan_steps }) => {
-      updateItem(item.id, { status, tags, action_result, pending_action: pending_action ?? null, plan_steps })
+    .then(({ status, tags, action_result, pending_action, plan_steps, text }) => {
+      // text is only present for save_checklist — it rewrites the item's
+      // own text into the checklist's markdown task list (see
+      // buildChecklistText() in claude.js). Every other tool leaves the
+      // original captured text untouched.
+      updateItem(item.id, { status, tags, action_result, pending_action: pending_action ?? null, plan_steps, ...(text !== undefined ? { text } : {}) })
     })
     .catch(err => {
       app.log.error({ err, itemId: item.id }, 'Claude processing failed')
@@ -268,12 +272,16 @@ app.get('/api/items/:id', async (req, reply) => {
   return withFormFields(item)
 })
 
-// PATCH /api/items/:id — manual status update
+// PATCH /api/items/:id — manual status update, or (for a checklist item)
+// rewriting its text — a checklist is just an item whose text is a
+// markdown task list (see save_checklist in claude.js), so ticking a box
+// or resetting one in the UI is a plain text edit through this same
+// endpoint rather than a dedicated checklist API.
 app.patch('/api/items/:id', async (req, reply) => {
   const item = getItem(req.params.id)
   if (!item) return reply.code(404).send({ error: 'Not found' })
-  const { status, tags, action_result } = req.body ?? {}
-  return withFormFields(updateItem(req.params.id, { status, tags, action_result }))
+  const { status, tags, action_result, text } = req.body ?? {}
+  return withFormFields(updateItem(req.params.id, { status, tags, action_result, text }))
 })
 
 // ── Start ──────────────────────────────────────────────────
