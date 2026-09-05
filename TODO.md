@@ -21,7 +21,7 @@
 
 Unstructured thoughts on where this could go, captured as-is — not scoped or committed to.
 
-- **Physical/kiosk input**: a push-to-talk interface, physical or touchscreen, with the UI running in kiosk mode on a Raspberry Pi.
+- **Physical/kiosk input**: a push-to-talk interface, physical or touchscreen, with the UI running in kiosk mode on a Raspberry Pi. Hardware BOM and a three-mode voice-input design (existing web-speech toggle for dev, an on-screen hold-to-talk button, and a physical GPIO button — both new modes feeding a local `whisper.cpp` instance, bridged back to the UI via SSE so a transcript always lands in the textarea for review rather than auto-submitting) written up in `designs/satellite-hardware.md`. Design only so far — no hardware ordered, no code written.
 - **Child and parent modes** — some actions should require parent mode to invoke.
 - **Auditing** — actions taken by the app should be logged/auditable. Partial start: `plan_progress` (see `TOL-5` below) persists which read-only steps a plan actually ran, though not yet the acting-step execution itself.
 - **Home automation control**: Spotify, Sonos, a Matter hub (IKEA Dirigera).
