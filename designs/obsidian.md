@@ -46,7 +46,7 @@ plain `fs.appendFile`/`fs.writeFile` call, as simple as any tool in
 `TOOL_REGISTRY` gets. Step 2 is a deployment/infra concern, closer to
 Watchtower or `capture-sync` than to anything in `backend/integrations/`.
 
-## Sync layer: Syncthing over `obsidian-headless` or `obsidian-git`, for now
+## Sync layer: Syncthing over `obsidian-headless`; `obsidian-git` ruled out
 
 Three real options surfaced during research (see the earlier conversation
 turns on how Obsidian syncing works):
@@ -81,36 +81,43 @@ turns on how Obsidian syncing works):
   "the file changed at some point") and git's three-way text merge, a
   better fit for concurrent markdown edits than Syncthing's raw
   conflicted-copy files. Pulling only happens *inside Obsidian's own
-  process*, but that's less of a gap than it first looks: with
-  pull-on-startup enabled, opening Obsidian is exactly the "next time I
-  look" moment, so a note the backend wrote earlier just shows up (after
-  a few seconds' fetch-and-merge, not instant the way an already-replicated
-  Syncthing file is) — this isn't the same satellite-shaped dependency the
-  Local REST API plugin had, since nothing needs to be *already running*
-  for the note to arrive, just opened. The sharper real risk is mobile
-  specifically: iOS/Android both restrict background execution, and
-  there are reported cases of `obsidian-git`'s scheduled/startup pulls
-  not firing reliably on phones the way they do on desktop — worth
-  testing directly rather than assuming, given phone is capture's primary
-  interface. It also needs a git remote to push to — a private GitHub
-  repo reintroduces the "third party holding your notes" tension Sync's
-  relay has, and a self-hosted remote (Gitea, or a bare repo on the VM
-  itself) is one more service to run for a benefit (history, merge
-  quality) this write-only-from-the-backend pattern doesn't really need.
+  process*, but that's less of a gap than it first looks on desktop:
+  with pull-on-startup enabled, opening Obsidian is exactly the "next
+  time I look" moment, so a note the backend wrote earlier just shows up
+  (after a few seconds' fetch-and-merge, not instant the way an
+  already-replicated Syncthing file is) — not the same satellite-shaped
+  dependency the Local REST API plugin had, since nothing needs to be
+  *already running* for the note to arrive, just opened.
+  **Disqualified for this app anyway, checked directly against the
+  plugin's own docs rather than assumed**: neither iOS nor Android lets
+  an app shell out to real git, so on mobile the plugin runs
+  `isomorphic-git` (a JS reimplementation) instead of native git, and its
+  own README says outright — "The Git implementation on mobile is
+  **very unstable**! I would not recommend using this plugin on mobile."
+  — with no SSH auth, memory-limited repo size, no rebase, no submodules,
+  and open issues reporting crashes/hangs on iPhone pull specifically.
+  Since capture is phone-first, that one line from the maintainer settles
+  it rather than leaving it as a risk to test later.
+  It also needs a git remote to push to — a private GitHub repo
+  reintroduces the "third party holding your notes" tension Sync's relay
+  has, and a self-hosted remote (Gitea, or a bare repo on the VM itself)
+  is one more service to run for a benefit (history, merge quality) this
+  write-only-from-the-backend pattern doesn't really need even on desktop.
 
-Recommend **Syncthing** for v1: no new secret class to store, no beta
-dependency, no reliance on a plugin's pull timing (startup, interval, or
-otherwise) to propagate a change — it's just already there — and the
-actual write pattern here (single append to a daily note from one writer
-— the backend) makes both Syncthing's lack of smart merging and
-`obsidian-git`'s better merge/history less of a deciding factor than
-they'd be for a genuinely two-way editing workflow. Revisit
-`obsidian-headless` once it's out of beta, or `obsidian-git` if
-per-capture history ever turns out to matter more than it looks like it
-will right now (and mobile pull reliability checks out); revisit either
-sooner if Obsidian Sync is already the sync mechanism in use for other
-devices and running two sync layers side
-by side feels worse than the tradeoffs above.
+Recommend **Syncthing** for v1 — now more confidently than before:
+`obsidian-git` is ruled out outright by its own maintainer's mobile
+warning, `obsidian-headless` is still beta and wants a real account
+credential, and Syncthing needs neither. No new secret class to store,
+no beta dependency, no reliance on a plugin's pull timing to propagate a
+change — it's just already there on every device, phone included — and
+the actual write pattern here (single append to a daily note from one
+writer — the backend) makes Syncthing's lack of smart merging a much
+smaller risk than it would be for a genuinely two-way editing workflow.
+Revisit `obsidian-headless` once it's out of beta; revisit sooner if
+Obsidian Sync is already the sync mechanism in use for other devices and
+running two sync layers side by side feels worse than the tradeoffs
+above. `obsidian-git` stays ruled out for as long as this app stays
+phone-first.
 
 Shape: a `syncthing` service added to `docker-compose.yml` (own image,
 own volume for its config/keys — not `/opt/capture/data`, which is
@@ -179,8 +186,10 @@ toward it.
 
 ## Open questions
 
-- **Sync layer**: Syncthing vs `obsidian-headless` vs `obsidian-git`, as
-  above — leaning Syncthing, not decided.
+- **Sync layer**: Syncthing vs `obsidian-headless` — `obsidian-git` ruled
+  out (verified against its own README/wiki: unstable on mobile by the
+  maintainer's own admission, disqualifying for a phone-first app).
+  Leaning Syncthing, not decided between the remaining two.
 - **Note shape**: daily-note append vs one file per capture — leaning
   daily-note append, not decided.
 - **Write races**: backend appends to a daily note while Syncthing is
