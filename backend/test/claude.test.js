@@ -150,6 +150,25 @@ describe('processCapture', () => {
   })
 })
 
+describe('needsApproval is a property of the final step, not implied by having a side effect', () => {
+  it('recall_checklist has a real side effect but resolves immediately, no approval', async () => {
+    const item = createItem('checklist for cycling: helmet, lights')
+    updateItem(item.id, { status: 'checklist', text: 'Cycling kit\n- [x] helmet\n- [x] lights' })
+
+    const result = await runProgram([
+      { id: 's1', tool: 'find_checklist', args: { query: 'cycling' } },
+      { id: 's2', tool: 'recall_checklist', args: { item_id: '${s1.item.id}', title: '${s1.item.title}', tags: [] }, if: '${s1.found}' },
+    ])
+    // Resolves straight to 'acted' — never 'awaiting_approval' — even
+    // though it mutated another item's text. Contrast create_linear_task's
+    // "awaiting_approval" tests in claude-linear.test.js: same 'final'
+    // kind, but needsApproval: true there means nothing runs until a
+    // human approves — the two tools differ only in that one property.
+    expect(result.status).toBe('acted')
+    expect(getItem(item.id).text).toBe('Cycling kit\n- [ ] helmet\n- [ ] lights')
+  })
+})
+
 describe('runProgram with overrides', () => {
   it('substitutes an overridden literal arg before resolving the step', async () => {
     const steps = [{ id: 's1', tool: 'save_to_inbox', args: { action_result: 'Saved.', tags: [] } }]

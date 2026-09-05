@@ -98,6 +98,7 @@ See `TODO.md` for the current list.
 - **Claude API runs on Anthropic's infrastructure** — the VM stays lightweight. Only the backend makes outbound calls to the Claude API. API key never touches the frontend.
 - **Web Speech API for mobile/desktop voice** — routes through Google's speech service (Chrome). Acceptable tradeoff for convenience. Home station uses local `whisper.cpp` instead for full privacy.
 - **PWA, not native app** — same codebase across phone, laptop, kiosk. Installable to home screen. Voice works on Android Chrome.
+- **Needing human approval is its own explicit property of a plan tool (`needsApproval`), not implied by having a side effect** — `TOOL_REGISTRY` in `claude.js` has just two `kind`s now: `readonly` (auto-runs, continues the plan) and `final` (ends it). A `final` tool's `needsApproval` (default `false`) is what actually decides whether it just happens or waits on `POST /api/items/:id/approve` — e.g. `recall_checklist` mutates another item (a real side effect) but doesn't need approval, since resetting your own checklist carries none of the risk `control_playback`/`control_light`/`create_linear_task` do; those three set `needsApproval: true` instead. Read/write, or internal/external, was the wrong axis — "would a wrong or surprising outcome here cost something in the real world" is the one that actually matters.
 - **Tailscale for access control** — no public ports, no login screen. Backend middleware checks that requests originate from a Tailscale IP.
 
 ## working conventions

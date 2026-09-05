@@ -38,15 +38,23 @@ const spotifyMarket = process.env.SPOTIFY_MARKET
 const PLAYBACK_ENABLED = SATELLITES_ENABLED && SPOTIFY_ENABLED
 
 // Every tool the plan can call. `kind` decides how the interpreter treats a step:
-// - terminal: ends the plan immediately with a resolved status (no external effect)
-// - acting: ends the plan immediately as a proposal — nothing runs until a human
-//   approves it via POST /api/items/:id/approve, which calls `execute` directly
 // - readonly: has real (non-mutating) external effects; runs automatically and
 //   its output is bound to the step's id for later steps to reference
+// - final: ends the plan. Whether it just happens or waits on a human is its
+//   own explicit property, needsApproval (defaults to false) — not implied
+//   by having a side effect. recall_checklist below has a real side effect
+//   (it resets another item) but needsApproval is false: resetting your own
+//   checklist carries none of the risk an external action like
+//   control_playback does, so it just happens, like ticking a box would.
+//   needsApproval: true requires `describe`/`execute` — it ends the plan as
+//   a proposal, and approval later calls `execute` directly via
+//   POST /api/items/:id/approve. needsApproval: false (or omitted) requires
+//   `status`, and may define `extra` to perform a side effect and/or merge
+//   extra fields into the resolved output (see save_checklist/recall_checklist).
 const TOOL_REGISTRY = {
-  save_to_inbox: { kind: 'terminal', status: 'triaged' },
-  create_reminder: { kind: 'terminal', status: 'reminder' },
-  flag_urgent: { kind: 'terminal', status: 'urgent' },
+  save_to_inbox: { kind: 'final', status: 'triaged' },
+  create_reminder: { kind: 'final', status: 'reminder' },
+  flag_urgent: { kind: 'final', status: 'urgent' },
   // Unlike the other terminal tools, this one rewrites the item's own text
   // into a markdown task list — see buildChecklistText() below — rather
   // than leaving the raw capture text in place. That's what makes a
@@ -55,7 +63,7 @@ const TOOL_REGISTRY = {
   // (status 'checklist' never resolves to acted/vetoed/failed) to be
   // recalled and reset for next time, instead of being triaged away.
   save_checklist: {
-    kind: 'terminal',
+    kind: 'final',
     status: 'checklist',
     extra: ({ title, items }) => ({ text: buildChecklistText(title, items) }),
   },
@@ -77,13 +85,14 @@ const TOOL_REGISTRY = {
   // "Recall" means "reset and bring back the same checklist," not "make
   // another one" — this resets the *existing* item found by find_checklist
   // in place (same mutation the UI's own reset button performs) rather
-  // than the new capture becoming a second checklist item. No approval
-  // gate: unlike the acting tools, resetting your own checklist has no
-  // external effect to guard — it's the same local edit ticking a box is.
-  // The capture itself is just logged as the (already-'acted') audit
-  // record of having done it.
+  // than the new capture becoming a second checklist item. needsApproval
+  // is left at its default (false): resetting your own checklist has no
+  // external effect to guard against, unlike the needsApproval: true
+  // tools below — it's the same local edit ticking a box is. The capture
+  // itself is just logged as the (already-'acted') audit record of having
+  // done it.
   recall_checklist: {
-    kind: 'terminal',
+    kind: 'final',
     status: 'acted',
     extra: async ({ item_id, title }) => {
       const existing = getItemFromDb(item_id)
@@ -129,7 +138,8 @@ if (LINEAR_ENABLED) {
     execute: ({ query }) => searchLinearIssues({ apiKey: linearApiKey, teamId: linearTeamId, query }),
   }
   TOOL_REGISTRY.create_linear_task = {
-    kind: 'acting',
+    kind: 'final',
+    needsApproval: true,
     describe: ({ title }) => `Proposed: create Linear task "${title}"`,
     execute: async ({ title, description }) => {
       const issue = await createLinearTask({ apiKey: linearApiKey, teamId: linearTeamId, title, description })
@@ -163,7 +173,8 @@ if (PLAYBACK_ENABLED) {
     },
   }
   TOOL_REGISTRY.control_playback = {
-    kind: 'acting',
+    kind: 'final',
+    needsApproval: true,
     // Shows the *resolved* track/speaker, not the raw request — a human
     // approves exactly what's about to play, not a guess that gets
     // (re-)interpreted after the fact. See designs/satellites.md.
@@ -198,7 +209,8 @@ if (SATELLITES_ENABLED) {
     },
   }
   TOOL_REGISTRY.control_light = {
-    kind: 'acting',
+    kind: 'final',
+    needsApproval: true,
     // Shows the *resolved* room, not the raw request — same reasoning as
     // control_playback above.
     describe: ({ room, action, brightness, color, target_house }) => {
@@ -377,19 +389,18 @@ export async function processCapture(text, { onStep, house } = {}) {
   return runProgram(steps, { house, onStep })
 }
 
-// Interprets a plan to its terminal/acting conclusion — shared by a
-// freshly-proposed plan (processCapture, above) and by replaying one
-// that already ran before (approving an edited pending_action, or
-// running a favourite with edited inputs — see server.js). Either way
-// it's the same "program": an ordered list of steps, each a tool plus
-// literal args (optionally referencing an earlier step's output via
-// "${stepId.field}"), that always resolves to the same one terminal or
-// acting step.
+// Interprets a plan to its final conclusion — shared by a freshly-proposed
+// plan (processCapture, above) and by replaying one that already ran
+// before (approving an edited pending_action, or running a favourite with
+// edited inputs — see server.js). Either way it's the same "program": an
+// ordered list of steps, each a tool plus literal args (optionally
+// referencing an earlier step's output via "${stepId.field}"), that always
+// resolves to the same one final step.
 //
 // `overrides`, keyed by step id then arg name, lets a caller substitute
 // edited values for a step's literal args before they're resolved —
 // this is what turns a frozen favourite/proposal into an editable form:
-// the human's edits flow through exactly the same readonly-then-acting
+// the human's edits flow through exactly the same readonly-then-final
 // pipeline as the original plan, so e.g. changing resolve_playback's
 // room re-runs the real speaker lookup rather than just patching text.
 //
@@ -420,7 +431,18 @@ export async function runProgram(steps, { house, onStep, overrides } = {}) {
       args.target_house = house ?? null
     }
 
-    if (def.kind === 'terminal') {
+    if (def.kind === 'final') {
+      if (def.needsApproval) {
+        const { tags = [], ...input } = args
+        return {
+          status: 'awaiting_approval',
+          tags,
+          action_result: def.describe(input),
+          pending_action: { tool: step.tool, input },
+          plan_steps: executedSteps,
+        }
+      }
+
       const { action_result = 'Saved to inbox.', tags = [] } = args
       let extra = {}
       if (def.extra) {
@@ -433,17 +455,6 @@ export async function runProgram(steps, { house, onStep, overrides } = {}) {
       return { status: def.status, tags, action_result, plan_steps: executedSteps, ...extra }
     }
 
-    if (def.kind === 'acting') {
-      const { tags = [], ...input } = args
-      return {
-        status: 'awaiting_approval',
-        tags,
-        action_result: def.describe(input),
-        pending_action: { tool: step.tool, input },
-        plan_steps: executedSteps,
-      }
-    }
-
     // readonly: run it now, bind its output for later steps to reference
     try {
       bindings[step.id] = await def.execute(args)
@@ -453,22 +464,23 @@ export async function runProgram(steps, { house, onStep, overrides } = {}) {
     onStep?.({ label: def.label ?? step.tool })
   }
 
-  throw new Error('Plan finished without reaching a terminal or acting step')
+  throw new Error('Plan finished without reaching a final step')
 }
 
 // Extracts the editable "form" for a program: the literal (non-templated)
-// arguments of its readonly/acting steps, in order. A "${stepId.field}"
+// arguments of its readonly/needsApproval steps, in order. A "${stepId.field}"
 // reference is skipped — there's nothing meaningful to type into a value
-// that's computed from an earlier step — and terminal classification
-// steps (save_to_inbox etc.) are skipped entirely, since they're not
-// parameterizing an action. `tags` is bookkeeping, not a form field.
+// that's computed from an earlier step — and a final step that doesn't need
+// approval (save_to_inbox, save_checklist, recall_checklist, etc.) is
+// skipped entirely, since there's no proposal for a human to edit.
+// `tags` is bookkeeping, not a form field.
 const REF_ONLY_RE = /^\$\{[^.}]+\.[^}]+\}$/
 
 export function getFormFields(steps) {
   const fields = []
   for (const step of steps ?? []) {
     const def = TOOL_REGISTRY[step.tool]
-    if (!def || def.kind === 'terminal') continue
+    if (!def || (def.kind === 'final' && !def.needsApproval)) continue
     for (const [field, value] of Object.entries(step.args ?? {})) {
       if (field === 'tags' || value == null || typeof value === 'object') continue
       if (typeof value === 'string' && REF_ONLY_RE.test(value)) continue
@@ -493,7 +505,7 @@ function fieldType(field, value) {
 // Runs a previously-proposed action after the human has approved it.
 export async function executeAction({ tool, input }) {
   const def = TOOL_REGISTRY[tool]
-  if (!def || def.kind !== 'acting') throw new Error(`Unknown action tool: ${tool}`)
+  if (!def || def.kind !== 'final' || !def.needsApproval) throw new Error(`Unknown action tool: ${tool}`)
   const action_result = await def.execute(input)
   return { status: 'acted', action_result }
 }
