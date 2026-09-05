@@ -46,21 +46,25 @@ plain `fs.appendFile`/`fs.writeFile` call, as simple as any tool in
 `TOOL_REGISTRY` gets. Step 2 is a deployment/infra concern, closer to
 Watchtower or `capture-sync` than to anything in `backend/integrations/`.
 
-## Sync layer: Syncthing over `obsidian-headless`; `obsidian-git` ruled out
+## Sync layer: Syncthing, decided — the other two are both ruled out
 
 Three real options surfaced during research (see the earlier conversation
 turns on how Obsidian syncing works):
 
 - **`obsidian-headless`** (official, `obsidianmd/obsidian-headless` on
   GitHub) — `ob sync --continuous` runs Obsidian Sync from the command
-  line, no GUI. The "correct" long-term answer: first-party, end-to-end
-  encrypted, proper per-file version history. Two things hold it back
-  for v1: it's in open beta as of this research (Feb–Mar 2026), and
-  authentication is `ob login` with email/password/MFA — a real account
-  credential, not a scoped API key, which is a heavier secret than
-  anything else this app stores (`ANTHROPIC_API_KEY`, `LINEAR_API_KEY`
-  are both narrowly-scoped tokens). Whether MFA can be driven
-  non-interactively for a one-time headless setup isn't confirmed.
+  line, no GUI. Would have been the "correct" long-term answer: first-
+  party, end-to-end encrypted, proper per-file version history. **Ruled
+  out, checked directly against its own README rather than assumed**: the
+  only supported auth is `ob login`, email/password (`--email`/`--password`
+  flags) plus MFA against your real Obsidian account — no app password,
+  scoped API token, or service-account option exists at all. Every other
+  secret this app stores (`ANTHROPIC_API_KEY`, `LINEAR_API_KEY`) is
+  narrow and independently revocable; a stolen scoped key only exposes
+  what it can reach. An Obsidian account password is the whole account —
+  every vault, every device — with no way to scope or revoke it short of
+  changing your master password. Not a fit for this app's secret-handling
+  model regardless of the beta status, which was the weaker objection.
 - **Syncthing** — self-hosted, P2P, free, mature, no account/credential
   to store at all (device pairing is a one-time local handshake, same
   trust tier as the Dirigera pairing token in `designs/matter-lighting.md`).
@@ -104,20 +108,20 @@ turns on how Obsidian syncing works):
   is one more service to run for a benefit (history, merge quality) this
   write-only-from-the-backend pattern doesn't really need even on desktop.
 
-Recommend **Syncthing** for v1 — now more confidently than before:
-`obsidian-git` is ruled out outright by its own maintainer's mobile
-warning, `obsidian-headless` is still beta and wants a real account
-credential, and Syncthing needs neither. No new secret class to store,
-no beta dependency, no reliance on a plugin's pull timing to propagate a
-change — it's just already there on every device, phone included — and
-the actual write pattern here (single append to a daily note from one
-writer — the backend) makes Syncthing's lack of smart merging a much
-smaller risk than it would be for a genuinely two-way editing workflow.
-Revisit `obsidian-headless` once it's out of beta; revisit sooner if
-Obsidian Sync is already the sync mechanism in use for other devices and
-running two sync layers side by side feels worse than the tradeoffs
-above. `obsidian-git` stays ruled out for as long as this app stays
-phone-first.
+**Decided: Syncthing.** Both alternatives are ruled out on their own
+merits, not just outweighed — `obsidian-git` by its own maintainer's
+mobile warning, `obsidian-headless` by demanding a whole-account
+credential this app has nowhere good to put. Syncthing needs neither: no
+new secret class to store, no beta dependency, no reliance on a plugin's
+pull timing to propagate a change — it's just already there on every
+device, phone included. The actual write pattern here (single append to
+a daily note from one writer — the backend) also makes Syncthing's lack
+of smart merging a much smaller risk than it would be for a genuinely
+two-way editing workflow, so its one real downside barely applies.
+Revisit only if Obsidian Sync is already in use for other devices and
+running Syncthing alongside it feels worse than the tradeoffs above —
+or if `obsidian-headless` ever adds a scoped, revocable auth option,
+which would remove its disqualifying issue outright.
 
 Shape: a `syncthing` service added to `docker-compose.yml` (own image,
 own volume for its config/keys — not `/opt/capture/data`, which is
@@ -186,10 +190,11 @@ toward it.
 
 ## Open questions
 
-- **Sync layer**: Syncthing vs `obsidian-headless` — `obsidian-git` ruled
-  out (verified against its own README/wiki: unstable on mobile by the
-  maintainer's own admission, disqualifying for a phone-first app).
-  Leaning Syncthing, not decided between the remaining two.
+- ~~**Sync layer**~~ — decided: Syncthing. `obsidian-git` ruled out
+  (unstable on mobile by the maintainer's own admission — disqualifying
+  for a phone-first app), `obsidian-headless` ruled out (only supports
+  whole-account email/password/MFA auth, no scoped token — verified
+  against its own README, both times checked rather than assumed).
 - **Note shape**: daily-note append vs one file per capture — leaning
   daily-note append, not decided.
 - **Write races**: backend appends to a daily note while Syncthing is
