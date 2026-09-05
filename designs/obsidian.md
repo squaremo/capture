@@ -46,9 +46,9 @@ plain `fs.appendFile`/`fs.writeFile` call, as simple as any tool in
 `TOOL_REGISTRY` gets. Step 2 is a deployment/infra concern, closer to
 Watchtower or `capture-sync` than to anything in `backend/integrations/`.
 
-## Sync layer: Syncthing over `obsidian-headless`, for now
+## Sync layer: Syncthing over `obsidian-headless` or `obsidian-git`, for now
 
-Two real options surfaced during research (see the earlier conversation
+Three real options surfaced during research (see the earlier conversation
 turns on how Obsidian syncing works):
 
 - **`obsidian-headless`** (official, `obsidianmd/obsidian-headless` on
@@ -69,16 +69,40 @@ turns on how Obsidian syncing works):
   relay is a third party in the path even though it's zero-knowledge
   encrypted. Downside: it syncs files, not "vault intent" — no
   Obsidian-aware merge, so two concurrent edits to the same file produce
-  a raw conflicted copy rather than a clean merge.
+  a raw conflicted copy rather than a clean merge. Runs as a background
+  daemon independent of Obsidian, so replication happens the moment a
+  file changes whether or not Obsidian is open at that moment.
+- **`obsidian-git`** (community plugin) — wraps the vault, or a subfolder
+  of it, in an ordinary git repo and does `add`/`commit`/`push`/`pull`
+  against a remote, on an interval or a hotkey. The backend would
+  `git commit` + `git push` after each capture; every device gets the
+  plugin and pulls. Real upsides over Syncthing: an actual commit history
+  (each capture becomes a diffable, revertable commit, not just "the file
+  changed at some point") and git's three-way text merge, a better fit
+  for concurrent markdown edits than Syncthing's raw conflicted-copy
+  files. The disqualifying downside for this app specifically: pulling
+  only happens *inside Obsidian's own process* (on its interval, at
+  startup, or manually) — exactly the satellite-shaped dependency ruled
+  out earlier for the Local REST API plugin. A note written by the
+  backend at 9am doesn't show up on your phone until you next open
+  Obsidian there, whereas Syncthing delivers it in the background
+  regardless. It also needs a git remote to push to — a private GitHub
+  repo reintroduces the "third party holding your notes" tension Sync's
+  relay has, and a self-hosted remote (Gitea, or a bare repo on the VM
+  itself) is one more service to run for a benefit (history, merge
+  quality) this write-only-from-the-backend pattern doesn't really need.
 
 Recommend **Syncthing** for v1: no new secret class to store, no beta
-dependency, and the actual write pattern here (single append to a daily
-note from one writer — the backend) makes Syncthing's lack of smart
-merging a much smaller risk than it would be for a two-way editing
-workflow. Revisit `obsidian-headless` once it's out of beta, or sooner if
-Obsidian Sync is already the sync mechanism in use for other devices and
-running two sync layers side by side feels worse than the tradeoffs
-above.
+dependency, no dependency on Obsidian's own process being open to
+propagate a change, and the actual write pattern here (single append to
+a daily note from one writer — the backend) makes both Syncthing's lack
+of smart merging and `obsidian-git`'s better merge/history less of a
+deciding factor than they'd be for a genuinely two-way editing workflow.
+Revisit `obsidian-headless` once it's out of beta, or `obsidian-git` if
+per-capture history ever turns out to matter more than it looks like it
+will right now; revisit either sooner if Obsidian Sync is already the
+sync mechanism in use for other devices and running two sync layers side
+by side feels worse than the tradeoffs above.
 
 Shape: a `syncthing` service added to `docker-compose.yml` (own image,
 own volume for its config/keys — not `/opt/capture/data`, which is
@@ -147,8 +171,8 @@ toward it.
 
 ## Open questions
 
-- **Sync layer**: Syncthing vs `obsidian-headless`, as above — leaning
-  Syncthing, not decided.
+- **Sync layer**: Syncthing vs `obsidian-headless` vs `obsidian-git`, as
+  above — leaning Syncthing, not decided.
 - **Note shape**: daily-note append vs one file per capture — leaning
   daily-note append, not decided.
 - **Write races**: backend appends to a daily note while Syncthing is
