@@ -28,8 +28,9 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
   let failure = null       // persists until retried
   let flashTimer = null
 
-  // ── Top bar: just the set-aside badge. The wordmark/info/vpn badge
-  // stay on the shared `header` main.js appends before this element. ──
+  // ── Top bar: house switcher (left) + set-aside badge (right). The
+  // wordmark/info/vpn badge stay on the shared `header` main.js appends
+  // before this element — this is just the station-specific status row. ──
   const topbar = document.createElement('div')
   topbar.className = 'station-topbar'
 
@@ -61,6 +62,13 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
     defaultHouse,
   })
   paneIdle.append(captureInput.el)
+
+  // The house switcher belongs with the other status chrome up top, not
+  // buried in the capture controls — reparent the actual element (its
+  // listeners are already bound to it, not to where it sits) rather than
+  // teaching capture.js about the station's layout.
+  const houseRow = captureInput.el.querySelector('.house-row')
+  if (houseRow) topbar.prepend(houseRow)
 
   const paneThinking = document.createElement('div')
   paneThinking.className = 'station-pane station-pane--thinking'

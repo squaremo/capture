@@ -906,8 +906,27 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 
 [data-density="station"] .station-topbar {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
   flex-shrink: 0;
+}
+
+/* The house switcher (reparented here from the capture controls — see
+   station.js) reads as status, not a control buried in the input row. */
+[data-density="station"] .station-topbar .house-row {
+  margin: var(--space-2) 0 0 var(--space-4);
+}
+[data-density="station"] .station-topbar .house-select {
+  min-height: auto;
+  padding-inline: var(--space-2);
+}
+
+/* With the house-row moved out, the capture controls have only the
+   voice/submit buttons left — always pin them to the end, regardless of
+   the --with-house modifier capture.js still toggles based on whether
+   any houses are configured (it doesn't know they've been relocated). */
+[data-density="station"] .capture-controls--with-house {
+  justify-content: flex-end;
 }
 
 [data-density="station"] .station-waiting-badge {
