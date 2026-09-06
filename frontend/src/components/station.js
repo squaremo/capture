@@ -20,7 +20,7 @@ const TOOL_LABELS = {
   control_light: 'will control lights',
 }
 
-export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEditFavourite } = {}) {
+export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEditFavourite, defaultHouse } = {}) {
   let tab = 'capture'      // 'capture' | 'favourites' | 'earlier'
   let mode = 'idle'        // 'idle' | 'thinking' | 'review'
   let active = null        // the item 'thinking'/'review' is about
@@ -56,7 +56,10 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
   const paneIdle = document.createElement('div')
   paneIdle.className = 'station-pane station-pane--idle'
 
-  const captureInput = createCaptureInput({ onSubmit: (text) => onSubmit?.(text) })
+  const captureInput = createCaptureInput({
+    onSubmit: (text, house) => onSubmit?.(text, house),
+    defaultHouse,
+  })
   paneIdle.append(captureInput.el)
 
   const paneThinking = document.createElement('div')
@@ -334,6 +337,7 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
     setFailure,
     setFavourites(list) { rail.render(list); renderFavGrid(list) },
     setLog: renderLog,
+    setHouses: captureInput.setHouses,
     focusInput,
   }
 }

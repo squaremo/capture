@@ -127,7 +127,8 @@ async function init() {
   }
 
   const station = config.isStation ? createStationShell({
-    onSubmit: (text) => submitCapture(text),
+    defaultHouse: config.defaultHouse,
+    onSubmit: (text, house) => submitCapture(text, house),
     onApprove: (id, overrides) => handleDecision(id, () => approveItem(id, overrides)),
     onVeto: (id) => handleDecision(id, () => vetoItem(id)),
     onReplay: (id, overrides) => handleFavouriteRun(id, overrides),
@@ -337,6 +338,7 @@ async function init() {
       const satellites = await getSatellites()
       versionInfo.renderSatellites(satellites)
       captureInput.setHouses(satellites)
+      if (config.isStation) station.setHouses(satellites)
     } catch {
       // Backend not available yet, or no satellites configured — leave blank
     }
