@@ -29,6 +29,13 @@ const HOUSE_ID = process.env.HOUSE_ID ?? 'unnamed-house'
 // see /config.json below.
 const BACKEND_URL = process.env.BACKEND_URL ?? null
 
+// Set on a satellite that's actually a wall-mounted panel, not just a
+// house's local controller — see CLAUDE.md's Station entry. Tells the
+// served frontend to render station.js's one-thing-at-a-time shell
+// instead of the phone/laptop layout, without relying on a `?station`
+// query param baked into however the Pi's kiosk browser is launched.
+const IS_STATION = process.env.STATION === 'true'
+
 // Where the built frontend lives — a sibling directory in a repo
 // checkout by default, since that's how this is actually run today (see
 // Running modes in the design doc). Needs `npm run build` in frontend/
@@ -71,6 +78,7 @@ export const app = Fastify({ logger: true, https: tlsOptions })
 app.get('/config.json', async () => ({
   defaultHouse: HOUSE_ID,
   backendUrl: BACKEND_URL,
+  isStation: IS_STATION,
 }))
 
 // ── UI ─────────────────────────────────────────────────────

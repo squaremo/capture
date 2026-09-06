@@ -25,6 +25,18 @@ async function init() {
   const config = await loadConfig()
   configureApi(config)
 
+  // index.html's inline pre-paint script already guessed data-density from
+  // the ?station query param, since it has to run before this config fetch
+  // resolves — reconcile it here now that a satellite can answer with its
+  // own real isStation (see /config.json), which wins over a stray/missing
+  // query param either way. Only matters when the two disagree; otherwise
+  // this is a no-op and there's no flash.
+  if (config.isStation) {
+    document.documentElement.dataset.density = 'station'
+  } else {
+    delete document.documentElement.dataset.density
+  }
+
   const app = document.getElementById('app')
 
   // ── Header ────────────────────────────────────────────────
