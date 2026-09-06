@@ -1,0 +1,174 @@
+/* ─────────────────────────────────────────────────────────────
+   Capture — theme tokens
+   Lives at frontend/src/theme.css. index.html links it BEFORE styles.css.
+
+   Two layers:
+     1. Roles      — what a colour MEANS (act, need, done, think, fail).
+     2. Themes     — [data-theme] blocks that supply hues for those roles.
+
+   styles.css keeps working untouched: the compatibility block at the
+   bottom re-points the old --accent / --amber / --red / --blue at roles.
+   ───────────────────────────────────────────────────────────── */
+
+:root {
+  /* ── Type scale — four sizes, plus one for the capture field ──
+     The app currently uses 10/11/12/13/14/22px. These four replace them. */
+  --fs-label:   11px;   /* uppercase labels, meta, timestamps */
+  --fs-body:    14px;   /* item text, controls */
+  --fs-lead:    17px;   /* the one thing being reviewed */
+  --fs-display: 30px;   /* capture field, station-scale headings */
+  --fs-logo:    22px;   /* the wordmark — its own step, it is a mark not text */
+  --fs-icon:    22px;   /* glyph buttons (the favourite star) — sized as an icon */
+
+  --lh-tight: 1.25;
+  --lh-body:  1.5;
+
+  --tracking-label: 0.08em;
+
+  /* ── Space — 4px base, only these steps ── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  --radius: 4px;
+  --rule: 1px;          /* station build uses 2px; see [data-density] below */
+
+  --font-mono: 'Berkeley Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+  --font-serif: 'Fraunces', Georgia, serif;
+
+  --max-w: 680px;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Themes
+
+   Every signal colour sits at one lightness and one chroma in OKLCH, so
+   the schemes differ by hue rather than by volume. --sig-fail is the one
+   deliberate exception: darker and more saturated than the rest, in
+   every theme, because a failure should outweigh everything on screen.
+   ───────────────────────────────────────────────────────────── */
+
+/* Meadow — cool ground; green acts and confirms, olive waits, sky thinks.
+   Closest to the app's existing lime, and the most legible across a room. */
+:root,
+[data-theme="meadow"] {
+  --bg:         #101314;
+  --bg-raised:  #161b1c;
+  --border:     #2e3638;
+  --border-mid: #1f2526;
+
+  --text:       #eef2f2;
+  --text-dim:   #8d9a9b;
+  --text-dimmer:#5d6a6c;
+
+  --sig-act:    oklch(0.78 0.15 128);
+  --sig-need:   oklch(0.79 0.14 88);
+  --sig-done:   oklch(0.78 0.15 128);
+  --sig-think:  oklch(0.74 0.1 235);
+  --sig-fail:   oklch(0.63 0.2 25);
+
+  --on-signal:  #0a0a09;   /* ink on act/need/done fills */
+  --on-fail:    #fdf6f4;   /* ink on the failure fill */
+}
+
+/* Ember — warm ground; amber acts, teal confirms, red kept for failure alone. */
+[data-theme="ember"] {
+  --bg:         #16130f;
+  --bg-raised:  #1d1913;
+  --border:     #3a3530;
+  --border-mid: #262220;
+
+  --text:       #f4f1ec;
+  --text-dim:   #9c9288;
+  --text-dimmer:#6b635a;
+
+  --sig-act:    oklch(0.74 0.15 55);
+  --sig-need:   oklch(0.74 0.15 55);
+  --sig-done:   oklch(0.73 0.13 165);
+  --sig-think:  oklch(0.72 0.09 250);
+  --sig-fail:   oklch(0.63 0.2 25);
+
+  --on-signal:  #0a0a09;
+  --on-fail:    #fdf6f4;
+}
+
+/* Dusk — violet ground; mauve acts, aqua confirms, apricot waits. */
+[data-theme="dusk"] {
+  --bg:         #131218;
+  --bg-raised:  #1a1821;
+  --border:     #34313d;
+  --border-mid: #232029;
+
+  --text:       #f1eff4;
+  --text-dim:   #968fa8;
+  --text-dimmer:#67627a;
+
+  --sig-act:    oklch(0.74 0.14 300);
+  --sig-need:   oklch(0.79 0.13 68);
+  --sig-done:   oklch(0.77 0.12 178);
+  --sig-think:  oklch(0.74 0.1 235);
+  --sig-fail:   oklch(0.63 0.2 20);
+
+  --on-signal:  #0a0a09;
+  --on-fail:    #fdf6f4;
+}
+
+/* Original — the palette already in the repo, expressed as roles.
+   Keep this so a theme change is never a regression you can't undo. */
+[data-theme="original"] {
+  --bg:         #0d0d0d;
+  --bg-raised:  #161616;
+  --border:     #2a2a2a;
+  --border-mid: #1e1e1e;
+
+  --text:       #e8e8e0;
+  --text-dim:   #666;
+  --text-dimmer:#4a4a4a;
+
+  --sig-act:    #c8f060;
+  --sig-need:   #f5c842;
+  --sig-done:   #c8f060;
+  --sig-think:  #7eb8f7;
+  --sig-fail:   #ff6b6b;
+
+  --on-signal:  #0d0d0d;
+  --on-fail:    #0d0d0d;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Density — the station wants heavier rules and bigger targets than
+   a laptop. Set data-density="station" on <html> when serving the Pi.
+   ───────────────────────────────────────────────────────────── */
+[data-density="station"] {
+  --rule: 2px;
+  --radius: 0px;
+  --fs-body: 15px;
+  --fs-lead: 19px;
+  --fs-logo: 15px;      /* the station wordmark is mono, small and tracked */
+  --fs-icon: 26px;      /* glyphs get bigger on a touchscreen, not smaller */
+  --tap: 48px;          /* minimum touch target */
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Compatibility — every colour name styles.css already uses, pointed
+   at a role. Nothing in styles.css has to change for themes to work.
+
+   Delete these four lines once styles.css uses the role names directly.
+   ───────────────────────────────────────────────────────────── */
+:root {
+  --accent: var(--sig-act);     /* was #c8f060 — primary action, done, live */
+  --amber:  var(--sig-need);    /* was #f5c842 — favourites, needs-you */
+  --red:    var(--sig-fail);    /* was #ff6b6b — failure, destructive */
+  --blue:   var(--sig-think);   /* was #7eb8f7 — checklists, in progress */
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Focus — themed, never the browser default.
+   ───────────────────────────────────────────────────────────── */
+:where(button, textarea, input, select, a):focus-visible {
+  outline: 2px solid var(--sig-act);
+  outline-offset: 2px;
+}

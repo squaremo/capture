@@ -7,6 +7,10 @@ export function createCaptureInput({ onSubmit, defaultHouse }) {
   const section = document.createElement('section')
   section.className = 'capture'
 
+  const label = document.createElement('div')
+  label.className = 'capture-label'
+  label.textContent = 'new capture'
+
   const textarea = document.createElement('textarea')
   textarea.placeholder = 'capture a thought…'
   textarea.rows = 3
@@ -46,9 +50,14 @@ export function createCaptureInput({ onSubmit, defaultHouse }) {
   submitBtn.className = 'btn-submit'
   submitBtn.textContent = 'capture'
 
-  buttonGroup.append(voiceBtn, submitBtn)
+  const hint = document.createElement('span')
+  hint.className = 'capture-hint'
+  hint.textContent = navigator.platform.includes('Mac') ? '⌘↵' : 'ctrl↵'
+  hint.title = 'send'
+
+  buttonGroup.append(hint, voiceBtn, submitBtn)
   controls.append(houseRow, buttonGroup)
-  section.append(textarea, controls)
+  section.append(label, textarea, controls)
 
   // ⌘↵ / Ctrl↵ to submit
   textarea.addEventListener('keydown', (e) => {

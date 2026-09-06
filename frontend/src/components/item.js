@@ -1,13 +1,28 @@
+// One map from status to a *role*, not a colour — see theme.css. The
+// role name is the whole point: 'awaiting_approval' is amber because it is
+// waiting on you, not because amber looked right, so a theme change can
+// move every waiting-on-you signal at once without touching this file.
 const STATUS_LABELS = {
-  pending:           { label: 'pending',   color: 'var(--text-dim)' },
-  triaged:           { label: 'triaged',   color: 'var(--blue)' },
-  reminder:          { label: 'reminder',  color: 'var(--amber)' },
-  urgent:            { label: 'urgent',    color: 'var(--red)' },
-  awaiting_approval: { label: 'review',    color: 'var(--amber)' },
-  acted:             { label: 'acted',     color: 'var(--accent)' },
-  vetoed:            { label: 'vetoed',    color: 'var(--text-dim)' },
-  failed:            { label: 'failed',    color: 'var(--red)' },
-  checklist:         { label: 'checklist', color: 'var(--blue)' },
+  pending:           { label: 'pending',   role: 'think' },
+  triaged:           { label: 'triaged',   role: 'think' },
+  reminder:          { label: 'reminder',  role: 'need' },
+  urgent:            { label: 'urgent',    role: 'fail' },
+  awaiting_approval: { label: 'review',    role: 'need' },
+  acted:             { label: 'acted',     role: 'done' },
+  vetoed:            { label: 'vetoed',    role: 'muted' },
+  failed:            { label: 'failed',    role: 'fail' },
+  checklist:         { label: 'checklist', role: 'think' },
+}
+
+// Roles resolve to CSS variables at render time. 'muted' is deliberately
+// not a signal: a vetoed item is finished business, so it stays ink.
+const ROLE_VARS = {
+  act:   'var(--sig-act)',
+  need:  'var(--sig-need)',
+  done:  'var(--sig-done)',
+  think: 'var(--sig-think)',
+  fail:  'var(--sig-fail)',
+  muted: 'var(--text-dim)',
 }
 
 // A checklist item's text IS a markdown task list (see save_checklist in
@@ -83,17 +98,20 @@ export function createItemEl(item) {
   const el = document.createElement('li')
   el.className = `item item--${item.status}`
   el.dataset.id = item.id
+  el.dataset.role = STATUS_LABELS[item.status]?.role ?? 'muted'
   el.innerHTML = renderItem(item)
   return el
 }
 
 export function updateItemEl(el, item) {
   el.className = `item item--${item.status}`
+  el.dataset.role = STATUS_LABELS[item.status]?.role ?? 'muted'
   el.innerHTML = renderItem(item)
 }
 
 function renderItem(item) {
-  const { label, color } = STATUS_LABELS[item.status] ?? STATUS_LABELS.pending
+  const { label, role } = STATUS_LABELS[item.status] ?? STATUS_LABELS.pending
+  const color = ROLE_VARS[role] ?? ROLE_VARS.muted
   const isPending = item.status === 'pending'
   const isAwaitingApproval = item.status === 'awaiting_approval'
   const isChecklist = item.status === 'checklist'
@@ -109,7 +127,7 @@ function renderItem(item) {
   return `
     <div class="item-body">
       <span class="item-text">${escHtml(isChecklist ? (checklist.title || 'Checklist') : item.text)}</span>
-      <span class="item-status" style="color:${color}">${label}</span>
+      <span class="item-status" data-role="${role}">${label}</span>
     </div>
     ${steps.length
       ? `<ul class="item-steps">${steps.map(s => `<li><span class="item-step-check">✓</span>${escHtml(s.label)}</li>`).join('')}</ul>`
@@ -118,7 +136,7 @@ function renderItem(item) {
     ${!isChecklist && isPending
       ? `<div class="item-shimmer"></div>`
       : !isChecklist && item.action_result
-        ? `<div class="item-result" style="border-color:${color}">
+        ? `<div class="item-result" data-role="${role}">
             <span class="item-result-text">${escHtml(item.action_result)}</span>
             ${isFavouritable
               ? `<button class="btn-favourite" data-action="favourite" title="Save as favourite" aria-label="Save as favourite">☆</button>`
@@ -213,7 +231,7 @@ export function escHtml(str) {
     .replace(/"/g, '&quot;')
 }
 
-function relativeTime(ts) {
+export function relativeTime(ts) {
   const diff = Date.now() - new Date(ts).getTime()
   const s = Math.floor(diff / 1000)
   if (s < 60) return 'just now'
