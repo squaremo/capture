@@ -57,19 +57,25 @@ app.post('/api/capture', async (req, reply) => {
       updateItem(item.id, { plan_progress: planProgress })
     },
   })
-    .then(({ status, tags, action_result, pending_action, plan_steps, text, recalled_checklist_id }) => {
-      // text is only present for save_checklist — it rewrites the item's
-      // own text into the checklist's markdown task list (see
+    .then(({ status, tags, action_result, pending_action, plan_steps, text, recalled_checklist_id, shopping_list_id }) => {
+      // text is only present for save_checklist/add_to_shopping_list — it
+      // rewrites the item's own text into a markdown task list (see
       // buildChecklistText() in claude.js). Every other tool leaves the
       // original captured text untouched. recalled_checklist_id is only
       // present for recall_checklist — it names the *other*, already-
       // existing item whose local (client-side) ticks the frontend should
       // clear, since this capture's own item never touches that item's
       // server-side data (see recall_checklist in claude.js).
+      // shopping_list_id is only present when add_to_shopping_list folded
+      // into an *existing* list rather than becoming one itself — unlike
+      // recalled_checklist_id, that other item's text really did just
+      // change server-side, so the frontend re-fetches it instead of only
+      // re-rendering local state (see inbox.js's updateItem()).
       updateItem(item.id, {
         status, tags, action_result, pending_action: pending_action ?? null, plan_steps,
         ...(text !== undefined ? { text } : {}),
         ...(recalled_checklist_id !== undefined ? { recalled_checklist_id } : {}),
+        ...(shopping_list_id !== undefined ? { shopping_list_id } : {}),
       })
     })
     .catch(err => {

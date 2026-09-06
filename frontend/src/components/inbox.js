@@ -1,34 +1,44 @@
-import { createItemEl, updateItemEl, collectFormOverrides, parseChecklist, toggleLocalChecklistItem, clearLocalChecked } from './item.js'
+import {
+  createItemEl, updateItemEl, collectFormOverrides, parseChecklist,
+  toggleLocalChecklistItem, clearLocalChecked,
+  toggleLocalShoppingItem, clearLocalShoppingChecked, removeCheckedShoppingItems,
+} from './item.js'
 
 // "Needs attention": still processing, classified but no action decided
 // yet, or an acting tool proposed something waiting on approve/veto.
 // "Resolved": an action was taken, declined, or failed — audit trail.
 // "Checklists": items that never resolve away — they sit here permanently
 // to be recalled and ticked off/reset, not triaged into either group above.
+// "Shopping list": same idea, but there's only ever one — see item.js.
 const NEEDS_ATTENTION = ['pending', 'triaged', 'reminder', 'urgent', 'awaiting_approval']
 const RESOLVED = ['acted', 'vetoed', 'failed']
 
-export function createInbox({ onApprove, onVeto, onFavourite } = {}) {
+export function createInbox({ onApprove, onVeto, onFavourite, onShoppingListChange, onShoppingListUpdated } = {}) {
   const section = document.createElement('section')
   section.className = 'inbox'
 
+  const shoppingList = createGroup('shopping list', 'shopping')
+  shoppingList.el.hidden = true // shown only once the shopping list exists
   const checklists = createGroup('checklists', 'checklists')
   checklists.el.hidden = true // shown only once a first checklist item exists
   const needsAttention = createGroup('needs attention', 'attention')
   const resolved = createGroup('resolved', 'resolved')
-  section.append(checklists.el, needsAttention.el, resolved.el)
+  section.append(shoppingList.el, checklists.el, needsAttention.el, resolved.el)
 
   let items = []
 
   function groupFor(status) {
+    if (status === 'shopping_list') return shoppingList
     if (status === 'checklist') return checklists
     return RESOLVED.includes(status) ? resolved : needsAttention
   }
 
   function render() {
+    shoppingList.list.innerHTML = ''
     checklists.list.innerHTML = ''
     needsAttention.list.innerHTML = ''
     resolved.list.innerHTML = ''
+    shoppingList.el.hidden = !items.some(i => i.status === 'shopping_list')
     checklists.el.hidden = !items.some(i => i.status === 'checklist')
     items.forEach(item => groupFor(item.status).list.appendChild(createItemEl(item)))
   }
@@ -66,6 +76,27 @@ export function createInbox({ onApprove, onVeto, onFavourite } = {}) {
       clearLocalChecked(id)
       rerenderItem(id)
     }
+    if (btn.dataset.action === 'toggle-shopping-item') {
+      const item = items.find(i => i.id === id)
+      if (item) {
+        toggleLocalShoppingItem(id, parseInt(btn.dataset.index, 10), parseChecklist(item.text).items.length)
+        rerenderItem(id)
+      }
+    }
+    // "done shopping": local marks (this device's checked boxes) become a
+    // real removal — computes the item's text with those lines dropped and
+    // hands it up to main.js, which owns the PATCH (inbox.js has no fetch
+    // of its own). Local marks are meaningless once the removal commits —
+    // the indices they were keyed against no longer match anything — so
+    // they're cleared here rather than left to go stale.
+    if (btn.dataset.action === 'remove-shopping-checked') {
+      const item = items.find(i => i.id === id)
+      if (item) {
+        const text = removeCheckedShoppingItems(id, item.text)
+        clearLocalShoppingChecked(id)
+        onShoppingListChange?.(id, text)
+      }
+    }
   })
 
   return {
@@ -73,6 +104,7 @@ export function createInbox({ onApprove, onVeto, onFavourite } = {}) {
 
     addItem(item) {
       items.unshift(item)
+      if (item.status === 'shopping_list') shoppingList.el.hidden = false
       if (item.status === 'checklist') checklists.el.hidden = false
       groupFor(item.status).list.prepend(createItemEl(item))
     },
@@ -104,6 +136,14 @@ export function createInbox({ onApprove, onVeto, onFavourite } = {}) {
       if (updated.recalled_checklist_id) {
         clearLocalChecked(updated.recalled_checklist_id)
         rerenderItem(updated.recalled_checklist_id)
+      }
+      // A resolved add_to_shopping_list that folded into an *existing*
+      // shopping-list item (rather than becoming one itself) names that
+      // other item here — unlike recall_checklist, its text really did
+      // change server-side, so there's nothing local to just re-render:
+      // main.js needs to re-fetch it and feed the fresh copy back in.
+      if (updated.shopping_list_id) {
+        onShoppingListUpdated?.(updated.shopping_list_id)
       }
     },
 

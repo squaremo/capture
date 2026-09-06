@@ -20,11 +20,12 @@ db.exec(`
     executed_action TEXT,
     plan_steps   TEXT,
     recalled_checklist_id TEXT,
+    shopping_list_id TEXT,
     created_at   TEXT NOT NULL
   )
 `)
 // Migrations for columns added after the table already existed elsewhere.
-for (const column of ['pending_action TEXT', 'plan_progress TEXT', 'house TEXT', 'executed_action TEXT', 'plan_steps TEXT', 'recalled_checklist_id TEXT']) {
+for (const column of ['pending_action TEXT', 'plan_progress TEXT', 'house TEXT', 'executed_action TEXT', 'plan_steps TEXT', 'recalled_checklist_id TEXT', 'shopping_list_id TEXT']) {
   try {
     db.exec(`ALTER TABLE items ADD COLUMN ${column}`)
   } catch (err) {
@@ -96,7 +97,7 @@ export function listItems({ status } = {}) {
   return rows.map(parseItem)
 }
 
-export function updateItem(id, { status, tags, action_result, pending_action, plan_progress, executed_action, plan_steps, text, recalled_checklist_id }) {
+export function updateItem(id, { status, tags, action_result, pending_action, plan_progress, executed_action, plan_steps, text, recalled_checklist_id, shopping_list_id }) {
   const fields = []
   const values = []
   if (text !== undefined)           { fields.push('text = ?');           values.push(text) }
@@ -108,6 +109,7 @@ export function updateItem(id, { status, tags, action_result, pending_action, pl
   if (executed_action !== undefined) { fields.push('executed_action = ?'); values.push(executed_action ? JSON.stringify(executed_action) : null) }
   if (plan_steps !== undefined)     { fields.push('plan_steps = ?');     values.push(plan_steps ? JSON.stringify(plan_steps) : null) }
   if (recalled_checklist_id !== undefined) { fields.push('recalled_checklist_id = ?'); values.push(recalled_checklist_id) }
+  if (shopping_list_id !== undefined) { fields.push('shopping_list_id = ?'); values.push(shopping_list_id) }
   if (!fields.length) return getItem(id)
   values.push(id)
   db.prepare(`UPDATE items SET ${fields.join(', ')} WHERE id = ?`).run(...values)

@@ -104,6 +104,32 @@ describe('processCapture', () => {
     await expect(processCapture('ghost checklist')).rejects.toThrow('no longer exists')
   })
 
+  it('add_to_shopping_list becomes the shopping list the first time round', async () => {
+    respondWithStep('add_to_shopping_list', { items: ['milk', 'eggs'], tags: [] })
+    const result = await processCapture('add milk and eggs to the shopping list')
+    expect(result.status).toBe('shopping_list')
+    expect(result.text).toBe('- [ ] milk\n- [ ] eggs')
+    expect(result.action_result).toBe('Added milk, eggs to shopping list')
+    expect(result.shopping_list_id).toBeUndefined()
+  })
+
+  it('add_to_shopping_list folds into the existing list rather than starting a second one', async () => {
+    const list = createItem('add milk to shopping list')
+    updateItem(list.id, { status: 'shopping_list', text: '- [ ] milk' })
+
+    respondWithStep('add_to_shopping_list', { items: ['bread'], tags: [] })
+    const result = await processCapture('add bread to the shopping list')
+
+    // This capture's own item just logs what got added — it never becomes
+    // a second 'shopping_list' item — while shopping_list_id names the
+    // *other* item whose text actually changed, for the frontend to
+    // re-fetch (see inbox.js's updateItem()).
+    expect(result.status).toBe('acted')
+    expect(result.action_result).toBe('Added bread to shopping list')
+    expect(result.shopping_list_id).toBe(list.id)
+    expect(getItem(list.id).text).toBe('- [ ] milk\n- [ ] bread')
+  })
+
   it('throws when the plan has no steps', async () => {
     respondWithPlan([])
     await expect(processCapture('random text')).rejects.toThrow('empty plan')

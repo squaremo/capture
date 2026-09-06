@@ -12,6 +12,7 @@ const STATUS_LABELS = {
   vetoed:            { label: 'vetoed',    role: 'muted' },
   failed:            { label: 'failed',    role: 'fail' },
   checklist:         { label: 'checklist', role: 'think' },
+  shopping_list:     { label: 'shopping list', role: 'think' },
 }
 
 // Roles resolve to CSS variables at render time. 'muted' is deliberately
@@ -30,11 +31,21 @@ const ROLE_VARS = {
 // "- [ ] thing" lines. That's what makes it "just a special format of
 // note": the text is plain markdown a human could read or edit directly.
 // But which boxes are *ticked* is deliberately NOT part of this text — it
-// lives only in this browser's localStorage (see loadLocalChecked() below),
+// lives only in this browser's localStorage (see makeLocalTicks() below),
 // keyed by item id. Sharing tick state through the server would let two
 // devices (or two people) using the same checklist at once stomp on each
 // other's ticks through one shared field; keeping it local avoids that
 // entirely, at the cost of it not following you to another device.
+//
+// A shopping-list item (add_to_shopping_list) reuses this exact same text
+// format — the parser doesn't care what status it's attached to — but is
+// checklists' mirror image: built up incrementally rather than all at once,
+// and "checking off" an item removes it from the shared server text (see
+// renderShoppingList()/inbox.js's remove-shopping-checked handling) instead
+// of just ticking a locally-persisted box, since additions and removals on
+// a shopping list need to show up on every device straight away. The boxes
+// this renders are only ever a per-device, pre-commit "about to remove
+// these" mark — see makeLocalTicks() below.
 const CHECKLIST_LINE_RE = /^-\s*\[([ xX])\]\s*(.*)$/
 
 export function parseChecklist(text) {
@@ -48,38 +59,59 @@ export function parseChecklist(text) {
   return { title: title.join(' '), items }
 }
 
-const LOCAL_CHECKLIST_PREFIX = 'capture:checklist:'
-
-// Reads this device's ticked state for a checklist item, sized/padded to
-// match its current item count — if the checklist's items changed (or
-// nothing's been ticked yet on this device), missing entries default to
-// unchecked rather than throwing. Wrapped in try/catch: localStorage can
-// throw in some contexts (private browsing, storage disabled), and a
-// checklist should still render — just always unchecked — rather than break.
-function loadLocalChecked(itemId, count) {
-  try {
-    const raw = localStorage.getItem(LOCAL_CHECKLIST_PREFIX + itemId)
-    const saved = raw ? JSON.parse(raw) : []
-    return Array.from({ length: count }, (_, i) => Boolean(saved[i]))
-  } catch {
-    return Array(count).fill(false)
-  }
+function buildChecklistMarkdown(title, items) {
+  const heading = title ? `${title}\n` : ''
+  return heading + items.map(text => `- [ ] ${text}`).join('\n')
 }
 
-function saveLocalChecked(itemId, checked) {
-  try {
-    localStorage.setItem(LOCAL_CHECKLIST_PREFIX + itemId, JSON.stringify(checked))
-  } catch {
-    // Storage unavailable — the tick just won't survive a refresh this time.
+// A small per-device tick store, keyed by item id and sized/padded to the
+// item's current item count — if the list's items changed (or nothing's
+// been ticked yet on this device), missing entries default to unchecked
+// rather than throwing. Wrapped in try/catch: localStorage can throw in
+// some contexts (private browsing, storage disabled), and the list should
+// still render — just always unchecked — rather than break. Shared by
+// checklists (where a tick IS the persisted state, cleared on recall) and
+// the shopping list (where a tick is only a transient "about to remove"
+// mark, cleared the moment it's actually committed — see inbox.js).
+function makeLocalTicks(prefix) {
+  function load(itemId, count) {
+    try {
+      const raw = localStorage.getItem(prefix + itemId)
+      const saved = raw ? JSON.parse(raw) : []
+      return Array.from({ length: count }, (_, i) => Boolean(saved[i]))
+    } catch {
+      return Array(count).fill(false)
+    }
   }
+  function save(itemId, checked) {
+    try {
+      localStorage.setItem(prefix + itemId, JSON.stringify(checked))
+    } catch {
+      // Storage unavailable — the tick just won't survive a refresh this time.
+    }
+  }
+  function toggle(itemId, index, count) {
+    const checked = load(itemId, count)
+    checked[index] = !checked[index]
+    save(itemId, checked)
+  }
+  function clear(itemId) {
+    try {
+      localStorage.removeItem(prefix + itemId)
+    } catch {
+      // Storage unavailable — nothing to clear.
+    }
+  }
+  return { load, save, toggle, clear }
 }
+
+const checklistTicks = makeLocalTicks('capture:checklist:')
+const shoppingTicks = makeLocalTicks('capture:shopping:')
 
 // Flips one item's ticked state for this device. Called on checkbox click —
 // see inbox.js's click handler, which re-renders the item immediately after.
 export function toggleLocalChecklistItem(itemId, index, itemCount) {
-  const checked = loadLocalChecked(itemId, itemCount)
-  checked[index] = !checked[index]
-  saveLocalChecked(itemId, checked)
+  checklistTicks.toggle(itemId, index, itemCount)
 }
 
 // Clears this device's ticks for a checklist — used by both the "reset"
@@ -87,11 +119,27 @@ export function toggleLocalChecklistItem(itemId, index, itemCount) {
 // which calls this when a newly-resolved item carries
 // recalled_checklist_id naming this checklist).
 export function clearLocalChecked(itemId) {
-  try {
-    localStorage.removeItem(LOCAL_CHECKLIST_PREFIX + itemId)
-  } catch {
-    // Storage unavailable — nothing to clear.
-  }
+  checklistTicks.clear(itemId)
+}
+
+// Same idea for the shopping list, but the tick here is only ever a
+// transient "about to remove" mark, not the persisted state itself — see
+// renderShoppingList() below.
+export function toggleLocalShoppingItem(itemId, index, itemCount) {
+  shoppingTicks.toggle(itemId, index, itemCount)
+}
+
+export function clearLocalShoppingChecked(itemId) {
+  shoppingTicks.clear(itemId)
+}
+
+// The new text for a shopping-list item once its currently-checked items
+// are removed — reused by inbox.js, which owns the actual PATCH call.
+export function removeCheckedShoppingItems(itemId, text) {
+  const { title, items } = parseChecklist(text)
+  const checked = shoppingTicks.load(itemId, items.length)
+  const remaining = items.filter((_, i) => !checked[i])
+  return buildChecklistMarkdown(title, remaining)
 }
 
 export function createItemEl(item) {
@@ -115,6 +163,7 @@ function renderItem(item) {
   const isPending = item.status === 'pending'
   const isAwaitingApproval = item.status === 'awaiting_approval'
   const isChecklist = item.status === 'checklist'
+  const isShoppingList = item.status === 'shopping_list'
   // Only an item that actually executed an acting-tool call (status
   // 'acted', with executed_action recorded on approval) has a { tool, input }
   // to freeze into a favourite — a terminal item (triaged/reminder/urgent)
@@ -123,20 +172,27 @@ function renderItem(item) {
   const steps = item.plan_progress ?? []
   const formFields = item.form_fields ?? []
   const checklist = isChecklist ? parseChecklist(item.text) : null
+  const shoppingList = isShoppingList ? parseChecklist(item.text) : null
 
   return `
     <div class="item-body">
-      <span class="item-text">${escHtml(isChecklist ? (checklist.title || 'Checklist') : item.text)}</span>
+      <span class="item-text">${escHtml(
+        isChecklist ? (checklist.title || 'Checklist')
+        : isShoppingList ? (shoppingList.title || 'Shopping list')
+        : item.text
+      )}</span>
       <span class="item-status" data-role="${role}">${label}</span>
     </div>
     ${steps.length
       ? `<ul class="item-steps">${steps.map(s => `<li><span class="item-step-check">✓</span>${escHtml(s.label)}</li>`).join('')}</ul>`
       : ''}
     ${isChecklist ? renderChecklist(item.id, checklist) : ''}
-    ${!isChecklist && isPending
+    ${isShoppingList ? renderShoppingList(item.id, shoppingList) : ''}
+    ${!isChecklist && !isShoppingList && isPending
       ? `<div class="item-shimmer"></div>`
-      : !isChecklist && item.action_result
+      : !isChecklist && !isShoppingList && item.action_result
         ? `<div class="item-result" data-role="${role}">
+
             <span class="item-result-text">${escHtml(item.action_result)}</span>
             ${isFavouritable
               ? `<button class="btn-favourite" data-action="favourite" title="Save as favourite" aria-label="Save as favourite">☆</button>`
@@ -162,9 +218,9 @@ function renderItem(item) {
 // there's one persistent item, not a template plus a history of runs.
 // `items` here is just the list of labels (the shared definition); the
 // ticked state overlaid on top of them is this device's own, from
-// localStorage — see loadLocalChecked() above.
+// localStorage — see checklistTicks above.
 function renderChecklist(itemId, { items }) {
-  const checked = loadLocalChecked(itemId, items.length)
+  const checked = checklistTicks.load(itemId, items.length)
   const checkedCount = checked.filter(Boolean).length
   return `
     <ul class="checklist">
@@ -180,6 +236,38 @@ function renderChecklist(itemId, { items }) {
     <div class="checklist-footer">
       <span class="checklist-count">${checkedCount}/${items.length} done</span>
       <button class="btn-checklist-reset" data-action="reset-checklist">reset</button>
+    </div>
+  `
+}
+
+// The shopping list's mirror image of renderChecklist(): items accumulate
+// here across many captures (add_to_shopping_list), so there's no fixed
+// count to track "done" against. A checked box here isn't persisted state —
+// it's a per-device "about to remove" mark (shoppingTicks, cleared the
+// moment it's actually committed); "done shopping" is what turns marks into
+// a real removal, PATCHing the checked lines out of the item's shared text
+// (see inbox.js's remove-shopping-checked handling) so every device sees
+// the same list a moment later.
+function renderShoppingList(itemId, { items }) {
+  if (!items.length) {
+    return `<p class="checklist-empty">Nothing on the list</p>`
+  }
+  const checked = shoppingTicks.load(itemId, items.length)
+  const checkedCount = checked.filter(Boolean).length
+  return `
+    <ul class="checklist">
+      ${items.map((text, i) => `
+        <li class="checklist-item${checked[i] ? ' checklist-item--checked' : ''}">
+          <label>
+            <input type="checkbox" data-action="toggle-shopping-item" data-index="${i}" ${checked[i] ? 'checked' : ''}>
+            <span>${escHtml(text)}</span>
+          </label>
+        </li>
+      `).join('')}
+    </ul>
+    <div class="checklist-footer">
+      <span class="checklist-count">${checkedCount} to remove</span>
+      <button class="btn-checklist-done" data-action="remove-shopping-checked" ${checkedCount === 0 ? 'disabled' : ''}>done shopping</button>
     </div>
   `
 }
