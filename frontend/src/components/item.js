@@ -192,8 +192,44 @@ export function renderForm(fields) {
   return `<div class="action-form">${fields.map(renderField).join('')}</div>`
 }
 
+// The control follows what the value looks like, not the field name —
+// dragging a light's brightness should look like dragging a speaker's
+// volume, since they're the same gesture on the same kind of value.
+// brightness arrives as a bare 0-100 number today, not a "35%" string, so
+// it's matched by field name too; a real percent/Kelvin *string* (from a
+// tool that formats its own values, or once the backend sends a type per
+// field — see getFormFields() in claude.js) is matched on sight either way.
+const PERCENT_RE = /^\d+%$/
+const KELVIN_RE = /^\d+k$/i
+
+function sniffSlider(f) {
+  const str = String(f.value)
+  if (PERCENT_RE.test(str) || (f.field === 'brightness' && typeof f.value === 'number')) {
+    return { min: 0, max: 100, step: 1, numeric: parseInt(str, 10), suffix: '%' }
+  }
+  if (KELVIN_RE.test(str)) {
+    return { min: 1800, max: 4000, step: 100, numeric: parseInt(str, 10), suffix: 'K' }
+  }
+  return null
+}
+
 function renderField(f) {
   const value = escHtml(String(f.value))
+  const slider = f.type !== 'color' && f.type !== 'textarea' ? sniffSlider(f) : null
+
+  if (slider) {
+    return `
+      <div class="action-form-field">
+        <div class="action-form-label-row">
+          <span class="action-form-label">${escHtml(f.label)}</span>
+          <span class="action-form-value">${slider.numeric}${slider.suffix}</span>
+        </div>
+        <input type="range" min="${slider.min}" max="${slider.max}" step="${slider.step}"
+          data-step="${escHtml(f.step)}" data-field="${escHtml(f.field)}" value="${slider.numeric}">
+      </div>
+    `
+  }
+
   const inputType = f.type === 'number' ? 'number' : f.type === 'color' ? 'color' : 'text'
   const control = f.type === 'textarea'
     ? `<textarea data-step="${escHtml(f.step)}" data-field="${escHtml(f.field)}" rows="2">${value}</textarea>`

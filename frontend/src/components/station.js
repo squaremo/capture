@@ -20,7 +20,7 @@ const TOOL_LABELS = {
   control_light: 'will control lights',
 }
 
-export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEditFavourite, defaultHouse } = {}) {
+export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEditFavourite, defaultHouse, localActivityEl } = {}) {
   let tab = 'capture'      // 'capture' | 'favourites' | 'earlier'
   let mode = 'idle'        // 'idle' | 'thinking' | 'review'
   let active = null        // the item 'thinking'/'review' is about
@@ -84,9 +84,29 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
     onEdit: (id) => onEditFavourite?.(id),
   })
 
+  // Now-playing (what's playing, pause, volume) reads as status next to
+  // the things that change it, not chrome above the capture field — so
+  // it moves to the top of the rail column, above the favourites list.
+  // Only in landscape: portrait has no rail at all, so it stays in its
+  // default spot, above the capture field, same as the phone/laptop
+  // order (see main.js). This is a one-time DOM move, not CSS — order
+  // can't lift an element into a different flex container, and the
+  // panel's mount orientation doesn't change mid-session.
+  const railColumn = document.createElement('div')
+  railColumn.className = 'station-rail-column'
+  railColumn.append(rail.el)
+
+  if (localActivityEl) {
+    if (window.matchMedia('(orientation: landscape)').matches) {
+      railColumn.prepend(localActivityEl)
+    } else {
+      paneIdle.prepend(localActivityEl)
+    }
+  }
+
   const stationCapture = document.createElement('div')
   stationCapture.className = 'station-capture'
-  stationCapture.append(paneIdle, paneThinking, paneReview, rail.el)
+  stationCapture.append(paneIdle, paneThinking, paneReview, railColumn)
 
   const reviewActions = document.createElement('div')
   reviewActions.className = 'station-review-actions'
@@ -257,21 +277,21 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
       paneIdle.hidden = false
       paneThinking.hidden = true
       paneReview.hidden = true
-      rail.el.hidden = false
+      railColumn.hidden = false
       focusInput()
     } else if (newMode === 'thinking') {
       active = data?.item ?? active
       paneIdle.hidden = true
       paneThinking.hidden = false
       paneReview.hidden = true
-      rail.el.hidden = true
+      railColumn.hidden = true
       renderThinking()
     } else if (newMode === 'review') {
       active = data
       paneIdle.hidden = true
       paneThinking.hidden = true
       paneReview.hidden = false
-      rail.el.hidden = true
+      railColumn.hidden = true
       renderReview()
     }
     syncReviewActionsVisibility()

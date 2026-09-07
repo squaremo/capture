@@ -611,6 +611,25 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   padding: 2px;
   cursor: pointer;
 }
+.action-form-field input[type="range"] {
+  width: 100%;
+  padding: 0;
+  accent-color: var(--sig-act);
+}
+
+/* Label row for a slider field — the value sits beside its label so a
+   slider still states its number (see sniffSlider() in item.js). */
+.action-form-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.action-form-value {
+  font-size: var(--fs-label);
+  font-weight: 700;
+  color: var(--text-dim);
+}
 
 /* ── Roles on rendered items ─────────────────────────────────
    item.js stamps data-role on the item, its status word and its result
@@ -896,7 +915,7 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
    whose own class sets `display` regardless of hidden state. */
 [data-density="station"] .station-pane[hidden],
 [data-density="station"] .station-tabpanel[hidden],
-[data-density="station"] .station-rail[hidden],
+[data-density="station"] .station-rail-column[hidden],
 [data-density="station"] .station-review-actions[hidden],
 [data-density="station"] .station-flash[hidden],
 [data-density="station"] .station-failure[hidden],
@@ -991,7 +1010,44 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   border-bottom: none;
 }
 
+/* The rail column holds now-playing (fixed, top) above the scrollable
+   favourites rail — see the Now-playing entry in CLAUDE.md's Station
+   section and the DOM move in station.js/main.js. In portrait there's no
+   rail at all, so now-playing stays inside station-pane--idle instead
+   (see station.js) and this column never renders. */
+[data-density="station"] .station-rail-column {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+[data-density="station"] .station-rail-column .local-activity {
+  flex-shrink: 0;
+  padding: var(--space-4);
+  margin: 0;
+  border-bottom: var(--rule) solid var(--border);
+}
+
+[data-density="station"] .local-activity-row {
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+[data-density="station"] .btn-local-pause {
+  min-height: var(--tap);
+  min-width: 76px;
+  padding-inline: var(--space-4);
+}
+
+[data-density="station"] .local-activity-volume {
+  flex: 1;
+  width: auto;
+  height: var(--tap);
+}
+
 [data-density="station"] .station-rail {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
 
@@ -1282,6 +1338,14 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   font-size: var(--fs-body);
 }
 
+/* Light and sound controls are the same control at the same size — that
+   is the whole point of driving them off the unit, not the tool. */
+[data-density="station"] .action-form-field input,
+[data-density="station"] .action-form-field input[type="range"],
+[data-density="station"] .action-form-field input[type="color"] {
+  height: var(--tap);
+}
+
 /* ── Station, portrait (720×1280 as mounted) ─────────────────
    Tall and narrow: one column, and the vertical room goes to whichever
    pane is active. The capture field can be generous here — there is
@@ -1298,7 +1362,7 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 
   /* Favourites are a panel behind a tab, not a permanent sidebar —
      720px of width has no room for a second column. */
-  [data-density="station"] .station-rail {
+  [data-density="station"] .station-rail-column {
     display: none;
   }
 }
@@ -1326,10 +1390,13 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 
   /* Favourites earn the right column when there is width for one — the
      few things actually run here, with the full list behind the tab. */
-  [data-density="station"] .station-rail {
+  [data-density="station"] .station-rail-column {
     flex: 0 0 340px;
-    padding: var(--space-5) var(--space-4) 0;
     border-left: var(--rule) solid var(--border);
+  }
+
+  [data-density="station"] .station-rail {
+    padding: var(--space-5) var(--space-4) 0;
   }
 }
 

@@ -92,6 +92,12 @@ async function init() {
     }
   }
 
+  // ── Local device activity (satellite-served pages only) ────
+  // Created here, ahead of station below, since station.js reparents its
+  // element into the rail (landscape) at construction time — it has to
+  // exist first. See the Now-playing entry in CLAUDE.md's Station section.
+  const localActivity = createLocalActivity()
+
   // ── Station (wall-mounted panel) ───────────────────────────
   // One thing at a time instead of the phone/laptop's always-visible
   // inbox — see station.js and CLAUDE.md's Station flow entry. `inbox`
@@ -128,6 +134,7 @@ async function init() {
 
   const station = config.isStation ? createStationShell({
     defaultHouse: config.defaultHouse,
+    localActivityEl: localActivity.el,
     onSubmit: (text, house) => submitCapture(text, house),
     onApprove: (id, overrides) => handleDecision(id, () => approveItem(id, overrides)),
     onVeto: (id) => handleDecision(id, () => vetoItem(id)),
@@ -344,16 +351,17 @@ async function init() {
     }
   }
 
-  // ── Local device activity (satellite-served pages only) ────
-  const localActivity = createLocalActivity()
-
   // ── Assemble ──────────────────────────────────────────────
   // The favourites sidebar sits alongside the capture/inbox column — a real
   // side-by-side layout on a wide viewport (see .layout in styles.css), and
   // stacks above it on a narrow one, since this app is phone-first.
   const main = document.createElement('div')
   main.className = 'main-column'
-  main.append(localActivity.el, captureInput.el, inbox.el)
+  main.append(captureInput.el, inbox.el)
+  // localActivity.el already lives inside station's own tree in station
+  // mode (see createStationShell above) — appending it here too would
+  // just steal it back, since a DOM node can only have one parent.
+  if (!config.isStation) main.prepend(localActivity.el)
 
   const layout = document.createElement('div')
   layout.className = 'layout'
