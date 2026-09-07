@@ -3,7 +3,7 @@ import { resolveEnv } from '../secrets.js'
 import { createLinearTask, searchLinearIssues } from './linear.js'
 import { resolveSpeaker, commitPlayback, resolveLight, commitLight, getHouses } from './satellite.js'
 import { searchTrack } from './spotify.js'
-import { listItems, getItem as getItemFromDb } from '../db.js'
+import { listItems, getItem as getItemFromDb, updateItem } from '../db.js'
 
 const client = new Anthropic({ apiKey: await resolveEnv('ANTHROPIC_API_KEY') })
 
@@ -106,6 +106,40 @@ const TOOL_REGISTRY = {
       if (!existing) throw new Error(`Checklist "${title}" no longer exists`)
       const currentTitle = parseChecklistText(existing.text).title
       return { action_result: `Reset "${currentTitle || title}" checklist`, recalled_checklist_id: item_id }
+    },
+  },
+  // A checklist's mirror image: built up a little at a time across many
+  // captures instead of all at once, and — since there's only ever one
+  // shopping list, unlike checklists' many named ones — this always folds
+  // new items into whatever's already there rather than taking a title.
+  // Reuses save_checklist's exact text format (parseChecklistText/
+  // buildChecklistText don't care what status the item ends up as), so no
+  // separate parser is needed. Unlike recall_checklist, this really does
+  // mutate the existing item's text server-side: additions need to be
+  // visible to every device straight away (a household list, not a private
+  // per-device readiness check), so — unlike checklist ticks — there's no
+  // localStorage split here; see item.js's shopping-list rendering for the
+  // other half (checking something off removes it from that shared text via
+  // a plain PATCH, rather than a local-only tick).
+  //
+  // The very first add has nothing to fold into, so this item itself
+  // becomes the list (status: 'shopping_list', mirroring save_checklist);
+  // every add after that mutates the existing list item directly and this
+  // capture's own item just logs what got added (status stays 'acted').
+  // shopping_list_id names that other, already-existing item (mirroring
+  // recalled_checklist_id) — unlike recall_checklist though, its text
+  // really did just change server-side, so the frontend needs to re-fetch
+  // it rather than just re-render local state (see inbox.js's updateItem()).
+  add_to_shopping_list: {
+    kind: 'final',
+    status: 'acted',
+    extra: ({ items }) => {
+      const existing = listItems({ status: 'shopping_list' })[0]
+      const action_result = `Added ${items.join(', ')} to shopping list`
+      if (!existing) return { status: 'shopping_list', text: buildChecklistText(null, items), action_result }
+      const merged = [...parseChecklistText(existing.text).items.map(i => i.text), ...items]
+      updateItem(existing.id, { text: buildChecklistText(null, merged) })
+      return { action_result, shopping_list_id: existing.id }
     },
   },
 }
@@ -290,7 +324,8 @@ Resolve it by calling propose_plan with an ordered list of steps. Available tool
 - find_checklist (read-only — runs automatically, no approval needed): args { query }. Use when the capture just names an existing checklist with no items listed — e.g. "swimming checklist", "school list", "reset the shopping list" — meaning: bring that checklist back unchecked, don't build a new one. query is the checklist's name/topic as free text. Outputs: { found: boolean, item: { id, title } | null }.
 - recall_checklist (terminal — resets the existing checklist item in place; no approval needed, it's a local edit like ticking a box): args { item_id, title, tags }. Always follows find_checklist in the same plan when found is true, referencing its whole output rather than re-stating anything: item_id: "\${s1.item.id}", title: "\${s1.item.title}" (using whichever step id you gave find_checklist). Never call recall_checklist without a find_checklist step earlier in the same plan confirming found is true.
 
-For a capture that just names a checklist with no items (recalling one): find_checklist first, then "if" found go to recall_checklist referencing the match, "unless" found go to a terminal step (save_to_inbox) with action_result noting no matching checklist was found, so they know to capture one with items instead.${LINEAR_ENABLED ? `
+For a capture that just names a checklist with no items (recalling one): find_checklist first, then "if" found go to recall_checklist referencing the match, "unless" found go to a terminal step (save_to_inbox) with action_result noting no matching checklist was found, so they know to capture one with items instead.
+- add_to_shopping_list (terminal): args { items, tags }. Use when the capture adds one or more things to buy later — e.g. "add milk and eggs to the shopping list", "we need bin bags and stamps", "shopping list: bread, butter". items is an array of short strings, one per thing to buy, taken directly from the capture. Unlike save_checklist there is only ever one shopping list: never give it a title, and never route this to save_checklist instead — each add folds into whatever's already on the list rather than starting a new one. A bare mention of the shopping list with nothing to add (e.g. "what's on the shopping list?", "shopping list") isn't this tool either — use save_to_inbox instead, noting that the shopping list is always visible in its own section of the app.${LINEAR_ENABLED ? `
 - search_linear_issues (read-only — runs automatically, no approval needed): args { query }. Searches existing Linear issues for a similar title. Outputs: { duplicate_found: boolean, matching_issue: { title, url } | null }.
 - create_linear_task (acting — only proposes; a human must approve before anything is actually created): args { title, description?, tags }. Real project/engineering work that should be tracked in Linear (e.g. "fix the login bug", "add dark mode").` : ''}${PLAYBACK_ENABLED ? `
 - resolve_playback (read-only — runs automatically, no approval needed): args { title, artist?, album?, room, target_house? }. Looks up the actual matching track and speaker for a Sonos playback request — never guess a specific speaker name or track yourself, this does the matching. room is free text like "living room" or "bedroom", passed through as written. target_house should only be set when the capture text unambiguously names one of these houses: ${houseNames.join(', ')}. Leave it unset otherwise — the app fills in the house the capture came from. Outputs: { target_house, track: { title, artist, album, image, matchConfidence }, speaker: { name, confidence } }.
@@ -298,7 +333,7 @@ For a capture that just names a checklist with no items (recalling one): find_ch
 - resolve_light (read-only — runs automatically, no approval needed): args { room, action, brightness?, color?, target_house? }. Looks up the actual matching room for a light-control request via the house's Matter hub — never guess a specific room name yourself, this does the matching. room is free text like "living room", passed through as written. action is "on", "off", or "set" (with brightness — 1-100 — and/or color — a 6-digit hex string — whichever the capture actually specifies, never both unless both are actually asked for: "set the living room lights to green" -> action "set", color "#00ff00" (no brightness); "dim the living room to 20%" -> action "set", brightness 20 (no color); "dim the living room to 20% and make it red" -> action "set", brightness 20, color "#ff0000". For color, figure out the hex value yourself from the named colour, same as you would for any other colour question — room matching is the only thing that gets resolved locally). target_house follows the same rule as resolve_playback's. Outputs: { target_house, room: { name, confidence }, action, brightness, color }.
 - control_light (acting — proposes the exact resolved room; a human must approve before anything happens): args { target_house, room, action, brightness, color, tags }. Always follows resolve_light in the same plan, referencing its whole output: target_house: "\${s1.target_house}", room: "\${s1.room}", action: "\${s1.action}", brightness: "\${s1.brightness}", color: "\${s1.color}" (using whichever step id you gave resolve_light). Never call control_light without a resolve_light step earlier in the same plan.` : ''}
 
-action_result is a short natural-language description of what was done, e.g. "Saved to inbox", "Reminder set: 'Call dentist' — Tomorrow, 9:00am", "Flagged as urgent". Not needed for create_linear_task, control_playback, or control_light — their descriptions are generated automatically. tags is an array of 1–3 lowercase tags.
+action_result is a short natural-language description of what was done, e.g. "Saved to inbox", "Reminder set: 'Call dentist' — Tomorrow, 9:00am", "Flagged as urgent". Not needed for create_linear_task, control_playback, control_light, or add_to_shopping_list — their descriptions are generated automatically. tags is an array of 1–3 lowercase tags.
 
 Steps run in the order given. A read-only step's output is not shown to you before you finish planning — you only see it by referencing it later, so cover both outcomes of a boolean output using "if"/"unless" on separate steps rather than guessing which one will happen.
 

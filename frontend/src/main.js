@@ -9,7 +9,7 @@ import { createThemePicker } from './themes.js'
 import { loadConfig } from './config.js'
 import {
   configureApi, postCapture, getItem, getItems, approveItem, vetoItem, getVersion, getSatellites,
-  favouriteItem, getFavourites, runFavourite, deleteFavourite,
+  favouriteItem, getFavourites, runFavourite, deleteFavourite, patchItem,
 } from './api.js'
 
 // Runtime config (see config.js) has to resolve before anything below
@@ -67,11 +67,19 @@ async function init() {
 
   // Checklist ticking/resetting is handled entirely inside inbox.js —
   // ticked state lives only in this browser's localStorage (see item.js),
-  // so there's no server call and nothing for main.js to wire up here.
+  // so there's no server call and nothing for main.js to wire up here. The
+  // shopping list needs two real server calls though, since — unlike a
+  // checklist's ticks — its state (what's on it) is shared, not per-device:
+  // "done shopping" commits a removal (onShoppingListChange), and a capture
+  // elsewhere that added to the *existing* list (rather than becoming it)
+  // leaves this device's copy of that item stale, needing a refetch
+  // (onShoppingListUpdated).
   const inbox = createInbox({
     onApprove: (id, overrides) => handleDecision(id, () => approveItem(id, overrides)),
     onVeto: (id) => handleDecision(id, () => vetoItem(id)),
     onFavourite: (id) => handleFavourite(id),
+    onShoppingListChange: (id, text) => handleDecision(id, () => patchItem(id, { text })),
+    onShoppingListUpdated: (id) => handleShoppingListUpdated(id),
   })
 
   async function handleDecision(id, action) {
@@ -140,6 +148,14 @@ async function init() {
     onVeto: (id) => handleDecision(id, () => vetoItem(id)),
     onReplay: (id, overrides) => handleFavouriteRun(id, overrides),
   }) : null
+
+  async function handleShoppingListUpdated(id) {
+    try {
+      inbox.updateItem(await getItem(id))
+    } catch (err) {
+      console.error(err)
+    }
+  }
 
   // ── Favourites ────────────────────────────────────────────
   // A favourite freezes one already-executed tool call (star it once, from a
