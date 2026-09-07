@@ -59,7 +59,7 @@ export function parseChecklist(text) {
   return { title: title.join(' '), items }
 }
 
-function buildChecklistMarkdown(title, items) {
+export function buildChecklistMarkdown(title, items) {
   const heading = title ? `${title}\n` : ''
   return heading + items.map(text => `- [ ] ${text}`).join('\n')
 }
@@ -142,6 +142,16 @@ export function removeCheckedShoppingItems(itemId, text) {
   return buildChecklistMarkdown(title, remaining)
 }
 
+// The new text for a shopping-list item with one more line on it —
+// the other half of the pair above, for the station's add row (see
+// handleListAction() in lists.js). Ticks are per-device and keyed by
+// index, so appending at the end leaves every existing mark pointing at
+// the line it was made against.
+export function appendShoppingItem(text, label) {
+  const { title, items } = parseChecklist(text)
+  return buildChecklistMarkdown(title, [...items, label.trim()])
+}
+
 export function createItemEl(item) {
   const el = document.createElement('li')
   el.className = `item item--${item.status}`
@@ -219,7 +229,7 @@ function renderItem(item) {
 // `items` here is just the list of labels (the shared definition); the
 // ticked state overlaid on top of them is this device's own, from
 // localStorage — see checklistTicks above.
-function renderChecklist(itemId, { items }) {
+export function renderChecklist(itemId, { items }) {
   const checked = checklistTicks.load(itemId, items.length)
   const checkedCount = checked.filter(Boolean).length
   return `
@@ -248,7 +258,7 @@ function renderChecklist(itemId, { items }) {
 // a real removal, PATCHing the checked lines out of the item's shared text
 // (see inbox.js's remove-shopping-checked handling) so every device sees
 // the same list a moment later.
-function renderShoppingList(itemId, { items }) {
+export function renderShoppingList(itemId, { items }) {
   if (!items.length) {
     return `<p class="checklist-empty">Nothing on the list</p>`
   }

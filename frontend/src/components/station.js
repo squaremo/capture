@@ -1,6 +1,10 @@
 import { createCaptureInput } from './capture.js'
 import { createFavouritesRail } from './favourites.js'
-import { escHtml, renderForm, collectFormOverrides, relativeTime } from './item.js'
+import {
+  escHtml, renderForm, collectFormOverrides, relativeTime,
+  parseChecklist, renderChecklist, renderShoppingList,
+} from './item.js'
+import { handleListAction } from './lists.js'
 
 // The station is a one-thing-at-a-time shell for a wall-mounted panel —
 // see TODO.md / CLAUDE.md's Station flow entry. main.js mounts this
@@ -11,6 +15,11 @@ import { escHtml, renderForm, collectFormOverrides, relativeTime } from './item.
 // purely presentation and local interaction state.
 const RESOLVED_STATUSES = ['acted', 'vetoed', 'failed']
 
+// The two statuses that are a list rather than a captured intention —
+// they never resolve away, so they belong in the rail beside the
+// favourites rather than in the Earlier log.
+const LIST_STATUSES = ['shopping_list', 'checklist']
+
 // Tool name -> a short, human phrase for the review pane's "what will
 // happen" line. Falls back to the raw tool name (underscores replaced)
 // for anything added later, so a new acting tool never renders blank.
@@ -20,10 +29,11 @@ const TOOL_LABELS = {
   control_light: 'will control lights',
 }
 
-export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEditFavourite, defaultHouse, localActivityEl } = {}) {
+export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEditFavourite, onListTextChange, defaultHouse, localActivityEl } = {}) {
   let tab = 'capture'      // 'capture' | 'favourites' | 'earlier'
-  let mode = 'idle'        // 'idle' | 'thinking' | 'review'
-  let active = null        // the item 'thinking'/'review' is about
+  let mode = 'idle'        // 'idle' | 'thinking' | 'review' | 'list'
+  let active = null        // the item 'thinking'/'review'/'list' is about
+  let items = []           // last known items, for the rail and the open list
   let waiting = []         // set-aside items, FIFO
   let failure = null       // persists until retried
   let flashTimer = null
@@ -78,6 +88,77 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
   paneReview.className = 'station-pane station-pane--review'
   paneReview.hidden = true
 
+  // A recalled list takes the same slot the capture field and the review
+  // pane use — one thing at a time. The rows are the shared .checklist
+  // markup out of item.js, so a list looks and ticks the same here as in
+  // the phone's inbox; only the pane around them is station-specific.
+  const paneList = document.createElement('div')
+  paneList.className = 'station-pane station-pane--list'
+  paneList.hidden = true
+
+  function renderList() {
+    if (!active) return
+    const isShopping = active.status === 'shopping_list'
+    const parsed = parseChecklist(active.text)
+    paneList.innerHTML = `
+      <div class="station-pane-top">
+        <span class="station-pane-label" data-role="think">${isShopping ? 'shopping list' : 'checklist'}</span>
+        <button type="button" class="station-rail-link" data-action="close-list">close</button>
+      </div>
+      <h1 class="station-heading">${escHtml(parsed.title || (isShopping ? 'Shopping list' : 'Checklist'))}</h1>
+      ${isShopping ? renderShoppingList(active.id, parsed) : renderChecklist(active.id, parsed)}
+      ${isShopping
+        ? `<form class="station-list-add" data-action="add-row">
+            <input type="text" name="label" class="station-list-add-input" placeholder="add to the list" autocomplete="off">
+            <button type="submit" class="btn-submit">add</button>
+          </form>`
+        : ''}
+    `
+  }
+
+  // The pane has no .item wrapper to read an id off, unlike the inbox —
+  // the open list *is* `active`, so the id comes from there.
+  function listActionContext() {
+    return {
+      findItem: (id) => items.find(i => i.id === id) ?? (active?.id === id ? active : null),
+      rerenderItem: () => renderList(),
+      onTextChange: (id, text) => onListTextChange?.(id, text),
+    }
+  }
+
+  paneList.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-action]')
+    if (!btn || !active) return
+    if (btn.dataset.action === 'close-list') {
+      setMode('idle')
+      return
+    }
+    handleListAction({
+      action: btn.dataset.action,
+      id: active.id,
+      index: parseInt(btn.dataset.index, 10),
+      ...listActionContext(),
+    })
+  })
+
+  paneList.addEventListener('submit', (e) => {
+    const form = e.target.closest('[data-action="add-row"]')
+    if (!form || !active) return
+    e.preventDefault()
+    const input = form.querySelector('input[name="label"]')
+    handleListAction({
+      action: 'add-shopping-item',
+      id: active.id,
+      label: input.value,
+      ...listActionContext(),
+    })
+    // Cleared optimistically: the row appears when main.js's PATCH comes
+    // back through setItems(), and in the shop you carry on typing the
+    // next thing rather than waiting to see this one land.
+    input.value = ''
+    input.focus()
+  })
+
   const rail = createFavouritesRail({
     onRun: (id, overrides) => onReplay?.(id, overrides),
     onOpenAll: () => setTab('favourites'),
@@ -92,9 +173,48 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
   // order (see main.js). This is a one-time DOM move, not CSS — order
   // can't lift an element into a different flex container, and the
   // panel's mount orientation doesn't change mid-session.
+  // Lists sit under the favourites, for the same reason the favourites
+  // are in the rail at all: both are things you recall rather than
+  // compose. The rail names what exists; the pane holds the open one.
+  const railLists = document.createElement('div')
+  railLists.className = 'station-rail-lists'
+  railLists.hidden = true
+  railLists.addEventListener('click', (e) => {
+    const row = e.target.closest('[data-id]')
+    if (row) openList(row.dataset.id)
+  })
+
+  function renderRailLists() {
+    const lists = items.filter(i => LIST_STATUSES.includes(i.status))
+    railLists.hidden = lists.length === 0
+    if (!lists.length) return
+    railLists.innerHTML = `
+      <div class="station-rail-head">
+        <span class="station-rail-heading">lists</span>
+      </div>
+      <ul class="station-rail-list">
+        ${lists.map(i => {
+          const parsed = parseChecklist(i.text)
+          const shopping = i.status === 'shopping_list'
+          return `<li class="station-rail-row" data-id="${i.id}">
+            <button type="button" class="station-rail-run">${escHtml(parsed.title || (shopping ? 'Shopping list' : 'Checklist'))}</button>
+            <span class="station-rail-time">${parsed.items.length}</span>
+          </li>`
+        }).join('')}
+      </ul>
+    `
+  }
+
+  function openList(id) {
+    const item = items.find(i => i.id === id)
+    if (!item) return
+    setTab('capture')
+    setMode('list', item)
+  }
+
   const railColumn = document.createElement('div')
   railColumn.className = 'station-rail-column'
-  railColumn.append(rail.el)
+  railColumn.append(rail.el, railLists)
 
   if (localActivityEl) {
     if (window.matchMedia('(orientation: landscape)').matches) {
@@ -106,7 +226,7 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
 
   const stationCapture = document.createElement('div')
   stationCapture.className = 'station-capture'
-  stationCapture.append(paneIdle, paneThinking, paneReview, railColumn)
+  stationCapture.append(paneIdle, paneThinking, paneReview, paneList, railColumn)
 
   const reviewActions = document.createElement('div')
   reviewActions.className = 'station-review-actions'
@@ -151,8 +271,8 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
   earlierTab.className = 'station-tabpanel station-tabpanel--earlier'
   earlierTab.hidden = true
 
-  function renderLog(items) {
-    const rows = items.filter(i => RESOLVED_STATUSES.includes(i.status))
+  function renderLog(all) {
+    const rows = all.filter(i => RESOLVED_STATUSES.includes(i.status))
     earlierTab.innerHTML = rows.length
       ? `<ul class="station-log">${rows.map(i => `
           <li class="station-log-row" data-role="${i.status === 'failed' ? 'fail' : i.status === 'vetoed' ? 'muted' : 'done'}">
@@ -272,7 +392,17 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
 
   function setMode(newMode, data) {
     mode = newMode
-    if (newMode === 'idle') {
+    paneList.hidden = newMode !== 'list'
+    if (newMode === 'list') {
+      // The rail stays up here, unlike thinking/review: it is how you get
+      // from one shop's list to another's without going back to idle.
+      active = data
+      paneIdle.hidden = true
+      paneThinking.hidden = true
+      paneReview.hidden = true
+      railColumn.hidden = false
+      renderList()
+    } else if (newMode === 'idle') {
       active = null
       paneIdle.hidden = false
       paneThinking.hidden = true
@@ -357,14 +487,35 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
   setTab('capture')
   setMode('idle')
 
+  // Everything the station knows about items arrives here (main.js calls
+  // it on every add, update and poll), so this is where the rail and the
+  // open list get refreshed too.
+  function setItems(next) {
+    items = next
+    renderLog(items)
+    renderRailLists()
+    // An open list is a view onto an item main.js re-fetches after a
+    // removal or an append — pick the fresh copy up rather than leaving
+    // the pre-PATCH text on a wall-mounted screen nobody is looking at.
+    if (mode === 'list' && active) {
+      const fresh = items.find(i => i.id === active.id)
+      if (fresh) {
+        active = fresh
+        renderList()
+      }
+    }
+  }
+
   return {
     el,
     setMode,
-    setWaiting(items) { waiting = [...items]; renderWaitingBadge() },
+    openList,
+    setWaiting(list) { waiting = [...list]; renderWaitingBadge() },
     setFlash,
     setFailure,
     setFavourites(list) { rail.render(list); renderFavGrid(list) },
-    setLog: renderLog,
+    setLog: setItems,
+    setItems,
     setHouses: captureInput.setHouses,
     focusInput,
   }

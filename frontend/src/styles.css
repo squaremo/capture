@@ -1415,6 +1415,49 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   justify-content: center;
 }
 
+/* ── Station list pane ───────────────────────────────────────
+   A recalled list fills the slot the capture field was in — one thing at
+   a time, same as review. The rows are the shared .checklist styles from
+   the Lists block above, so a list ticks the same here as on the phone;
+   only the pane around them is station-specific. */
+[data-density="station"] .station-pane--list {
+  padding: var(--space-4);
+}
+
+[data-density="station"] .station-list-add {
+  display: flex;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  margin-top: var(--space-3);
+  border-top: var(--rule) solid var(--border);
+}
+
+[data-density="station"] .station-list-add-input {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--tap);
+  background: transparent;
+  border: var(--rule) solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--fs-body);
+  padding: 0 var(--space-3);
+}
+[data-density="station"] .station-list-add-input:focus {
+  outline: none;
+  border-color: var(--sig-act);
+}
+[data-density="station"] .station-list-add-input::placeholder { color: var(--text-dim); }
+
+/* Lists under the favourites in the rail: fixed height at the bottom of
+   the column, so the favourites keep the scrolling half. */
+[data-density="station"] .station-rail-lists {
+  flex-shrink: 0;
+  padding: var(--space-4);
+  border-top: var(--rule) solid var(--border);
+}
+
 [data-density="station"] .btn-submit,
 [data-density="station"] .btn-voice,
 [data-density="station"] .btn-approve,
