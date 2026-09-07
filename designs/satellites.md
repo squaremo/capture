@@ -1,6 +1,6 @@
 # Satellites: local control per house
 
-Status: hub-side dispatch (`resolve_playback`/`control_playback` in `claude.js`, `backend/integrations/satellite.js`) and the satellite controller (`satellite/`) are implemented and tested. Track search is real, directly against Spotify's Web API from the central backend. Room/speaker matching and Sonos transport control (`satellite/services/sonos.js`) are also real — discovery and playback via `sonos-discovery` against actual hardware — and confirmed working against a real Sonos system: discovery found the real speakers, and search + play produced real audio, including the previously-unverified `x-sonos-spotify` URI/DIDL construction (that verification predates the real Spotify search landing, so it used a fixed placeholder track id — `play()` only depends on `track.id`, so the two pieces should combine without further changes, but that combination itself isn't yet independently verified against hardware). The frontend's house chooser (`capture.js`) is implemented — sticky by default, or defaulting to a house set via runtime config, with a "here" indicator when one's set (see House attribution). That runtime-config mechanism (`GET /config.json`, `BACKEND_URL`) supersedes an earlier `DEFAULT_HOUSE` build-time-constant version, and the satellite now actually serves the real frontend (`@fastify/static` against `../frontend/dist`) — verified end to end against a mock cross-origin backend, though not yet combined with the real Spotify search work in one live run. A local now-playing panel (`frontend/src/components/localActivity.js`) sits alongside it, showing per-speaker activity from a small in-memory record the satellite now keeps (`sonos.js`'s `activity` map) and offering a direct, ungated pause and volume control (volume is live, not remembered — read fresh off `sonos-discovery`'s own eventing-backed `player.state.volume`) — verified end to end with Playwright (panel appears on a play call, pause flips it, the slider moves real volume, and it stays permanently inert on a deployment with no local satellite).
+Status: hub-side dispatch (`resolve_playback`/`control_playback` in `claude.js`, `backend/integrations/satellite.js`) and the satellite controller (`satellite/`) are implemented and tested. Track search is real, directly against Spotify's Web API from the central backend. Room/speaker matching and Sonos transport control (`satellite/services/sonos.js`) are also real — discovery and playback via `sonos-discovery` against actual hardware — and confirmed working against a real Sonos system: discovery found the real speakers, and search + play produced real audio, including the previously-unverified `x-sonos-spotify` URI/DIDL construction (that verification predates the real Spotify search landing, so it used a fixed placeholder track id — `play()` only depends on `track.id`, so the two pieces should combine without further changes, but that combination itself isn't yet independently verified against hardware). The frontend's house chooser (`capture.js`) is implemented — sticky by default, or defaulting to a house set via runtime config, with a "here" indicator when one's set (see House attribution). That runtime-config mechanism (`GET /config.json`, `BACKEND_URL`) supersedes an earlier `DEFAULT_HOUSE` build-time-constant version, and the satellite now actually serves the real frontend (`@fastify/static` against `../frontend/dist`) — verified end to end against a mock cross-origin backend, though not yet combined with the real Spotify search work in one live run. A local now-playing panel (`frontend/src/components/localActivity.js`), now living behind its own Controls tab on the station (see the Station entry in CLAUDE.md), shows every discovered speaker's live transport state — track, playing/paused/idle, and volume — read straight off `sonos-discovery`'s own eventing-backed `player.state` (`playbackState`/`currentTrack`/`volume`), not a self-remembered "last command sent" record; an earlier version tracked its own in-memory map instead, which meant a speaker only appeared once this satellite had itself issued a play/pause to it — fixed once `player.state` turned out to already carry live GENA-eventing state for every player, always, with no separate tracking needed. Offers a direct, ungated pause/resume and volume control — verified end to end with Playwright (panel appears with every discovered speaker regardless of activity, pause/resume flips playing state, the slider moves real volume, and it stays permanently inert on a deployment with no local satellite). The same panel also shows and directly controls Dirigera lights per room (on/off/brightness/colour) — see `designs/matter-lighting.md`.
 
 ## Problem
 
@@ -167,17 +167,22 @@ Sonos app. The two paths (LLM-proposed, always gated; local-manual,
 never gated) stay cleanly separate because they go through genuinely
 different endpoints, not a shared one with a bypass flag.
 
-`getStatus()` in `satellite/services/sonos.js` now tracks activity via
-the simpler of the two options considered here: an in-memory
-`Map<speaker, {track, playing, at}>`, updated by `play()`/`pause()` on
-every call and returned as `status.activity`. This is *remembered
-intent*, not live ground truth — it can drift if playback changes some
-other way (the Sonos app directly, a physical remote), since this
-doesn't query the Sonos player's own live transport state
-(`sonos-discovery`'s `Player` tracks that via UPnP eventing/GENA
-subscriptions — still unexplored, would be the more accurate but more
-involved alternative). Good enough for "did the last command actually
-happen," which is what this was for.
+`getStatus()` in `satellite/services/sonos.js` reads `status.activity`
+straight off every discovered player's live `state` — `playbackState`,
+`currentTrack`, `volume` — kept current by `sonos-discovery`'s own UPnP
+eventing/GENA subscriptions. An earlier version instead tracked its own
+in-memory `Map<speaker, {track, playing, at}>`, updated by `play()`/
+`pause()` on every call: *remembered intent*, not live ground truth,
+listing only speakers this satellite itself had issued a command to —
+which meant a speaker that had never been played through, or that was
+started from the Sonos app directly, showed nothing at all in the local
+controls panel, an inconsistency with the (always-live, always-listed)
+light panel that a person standing at the satellite noticed directly.
+Fixed by reading `player.state` instead: it turned out to already carry
+exactly this live eventing-backed state for every discovered player,
+with an always-populated default (`playbackState: 'STOPPED'`, an empty
+`currentTrack`) even for a player with nothing ever loaded — no separate
+tracking needed, and no "still unexplored" left on this point.
 
 One more thing this reopens: Running Modes has the satellite bind only
 to its Tailscale interface, reasoning that "the only thing that's ever
@@ -394,11 +399,12 @@ explicitly if that's ever genuinely needed.
 - **Implemented**: the satellite serves the real frontend build and its
   runtime config (`GET /config.json`), and a local now-playing panel
   (`frontend/src/components/localActivity.js`) shows and controls actual
-  device activity, sourced from a small in-memory record
-  (`services/sonos.js`'s `activity` map — see Satellite-served frontend &
-  local device controls). Still using *remembered* state, not live UPnP
-  transport state read off the hardware — noted as a real limitation
-  there, not fixed here.
+  device activity for every discovered speaker (and, since
+  `designs/matter-lighting.md`, every lit room) — see Satellite-served
+  frontend & local device controls. Sourced from live UPnP transport
+  state (`sonos-discovery`'s `player.state`, kept current by real GENA
+  eventing), not the self-remembered "last command sent" map this used
+  to carry — see the `getStatus()` paragraph above for why that changed.
 - **Implemented**: track search and speaker/room matching are two
   independent lookups that don't both live on the satellite. Track search
   is real — `resolve_playback` calls Spotify's Web API directly from the
