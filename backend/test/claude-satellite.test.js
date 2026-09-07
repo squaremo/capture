@@ -432,7 +432,7 @@ describe('getFormFields for a resolved lighting program', () => {
     expect(getFormFields(plan)).toEqual([
       { step: 's1', tool: 'resolve_light', field: 'room', value: 'living room', label: 'Room', type: 'text' },
       { step: 's1', tool: 'resolve_light', field: 'action', value: 'set', label: 'Action', type: 'text' },
-      { step: 's1', tool: 'resolve_light', field: 'brightness', value: 20, label: 'Brightness', type: 'number' },
+      { step: 's1', tool: 'resolve_light', field: 'brightness', value: 20, label: 'Brightness', type: 'percent' },
     ])
   })
 
@@ -450,7 +450,7 @@ describe('getFormFields for a resolved lighting program', () => {
     expect(getFormFields(plan)).toEqual([
       { step: 's1', tool: 'resolve_light', field: 'room', value: 'living room', label: 'Room', type: 'text' },
       { step: 's1', tool: 'resolve_light', field: 'action', value: 'set', label: 'Action', type: 'text' },
-      { step: 's1', tool: 'resolve_light', field: 'brightness', value: 20, label: 'Brightness', type: 'number' },
+      { step: 's1', tool: 'resolve_light', field: 'brightness', value: 20, label: 'Brightness', type: 'percent' },
       { step: 's1', tool: 'resolve_light', field: 'color', value: '#ff0000', label: 'Color', type: 'color' },
     ])
   })
