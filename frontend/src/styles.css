@@ -686,6 +686,19 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   100% { background-position: -200% 0; }
 }
 
+/* Briefly marks a checklist just brought back into view by "<name>
+   checklist please" (recall_checklist) — otherwise the reset happens
+   silently in a section that may be off-screen, and never visibly
+   "shows" the list the way asking for it by name implies it should. */
+.item--recalled {
+  animation: recalled-flash 1.5s ease-out;
+}
+
+@keyframes recalled-flash {
+  0%   { background: color-mix(in srgb, var(--accent) 25%, transparent); }
+  100% { background: transparent; }
+}
+
 /* ── Favourites sidebar ──────────────────────────────────── */
 .favourites {
   padding: 16px 0;

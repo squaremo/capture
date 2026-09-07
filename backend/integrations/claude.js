@@ -68,7 +68,15 @@ const TOOL_REGISTRY = {
   save_checklist: {
     kind: 'final',
     status: 'checklist',
-    extra: ({ title, items }) => ({ text: buildChecklistText(title, items) }),
+    // action_result is generated here rather than asked of Claude — its arg
+    // list (see the system prompt) never included one, so this fell through
+    // to the generic "Saved to inbox." default below, which is exactly what
+    // made a freshly-created checklist look like it had been triaged away
+    // instead of saved as a checklist.
+    extra: ({ title, items }) => ({
+      text: buildChecklistText(title, items),
+      action_result: `Saved ${title ? `"${title}" ` : ''}checklist (${items.length} item${items.length === 1 ? '' : 's'})`,
+    }),
   },
   // Lets "swimming checklist" find the existing one instead of save_checklist
   // spawning a duplicate — same shape as search_linear_issues avoiding a

@@ -47,10 +47,21 @@ export function createInbox({ onApprove, onVeto, onFavourite, onShoppingListChan
   // call, no callback out to main.js — since ticked state lives only in
   // this device's localStorage (see item.js). Re-rendering the one item's
   // DOM is enough: renderChecklist() reads local storage fresh each time.
-  function rerenderItem(id) {
+  function rerenderItem(id, { reveal = false } = {}) {
     const item = items.find(i => i.id === id)
     const el = section.querySelector(`[data-id="${id}"]`)
-    if (item && el) updateItemEl(el, item)
+    if (!item || !el) return
+    updateItemEl(el, item)
+    // "swimming checklist please" resets the checklist in place, but it
+    // lives in its own always-visible section further down the page — with
+    // no scroll or flash, that reset is invisible unless the checklist
+    // already happened to be on screen, so a recall didn't actually "show"
+    // anything the way asking for it by name implies it should.
+    if (reveal) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      el.classList.add('item--recalled')
+      setTimeout(() => el.classList.remove('item--recalled'), 1500)
+    }
   }
 
   section.addEventListener('click', (e) => {
@@ -135,7 +146,7 @@ export function createInbox({ onApprove, onVeto, onFavourite, onShoppingListChan
       // server never touched that item at all.
       if (updated.recalled_checklist_id) {
         clearLocalChecked(updated.recalled_checklist_id)
-        rerenderItem(updated.recalled_checklist_id)
+        rerenderItem(updated.recalled_checklist_id, { reveal: true })
       }
       // A resolved add_to_shopping_list that folded into an *existing*
       // shopping-list item (rather than becoming one itself) names that
