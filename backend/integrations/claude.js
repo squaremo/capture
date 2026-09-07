@@ -184,6 +184,7 @@ if (LINEAR_ENABLED) {
   TOOL_REGISTRY.create_linear_task = {
     kind: 'final',
     needsApproval: true,
+    fields: { title: 'text', description: 'textarea' },
     describe: ({ title }) => `Proposed: create Linear task "${title}"`,
     execute: async ({ title, description }) => {
       const issue = await createLinearTask({ apiKey: linearApiKey, teamId: linearTeamId, title, description })
@@ -204,6 +205,7 @@ if (PLAYBACK_ENABLED) {
     // defaulting independently.
     resolvesHouse: true,
     label: 'Finding matching track and speaker',
+    fields: { title: 'text', artist: 'text', album: 'text', room: 'text' },
     // Track and speaker are independent lookups, run concurrently: the
     // track comes straight from Spotify (a plain cloud catalog read, no
     // local-network dependency), the speaker from the satellite's own
@@ -243,6 +245,7 @@ if (SATELLITES_ENABLED) {
     kind: 'readonly',
     resolvesHouse: true,
     label: 'Finding matching room',
+    fields: { room: 'text', action: 'text', brightness: 'percent', color: 'color' },
     // Room matching (and action/brightness/color validation) is a local,
     // no-catalog-dependency lookup against the satellite's own Dirigera
     // hub — unlike resolve_playback there's no separate central-side
@@ -534,7 +537,7 @@ export function getFormFields(steps) {
     for (const [field, value] of Object.entries(step.args ?? {})) {
       if (field === 'tags' || value == null || typeof value === 'object') continue
       if (typeof value === 'string' && REF_ONLY_RE.test(value)) continue
-      fields.push({ step: step.id, tool: step.tool, field, value, label: humanizeField(field), type: fieldType(field, value) })
+      fields.push({ step: step.id, tool: step.tool, field, value, label: humanizeField(field), type: fieldType(def, field, value) })
     }
   }
   return fields
@@ -544,7 +547,19 @@ function humanizeField(field) {
   return field.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 }
 
-function fieldType(field, value) {
+// A tool declares its own args' control types via `fields` in
+// TOOL_REGISTRY (e.g. resolve_light's brightness is 'percent', its color
+// 'color') rather than the frontend guessing from what a value happens to
+// look like — brightness/color can arrive as either a number or a numeral
+// string (propose_plan's args field is untyped, so Claude's output isn't
+// guaranteed to come back as a JSON number), and a bare numeral string
+// used to slip past a value-shape check and render as a plain text box.
+// The type-sniffing fallback below only covers tools that don't declare
+// `fields` (there are none left today, but a future tool added without
+// one still gets a reasonable control instead of erroring).
+function fieldType(def, field, value) {
+  const declared = def.fields?.[field]
+  if (declared) return declared
   if (typeof value === 'boolean') return 'checkbox'
   if (typeof value === 'number') return 'number'
   if (field === 'color' && /^#[0-9a-f]{6}$/i.test(value)) return 'color'
