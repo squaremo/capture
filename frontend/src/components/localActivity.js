@@ -82,21 +82,28 @@ export function createLocalActivity() {
 
     const badge = document.createElement('span')
     badge.className = `local-activity-badge${playing ? ' local-activity-badge--playing' : ''}`
-    badge.textContent = playing ? 'playing' : 'paused'
+    badge.textContent = track ? (playing ? 'playing' : 'paused') : 'idle'
     row.appendChild(badge)
 
-    // One toggle button either way — /api/resume, not /api/play, is
-    // what continues a paused speaker: /api/play always reloads the
-    // track from the start (a fresh setAVTransport), so re-using it
-    // here would restart rather than resume.
-    const toggleBtn = document.createElement('button')
-    toggleBtn.className = 'btn-local-pause'
-    toggleBtn.textContent = playing ? 'pause' : 'play'
-    toggleBtn.addEventListener('click', () => {
-      toggleBtn.disabled = true
-      postAndRefresh(playing ? '/api/pause' : '/api/resume', { speaker: { name: speaker } })
-    })
-    row.appendChild(toggleBtn)
+    // No track loaded (nothing has ever been played here, or this
+    // satellite just started) — nothing for a toggle to do, since
+    // /api/resume needs a track already loaded and /api/play needs a
+    // resolved one this panel doesn't have. Volume is still real and
+    // still worth offering below.
+    if (track) {
+      // One toggle button either way — /api/resume, not /api/play, is
+      // what continues a paused speaker: /api/play always reloads the
+      // track from the start (a fresh setAVTransport), so re-using it
+      // here would restart rather than resume.
+      const toggleBtn = document.createElement('button')
+      toggleBtn.className = 'btn-local-pause'
+      toggleBtn.textContent = playing ? 'pause' : 'play'
+      toggleBtn.addEventListener('click', () => {
+        toggleBtn.disabled = true
+        postAndRefresh(playing ? '/api/pause' : '/api/resume', { speaker: { name: speaker } })
+      })
+      row.appendChild(toggleBtn)
+    }
 
     // volume is live ground truth from the player itself (see
     // sonos.js's getStatus()), null only if the speaker somehow

@@ -37,30 +37,35 @@ const ready = Promise.race([
 // against real hardware — see Open questions in designs/satellites.md.
 const SPOTIFY_ACCOUNT_SN = process.env.SPOTIFY_ACCOUNT_SN ?? '1'
 
-// What this satellite last told each speaker to do — not live ground
-// truth read off the hardware (sonos-discovery's Player tracks real UPnP
-// transport state via GENA eventing, which this doesn't use yet), just a
-// record of the last play()/pause() call per speaker. Can drift if
-// playback is changed some other way (the Sonos app directly, a physical
-// remote) — good enough to show "did the last command actually happen,"
-// not a substitute for querying real state. See Open questions in
-// designs/satellites.md.
-const activity = new Map() // speaker name -> { track, playing, at }
-
 export function getStatus() {
   return {
     ready: system.players.length > 0,
     playersFound: system.players.length,
     rooms: system.players.map((p) => p.roomName),
-    // volume, unlike track/playing, is real ground truth read fresh off
-    // the player each call — sonos-discovery keeps player.state.volume
-    // current via UPnP eventing, so there's nothing for this satellite to
-    // remember itself.
-    activity: [...activity.entries()].map(([speaker, state]) => ({
-      speaker,
-      ...state,
-      volume: system.getPlayer(speaker)?.state?.volume ?? null,
-    })),
+    // Every discovered speaker, always — not just ones this satellite has
+    // itself issued a play()/pause() to. Earlier this only listed
+    // self-remembered "last command sent" state, which meant a freshly
+    // booted (or simply idle) satellite showed no Sonos rows at all in
+    // the local controls panel, even though speakers were discovered and
+    // controllable — the light panel's room list, by contrast, always
+    // showed everything, so the two halves of "controls" panel disagreed
+    // on what "no activity yet" should look like. Fixed by reading
+    // sonos-discovery's own live state (playbackState/currentTrack/
+    // volume), kept current via real UPnP GENA eventing — genuine ground
+    // truth, not remembered intent, resolving the "still unexplored"
+    // note this used to carry in designs/satellites.md. track is null
+    // when nothing has ever been loaded on that player (playbackState
+    // 'STOPPED' with an empty currentTrack.title) — the frontend uses
+    // that to skip the play/pause toggle but still offer volume.
+    activity: system.players.map((player) => {
+      const track = player.state.currentTrack
+      return {
+        speaker: player.roomName,
+        playing: player.state.playbackState === 'PLAYING',
+        track: track?.title ? { title: track.title, artist: track.artist || undefined, album: track.album || undefined } : null,
+        volume: player.state.volume,
+      }
+    }),
   }
 }
 
@@ -92,7 +97,6 @@ export async function play({ track, speaker }) {
   const { uri, metadata } = spotifyPlayable(track)
   await player.setAVTransport(uri, metadata)
   await player.play()
-  activity.set(player.roomName, { track, playing: true, at: new Date().toISOString() })
   return { playing: true, track, speaker: { name: player.roomName } }
 }
 
@@ -105,10 +109,6 @@ export async function pause({ speaker }) {
     throw new Error(`Speaker "${speaker.name}" is no longer available`)
   }
   await player.pause()
-  // Keep whatever track we last knew about, if any — a pause doesn't
-  // forget what was playing, just that it's playing.
-  const previous = activity.get(player.roomName)
-  activity.set(player.roomName, { track: previous?.track ?? null, playing: false, at: new Date().toISOString() })
   return { playing: false, speaker: { name: player.roomName } }
 }
 
@@ -125,15 +125,12 @@ export async function resume({ speaker }) {
     throw new Error(`Speaker "${speaker.name}" is no longer available`)
   }
   await player.play()
-  const previous = activity.get(player.roomName)
-  activity.set(player.roomName, { track: previous?.track ?? null, playing: true, at: new Date().toISOString() })
   return { playing: true, speaker: { name: player.roomName } }
 }
 
 // Sets a specific speaker's volume (0-100) — same manual, ungated,
-// speaker-scoped shape as play()/pause(). Doesn't touch `activity`;
-// volume isn't something this satellite remembers, it's read live off
-// the player in getStatus() instead.
+// speaker-scoped shape as play()/pause(). Nothing to record afterwards:
+// getStatus() reads volume (and everything else) live off the player.
 export async function setVolume({ speaker, level }) {
   await ready
   const player = system.getPlayer(speaker.name)
