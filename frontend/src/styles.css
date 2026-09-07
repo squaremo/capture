@@ -1255,6 +1255,17 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   color: var(--on-signal);
 }
 [data-density="station"] .station-flash-check { font-weight: 700; }
+[data-density="station"] .station-flash-text { flex: 1; }
+[data-density="station"] .station-flash-favourite {
+  background: transparent;
+  border: none;
+  color: var(--on-signal);
+  font-size: var(--fs-icon-lg, 1.4em);
+  padding: var(--space-1) var(--space-2);
+  flex-shrink: 0;
+  cursor: pointer;
+}
+[data-density="station"] .station-flash-favourite:disabled { opacity: 1; cursor: default; }
 
 [data-density="station"] .station-failure {
   display: flex;
