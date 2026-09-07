@@ -35,6 +35,7 @@
 
   --radius: 4px;
   --rule: 1px;          /* station build uses 2px; see [data-density] below */
+  --tap: 44px;          /* minimum touch target; the station raises it to 48 */
 
   --font-mono: 'Berkeley Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
   --font-serif: 'Fraunces', Georgia, serif;

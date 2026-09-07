@@ -135,6 +135,19 @@ async function init() {
       station.setMode('review', item)
       return
     }
+    // A capture that made or named a list opens it, rather than flashing a
+    // confirmation at an empty field: "what's on the Sainsbury's list" is a
+    // recall, and the list itself is the answer. recalled_checklist_id /
+    // shopping_list_id name the *other*, already-existing item the capture
+    // folded into (see inbox.js's updateItem); failing that, if this item
+    // is a list, it is the one to show.
+    const listId = item.recalled_checklist_id
+      ?? item.shopping_list_id
+      ?? (['checklist', 'shopping_list'].includes(item.status) ? item.id : null)
+    if (listId) {
+      station.openList(listId)
+      return
+    }
     station.setMode('idle')
     if (item.status === 'failed') station.setFailure(item)
     else if (item.action_result) station.setFlash(item.action_result)
@@ -143,6 +156,9 @@ async function init() {
   const station = config.isStation ? createStationShell({
     defaultHouse: config.defaultHouse,
     localActivityEl: localActivity.el,
+    // The list pane's own edits — "done shopping" and the add row — are
+    // the same PATCH the inbox's are (see onShoppingListChange above).
+    onListTextChange: (id, text) => handleDecision(id, () => patchItem(id, { text })),
     onSubmit: (text, house) => submitCapture(text, house),
     onApprove: (id, overrides) => handleDecision(id, () => approveItem(id, overrides)),
     onVeto: (id) => handleDecision(id, () => vetoItem(id)),

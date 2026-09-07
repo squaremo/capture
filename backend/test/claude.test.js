@@ -59,12 +59,18 @@ describe('processCapture', () => {
     expect(result.status).toBe('checklist')
     expect(result.tags).toEqual(['swimming'])
     expect(result.text).toBe('Swimming kit\n- [ ] goggles\n- [ ] towel\n- [ ] costume')
+    // action_result isn't part of save_checklist's arg list (see the system
+    // prompt), so it must be generated here — otherwise it silently falls
+    // back to the generic "Saved to inbox." default, making a freshly
+    // created checklist look like it had been triaged away instead.
+    expect(result.action_result).toBe('Saved "Swimming kit" checklist (3 items)')
   })
 
   it('save_checklist omits the title line when none is given', async () => {
     respondWithStep('save_checklist', { items: ['milk', 'eggs'], tags: [] })
     const result = await processCapture('shopping list: milk, eggs')
     expect(result.text).toBe('- [ ] milk\n- [ ] eggs')
+    expect(result.action_result).toBe('Saved checklist (2 items)')
   })
 
   it('"swimming checklist" (find_checklist → recall_checklist) names the existing checklist to reset, without touching its server text', async () => {

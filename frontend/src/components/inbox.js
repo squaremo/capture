@@ -1,8 +1,7 @@
 import {
-  createItemEl, updateItemEl, collectFormOverrides, parseChecklist,
-  toggleLocalChecklistItem, clearLocalChecked,
-  toggleLocalShoppingItem, clearLocalShoppingChecked, removeCheckedShoppingItems,
+  createItemEl, updateItemEl, collectFormOverrides, clearLocalChecked,
 } from './item.js'
+import { handleListAction } from './lists.js'
 
 // "Needs attention": still processing, classified but no action decided
 // yet, or an acting tool proposed something waiting on approve/veto.
@@ -47,10 +46,21 @@ export function createInbox({ onApprove, onVeto, onFavourite, onShoppingListChan
   // call, no callback out to main.js — since ticked state lives only in
   // this device's localStorage (see item.js). Re-rendering the one item's
   // DOM is enough: renderChecklist() reads local storage fresh each time.
-  function rerenderItem(id) {
+  function rerenderItem(id, { reveal = false } = {}) {
     const item = items.find(i => i.id === id)
     const el = section.querySelector(`[data-id="${id}"]`)
-    if (item && el) updateItemEl(el, item)
+    if (!item || !el) return
+    updateItemEl(el, item)
+    // "swimming checklist please" resets the checklist in place, but it
+    // lives in its own always-visible section further down the page — with
+    // no scroll or flash, that reset is invisible unless the checklist
+    // already happened to be on screen, so a recall didn't actually "show"
+    // anything the way asking for it by name implies it should.
+    if (reveal) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      el.classList.add('item--recalled')
+      setTimeout(() => el.classList.remove('item--recalled'), 1500)
+    }
   }
 
   section.addEventListener('click', (e) => {
@@ -65,38 +75,18 @@ export function createInbox({ onApprove, onVeto, onFavourite, onShoppingListChan
     if (btn.dataset.action === 'approve') onApprove?.(id, collectFormOverrides(itemEl))
     if (btn.dataset.action === 'veto') onVeto?.(id)
     if (btn.dataset.action === 'favourite') onFavourite?.(id)
-    if (btn.dataset.action === 'toggle-checklist') {
-      const item = items.find(i => i.id === id)
-      if (item) {
-        toggleLocalChecklistItem(id, parseInt(btn.dataset.index, 10), parseChecklist(item.text).items.length)
-        rerenderItem(id)
-      }
-    }
-    if (btn.dataset.action === 'reset-checklist') {
-      clearLocalChecked(id)
-      rerenderItem(id)
-    }
-    if (btn.dataset.action === 'toggle-shopping-item') {
-      const item = items.find(i => i.id === id)
-      if (item) {
-        toggleLocalShoppingItem(id, parseInt(btn.dataset.index, 10), parseChecklist(item.text).items.length)
-        rerenderItem(id)
-      }
-    }
-    // "done shopping": local marks (this device's checked boxes) become a
-    // real removal — computes the item's text with those lines dropped and
-    // hands it up to main.js, which owns the PATCH (inbox.js has no fetch
-    // of its own). Local marks are meaningless once the removal commits —
-    // the indices they were keyed against no longer match anything — so
-    // they're cleared here rather than left to go stale.
-    if (btn.dataset.action === 'remove-shopping-checked') {
-      const item = items.find(i => i.id === id)
-      if (item) {
-        const text = removeCheckedShoppingItems(id, item.text)
-        clearLocalShoppingChecked(id)
-        onShoppingListChange?.(id, text)
-      }
-    }
+    // Ticking, resetting, and committing a shopping removal all live in
+    // lists.js — the station's list pane renders the same rows and calls
+    // the same handler (see station.js), which is what keeps the two
+    // surfaces honest. onShoppingListChange still owns the PATCH.
+    handleListAction({
+      action: btn.dataset.action,
+      id,
+      index: parseInt(btn.dataset.index, 10),
+      findItem: (itemId) => items.find(i => i.id === itemId),
+      rerenderItem,
+      onTextChange: (itemId, text) => onShoppingListChange?.(itemId, text),
+    })
   })
 
   return {
@@ -135,7 +125,7 @@ export function createInbox({ onApprove, onVeto, onFavourite, onShoppingListChan
       // server never touched that item at all.
       if (updated.recalled_checklist_id) {
         clearLocalChecked(updated.recalled_checklist_id)
-        rerenderItem(updated.recalled_checklist_id)
+        rerenderItem(updated.recalled_checklist_id, { reveal: true })
       }
       // A resolved add_to_shopping_list that folded into an *existing*
       // shopping-list item (rather than becoming one itself) names that
