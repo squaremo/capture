@@ -109,6 +109,7 @@ app.get('/api/status', async () => ({
   house: HOUSE_ID,
   capabilities: CAPABILITIES,
   ...sonos.getStatus(),
+  ...(await dirigera.getStatus()),
 }))
 
 // Resolves a room name into a specific speaker, without playing anything

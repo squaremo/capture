@@ -11,6 +11,19 @@ room-as-free-text resolved locally, and "approval always required, no
 same-house exception" all carry over unchanged; this doc only covers
 what's specific to lighting.
 
+Also implemented since: **direct, ungated manual control from the
+satellite's own local-controls panel** — a `dirigera.js` `getStatus()`
+reports live room-level light state (real ground truth from
+`client.lights.list()`, not remembered intent), and
+`frontend/src/components/localActivity.js` renders on/off/brightness/
+colour controls per lit room, posting straight to the same
+`POST /api/lights` the hub uses to commit an approved plan step — no
+approval gate on this path, same reasoning as the Sonos panel's
+pause/volume (see `designs/satellites.md`'s Satellite-served frontend &
+local device controls). See `TODO.md`'s Direct light control entry for
+the full writeup; verified with Playwright against a mocked satellite,
+not yet against real hardware.
+
 ## Problem
 
 The wishlist item is home automation control via "a Matter hub (IKEA

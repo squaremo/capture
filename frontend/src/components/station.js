@@ -216,14 +216,6 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
   railColumn.className = 'station-rail-column'
   railColumn.append(rail.el, railLists)
 
-  if (localActivityEl) {
-    if (window.matchMedia('(orientation: landscape)').matches) {
-      railColumn.prepend(localActivityEl)
-    } else {
-      paneIdle.prepend(localActivityEl)
-    }
-  }
-
   const stationCapture = document.createElement('div')
   stationCapture.className = 'station-capture'
   stationCapture.append(paneIdle, paneThinking, paneReview, paneList, railColumn)
@@ -266,6 +258,26 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
       : `<div class="station-empty">No favourites saved yet</div>`
   }
 
+  // ── Controls tab: local device controls (now-playing etc), summoned
+  // on demand rather than sat permanently in the idle rail — see
+  // localActivity.js for what actually lives inside localActivityEl. On
+  // a general (non-satellite) deployment localActivityEl still exists
+  // (main.js always creates it) but its GET /api/status 404s immediately,
+  // so the tab renders empty rather than being hidden outright — one less
+  // conditional to keep in sync with a state that can only be known async. ──
+  const controlsTab = document.createElement('div')
+  controlsTab.className = 'station-tabpanel station-tabpanel--controls'
+  controlsTab.hidden = true
+  if (localActivityEl) controlsTab.append(localActivityEl)
+  // localActivityEl hides *itself* (see localActivity.js) once it knows
+  // there's nothing to show — no activity, or no satellite serving this
+  // page at all. This sibling only shows when that happens (CSS, keyed
+  // off .local-activity[hidden]) rather than the tab going blank.
+  const controlsEmpty = document.createElement('div')
+  controlsEmpty.className = 'station-empty station-controls-empty'
+  controlsEmpty.textContent = 'Nothing to control right now'
+  controlsTab.append(controlsEmpty)
+
   // ── Earlier tab: read-only audit trail ──
   const earlierTab = document.createElement('div')
   earlierTab.className = 'station-tabpanel station-tabpanel--earlier'
@@ -287,7 +299,7 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
   const tabsBar = document.createElement('div')
   tabsBar.className = 'station-tabs'
   const tabButtons = {}
-  for (const name of ['capture', 'favourites', 'earlier']) {
+  for (const name of ['capture', 'favourites', 'controls', 'earlier']) {
     const btn = document.createElement('button')
     btn.type = 'button'
     btn.className = 'station-tab'
@@ -302,6 +314,7 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
     tab = name
     captureTab.hidden = name !== 'capture'
     favTab.hidden = name !== 'favourites'
+    controlsTab.hidden = name !== 'controls'
     earlierTab.hidden = name !== 'earlier'
     for (const [n, btn] of Object.entries(tabButtons)) {
       btn.classList.toggle('station-tab--active', n === name)
@@ -511,7 +524,7 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
   // ── Assemble ──
   const body = document.createElement('div')
   body.className = 'station-body'
-  body.append(captureTab, favTab, earlierTab)
+  body.append(captureTab, favTab, controlsTab, earlierTab)
 
   const el = document.createElement('div')
   el.className = 'station'

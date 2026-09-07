@@ -105,6 +105,77 @@ export async function resolveLight({ room, action, brightness, color }) {
   return { room: match, action: normalizedAction, brightness: level, color: normalizedColor }
 }
 
+// Live room-level light state for the local controls panel — unlike
+// sonos.js's getStatus(), this is genuine ground truth read fresh off
+// Dirigera each call, not remembered intent: the hub has nothing to do
+// with lights being on/off, so there's no "last command we issued" to
+// track, and the client library exposes real device state directly.
+// Rooms with no lights (or with a Dirigera-known room that has since lost
+// its only light) are omitted rather than listed as always-off — nothing
+// there for the panel to control.
+//
+// commitLight() acts on a whole room at once (rooms.setAttributes is a
+// group operation), so the panel controls at room granularity too:
+// isOn is true if any light in the room is on (matches how flipping a
+// room's switch feels — "is anything on in here"), and brightness/color
+// come from the first light that has them, which is a simplification for
+// a room with genuinely mixed-state bulbs (rare in practice, and the
+// panel's own "set" always applies the same value to the whole room
+// anyway, so it can't represent per-bulb divergence either way).
+export async function getStatus() {
+  if (!accessToken) return { lights: [] }
+  try {
+    const client = await getClient()
+    const lights = await client.lights.list()
+    const byRoom = new Map()
+    for (const light of lights) {
+      if (!light.room) continue
+      if (!byRoom.has(light.room.id)) byRoom.set(light.room.id, [])
+      byRoom.get(light.room.id).push(light)
+    }
+    return {
+      lights: [...byRoom.entries()].map(([id, roomLights]) => {
+        const colorLight = roomLights.find(l => l.attributes.colorMode === 'color')
+        return {
+          room: { id, name: roomLights[0].room.name },
+          isOn: roomLights.some(l => l.attributes.isOn),
+          brightness: roomLights[0].attributes.lightLevel ?? null,
+          color: colorLight
+            ? hueSaturationToHex(colorLight.attributes.colorHue, colorLight.attributes.colorSaturation)
+            : null,
+        }
+      }),
+    }
+  } catch (err) {
+    // Hub unreachable, token revoked, etc — same "leave the panel as it
+    // was" treatment the frontend already gives a failed /api/status
+    // fetch, just one level down: report nothing rather than a stale or
+    // partial list.
+    return { lights: [], lightsError: err.message }
+  }
+}
+
+// Hue (0-359) + saturation (0-1) back to a 6-digit hex string — the exact
+// inverse of hexToHueSaturation below, for showing a room's current
+// colour as a swatch. Value/lightness is fixed at 1 (full), matching how
+// hexToHueSaturation discards brightness on the way in — this is "what
+// hue is the light set to," not a brightness-accurate render of the room.
+function hueSaturationToHex(hue, saturation) {
+  const s = saturation ?? 0
+  const c = s
+  const x = c * (1 - Math.abs(((hue / 60) % 2) - 1))
+  const m = 1 - c
+  let r = 0, g = 0, b = 0
+  if (hue < 60) [r, g, b] = [c, x, 0]
+  else if (hue < 120) [r, g, b] = [x, c, 0]
+  else if (hue < 180) [r, g, b] = [0, c, x]
+  else if (hue < 240) [r, g, b] = [0, x, c]
+  else if (hue < 300) [r, g, b] = [x, 0, c]
+  else [r, g, b] = [c, 0, x]
+  const toHex = (v) => Math.round((v + m) * 255).toString(16).padStart(2, '0')
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`
+}
+
 // Hex (sRGB, 0-255 per channel) to the hue (0-359) + saturation (0-1)
 // pair Dirigera's own API expects (colorHue/colorSaturation) — there's
 // no RGB attribute on the device, so this conversion happens here rather
