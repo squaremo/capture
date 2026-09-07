@@ -241,7 +241,12 @@ if (SATELLITES_ENABLED) {
     // lookup to run concurrently. See designs/matter-lighting.md.
     execute: async ({ target_house, room, action, brightness, color }) => {
       const resolved = await resolveLight({ houses: getHouses(), house: target_house, room, action, brightness, color })
-      return { target_house, ...resolved }
+      // control_light always references ${s1.brightness}/${s1.color}, even
+      // for a plain on/off with neither set — the satellite's resolve
+      // response only includes them when relevant, so default the keys in
+      // rather than let a missing key (as opposed to a null value) trip
+      // lookupRef's "unknown field" check.
+      return { target_house, brightness: null, color: null, ...resolved }
     },
   }
   TOOL_REGISTRY.control_light = {
