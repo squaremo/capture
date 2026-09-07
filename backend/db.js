@@ -21,11 +21,12 @@ db.exec(`
     plan_steps   TEXT,
     recalled_checklist_id TEXT,
     shopping_list_id TEXT,
+    due_at       TEXT,
     created_at   TEXT NOT NULL
   )
 `)
 // Migrations for columns added after the table already existed elsewhere.
-for (const column of ['pending_action TEXT', 'plan_progress TEXT', 'house TEXT', 'executed_action TEXT', 'plan_steps TEXT', 'recalled_checklist_id TEXT', 'shopping_list_id TEXT']) {
+for (const column of ['pending_action TEXT', 'plan_progress TEXT', 'house TEXT', 'executed_action TEXT', 'plan_steps TEXT', 'recalled_checklist_id TEXT', 'shopping_list_id TEXT', 'due_at TEXT']) {
   try {
     db.exec(`ALTER TABLE items ADD COLUMN ${column}`)
   } catch (err) {
@@ -90,14 +91,21 @@ export function getItem(id) {
   return row ? parseItem(row) : null
 }
 
-export function listItems({ status } = {}) {
-  const rows = status
-    ? db.prepare('SELECT * FROM items WHERE status = ? ORDER BY created_at DESC').all(status)
-    : db.prepare('SELECT * FROM items ORDER BY created_at DESC').all()
+// dueFrom/dueTo (both optional, both ISO 8601 strings, inclusive) filter on
+// due_at — the caller (server.js) computes what range "today" means, this
+// stays a plain range filter with no notion of "today" itself.
+export function listItems({ status, dueFrom, dueTo } = {}) {
+  const clauses = []
+  const values = []
+  if (status !== undefined) { clauses.push('status = ?'); values.push(status) }
+  if (dueFrom !== undefined) { clauses.push('due_at >= ?'); values.push(dueFrom) }
+  if (dueTo !== undefined) { clauses.push('due_at <= ?'); values.push(dueTo) }
+  const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''
+  const rows = db.prepare(`SELECT * FROM items ${where} ORDER BY created_at DESC`).all(...values)
   return rows.map(parseItem)
 }
 
-export function updateItem(id, { status, tags, action_result, pending_action, plan_progress, executed_action, plan_steps, text, recalled_checklist_id, shopping_list_id }) {
+export function updateItem(id, { status, tags, action_result, pending_action, plan_progress, executed_action, plan_steps, text, recalled_checklist_id, shopping_list_id, due_at }) {
   const fields = []
   const values = []
   if (text !== undefined)           { fields.push('text = ?');           values.push(text) }
@@ -110,6 +118,7 @@ export function updateItem(id, { status, tags, action_result, pending_action, pl
   if (plan_steps !== undefined)     { fields.push('plan_steps = ?');     values.push(plan_steps ? JSON.stringify(plan_steps) : null) }
   if (recalled_checklist_id !== undefined) { fields.push('recalled_checklist_id = ?'); values.push(recalled_checklist_id) }
   if (shopping_list_id !== undefined) { fields.push('shopping_list_id = ?'); values.push(shopping_list_id) }
+  if (due_at !== undefined)         { fields.push('due_at = ?');         values.push(due_at) }
   if (!fields.length) return getItem(id)
   values.push(id)
   db.prepare(`UPDATE items SET ${fields.join(', ')} WHERE id = ?`).run(...values)

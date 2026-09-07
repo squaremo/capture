@@ -57,7 +57,7 @@ app.post('/api/capture', async (req, reply) => {
       updateItem(item.id, { plan_progress: planProgress })
     },
   })
-    .then(({ status, tags, action_result, pending_action, plan_steps, text, recalled_checklist_id, shopping_list_id }) => {
+    .then(({ status, tags, action_result, pending_action, plan_steps, text, recalled_checklist_id, shopping_list_id, due_at }) => {
       // text is only present for save_checklist/add_to_shopping_list — it
       // rewrites the item's own text into a markdown task list (see
       // buildChecklistText() in claude.js). Every other tool leaves the
@@ -76,6 +76,7 @@ app.post('/api/capture', async (req, reply) => {
         ...(text !== undefined ? { text } : {}),
         ...(recalled_checklist_id !== undefined ? { recalled_checklist_id } : {}),
         ...(shopping_list_id !== undefined ? { shopping_list_id } : {}),
+        ...(due_at !== undefined ? { due_at } : {}),
       })
     })
     .catch(err => {
@@ -273,10 +274,21 @@ app.get('/api/version', async () => ({
 // file immediately, not just after a restart.
 app.get('/api/satellites', async () => listSatellites(getHouses()))
 
-// GET /api/items — list all items, optional ?status= filter
+// GET /api/items — list all items, optional ?status= and/or ?due=today filter.
+// "today" is resolved here, against the server's local time — this app is
+// single-household/self-hosted with no per-request timezone to reason
+// about — into a plain due_at range that listItems() just filters on.
 app.get('/api/items', async (req) => {
-  const { status } = req.query ?? {}
-  return listItems(status ? { status } : {}).map(withFormFields)
+  const { status, due } = req.query ?? {}
+  const filter = { ...(status ? { status } : {}) }
+  if (due === 'today') {
+    const start = new Date()
+    start.setHours(0, 0, 0, 0)
+    const end = new Date(start)
+    end.setDate(end.getDate() + 1)
+    Object.assign(filter, { dueFrom: start.toISOString(), dueTo: end.toISOString() })
+  }
+  return listItems(filter).map(withFormFields)
 })
 
 // GET /api/items/:id — get single item (used for polling)

@@ -50,6 +50,19 @@ describe('listItems', () => {
     expect(triagedItems.some(i => i.id === toTriage.id)).toBe(true)
   })
 
+  it('filters by due_at range', () => {
+    const dueToday = createItem('due today')
+    updateItem(dueToday.id, { due_at: '2026-09-07T09:00:00' })
+    const dueTomorrow = createItem('due tomorrow')
+    updateItem(dueTomorrow.id, { due_at: '2026-09-08T09:00:00' })
+    const noDueDate = createItem('no due date')
+
+    const today = listItems({ dueFrom: '2026-09-07T00:00:00', dueTo: '2026-09-08T00:00:00' })
+    expect(today.some(i => i.id === dueToday.id)).toBe(true)
+    expect(today.some(i => i.id === dueTomorrow.id)).toBe(false)
+    expect(today.some(i => i.id === noDueDate.id)).toBe(false)
+  })
+
   it('orders newest first', async () => {
     const a = createItem('order first')
     await new Promise(r => setTimeout(r, 2))

@@ -320,10 +320,12 @@ function buildSystemPrompt() {
   const houseNames = Object.keys(getHouses())
   return `You are the intent processor for a personal quick-capture app. The user has just captured a thought, note, task, or reminder.
 
+Current date/time: ${new Date().toISOString()}. Resolve any relative date/time in the capture ("tomorrow", "next Tuesday", "in an hour") against this.
+
 Resolve it by calling propose_plan with an ordered list of steps. Available tools:
 
 - save_to_inbox (terminal — ends the plan): args { action_result, tags }. A general note or task to triage later.
-- create_reminder (terminal): args { action_result, tags }. Something time-sensitive that should become a calendar event or reminder.
+- create_reminder (terminal): args { action_result, tags, due_at? }. Something time-sensitive that should become a calendar event or reminder. due_at is the resolved moment it's for, as a full ISO 8601 datetime (e.g. "2026-09-08T09:00:00") — set it whenever the capture gives enough to pin down a specific day (a time can be approximated, e.g. 09:00, when the capture only names a day). Leave it unset if the capture is time-sensitive in some vaguer sense with no actual day to resolve (e.g. "sometime soon").
 - flag_urgent (terminal): args { action_result, tags }. Something that needs immediate attention.
 - save_checklist (terminal): args { title?, items, tags }. Use when the capture lists actual items to build a reusable checklist or kit list from — e.g. "checklist for swimming: goggles, towel, costume, £2 for locker" or "school morning list: brush teeth, pack lunch, homework, water bottle". items is an array of short strings, one per line item, taken directly from the capture. title is a short optional name for the list (e.g. "Swimming kit"); leave it unset if the capture doesn't suggest one. Don't use this for a single one-off task or reminder — only when the capture is clearly building a list to be reused, not just noted once.
 - find_checklist (read-only — runs automatically, no approval needed): args { query }. Use when the capture just names an existing checklist with no items listed — e.g. "swimming checklist", "school list", "reset the shopping list" — meaning: bring that checklist back unchecked, don't build a new one. query is the checklist's name/topic as free text. Outputs: { found: boolean, item: { id, title } | null }.
@@ -485,7 +487,7 @@ export async function runProgram(steps, { house, onStep, overrides } = {}) {
         }
       }
 
-      const { action_result = 'Saved to inbox.', tags = [] } = args
+      const { action_result = 'Saved to inbox.', tags = [], due_at } = args
       let extra = {}
       if (def.extra) {
         try {
@@ -494,7 +496,11 @@ export async function runProgram(steps, { house, onStep, overrides } = {}) {
           throw new Error(`resolving "${step.tool}" failed: ${err.message}`)
         }
       }
-      return { status: def.status, tags, action_result, plan_steps: executedSteps, ...extra }
+      return {
+        status: def.status, tags, action_result, plan_steps: executedSteps,
+        ...(due_at !== undefined ? { due_at } : {}),
+        ...extra,
+      }
     }
 
     // readonly: run it now, bind its output for later steps to reference

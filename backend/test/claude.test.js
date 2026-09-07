@@ -43,6 +43,12 @@ describe('processCapture', () => {
     expect(result.tags).toEqual(['health'])
   })
 
+  it('carries a reminder\'s due_at through when Claude resolves one', async () => {
+    respondWithStep('create_reminder', { action_result: 'Reminder set.', tags: ['health'], due_at: '2026-09-08T09:00:00' })
+    const result = await processCapture('call dentist tomorrow at 9am')
+    expect(result.due_at).toBe('2026-09-08T09:00:00')
+  })
+
   it('maps flag_urgent → urgent', async () => {
     respondWithStep('flag_urgent', { action_result: 'Flagged as urgent.', tags: ['urgent'] })
     const result = await processCapture('server is down!')

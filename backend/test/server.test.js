@@ -27,7 +27,7 @@ vi.mock('../integrations/satellite.js', () => ({
 }))
 
 import { app } from '../server.js'
-import { createFavourite } from '../db.js'
+import { createFavourite, createItem, updateItem } from '../db.js'
 
 beforeEach(() => {
   mockProcessCapture.mockClear()
@@ -193,6 +193,19 @@ describe('GET /api/items', () => {
     expect(reply.statusCode).toBe(200)
     const items = reply.json()
     expect(items.every(i => i.status === 'pending')).toBe(true)
+  })
+
+  it('filters by ?due=today', async () => {
+    const dueToday = createItem('due today item')
+    updateItem(dueToday.id, { due_at: new Date().toISOString() })
+    const dueNextYear = createItem('due next year item')
+    updateItem(dueNextYear.id, { due_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString() })
+
+    const reply = await app.inject({ method: 'GET', url: '/api/items?due=today' })
+    expect(reply.statusCode).toBe(200)
+    const ids = reply.json().map(i => i.id)
+    expect(ids).toContain(dueToday.id)
+    expect(ids).not.toContain(dueNextYear.id)
   })
 })
 
