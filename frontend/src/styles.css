@@ -1064,6 +1064,7 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 }
 
 [data-density="station"] .station-tabpanel--favourites,
+[data-density="station"] .station-tabpanel--controls,
 [data-density="station"] .station-tabpanel--earlier {
   padding: var(--space-4);
   overflow-y: auto;
@@ -1098,22 +1099,20 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   border-bottom: none;
 }
 
-/* The rail column holds now-playing (fixed, top) above the scrollable
-   favourites rail — see the Now-playing entry in CLAUDE.md's Station
-   section and the DOM move in station.js/main.js. In portrait there's no
-   rail at all, so now-playing stays inside station-pane--idle instead
-   (see station.js) and this column never renders. */
+/* The rail column holds the favourites rail (recall-and-replay). Local
+   device controls (now-playing etc) live behind their own bottom tab
+   instead — see the Controls tab entry in station.js — summoned on
+   demand rather than sat permanently in view. */
 [data-density="station"] .station-rail-column {
   display: flex;
   flex-direction: column;
   min-height: 0;
 }
 
-[data-density="station"] .station-rail-column .local-activity {
-  flex-shrink: 0;
-  padding: var(--space-4);
+[data-density="station"] .station-tabpanel--controls .local-activity {
+  padding: 0;
   margin: 0;
-  border-bottom: var(--rule) solid var(--border);
+  border-bottom: none;
 }
 
 [data-density="station"] .local-activity-row {
@@ -1364,6 +1363,12 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   text-align: center;
   padding: var(--space-6) 0;
 }
+
+/* Shown only once localActivity.js has decided there's genuinely nothing
+   to display (see the comment in station.js) — hidden the rest of the
+   time so it doesn't flash before that first GET /api/status resolves. */
+[data-density="station"] .station-controls-empty { display: none; }
+[data-density="station"] .local-activity[hidden] + .station-controls-empty { display: block; }
 
 /* Rail: reuses .favourites (see favourites.js's createFavouritesRail) —
    these rules are the layout on top of it. */
