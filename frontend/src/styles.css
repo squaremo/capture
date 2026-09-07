@@ -498,31 +498,80 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   color: var(--text-dim);
 }
 
-/* ── Checklist (item.status === 'checklist') ─────────────────
-   Text IS a markdown task list — see parseChecklist()/renderChecklist()
-   in item.js — so this just renders real checkboxes over parsed lines.
-   Reused as-is by the shopping list (item.status === 'shopping_list'),
-   which renders the same markup via renderShoppingList(). */
+/* ── Lists ───────────────────────────────────────────────────
+   Two kinds, one surface. A checklist (item.status === 'checklist') is a
+   fixed kit you tick and reset; a shopping list ('shopping_list') is
+   built up across many captures and "done shopping" removes what you
+   ticked from the shared text. They render identical markup — see
+   renderChecklist()/renderShoppingList() in item.js — so everything
+   below is shared, and only the footer's button differs.
+
+   A row is a rule and a box, not a card: the same treatment as .item
+   above, at a size you can hit with a thumb in a shop. --tap sets the
+   row height, so the station's 48px comes from [data-density] free. */
 .checklist {
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 0;
+  margin-top: var(--space-1);
 }
+
+.checklist-item {
+  border-top: var(--rule) solid var(--border-mid);
+}
+.checklist-item:first-child { border-top: none; }
 
 .checklist-item label {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--tap);
+  padding: var(--space-1) 0;
   cursor: pointer;
 }
 
+/* The native box can't be squared off or recoloured to a signal role,
+   and it is too small to hit — so it is drawn here instead, from the
+   same tokens as everything else. */
 .checklist-item input[type="checkbox"] {
-  margin-top: 2px;
-  accent-color: var(--sig-think);
+  appearance: none;
+  -webkit-appearance: none;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  background: transparent;
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
   cursor: pointer;
 }
+.checklist-item input[type="checkbox"]:hover { border-color: var(--text-dim); }
 
+.checklist-item input[type="checkbox"]:checked {
+  background: var(--sig-done);
+  border-color: var(--sig-done);
+  /* The tick, drawn rather than typed, so it centres at any size. */
+  background-image:
+    linear-gradient(45deg, transparent 45%, var(--on-signal) 45%, var(--on-signal) 57%, transparent 57%),
+    linear-gradient(-45deg, transparent 62%, var(--on-signal) 62%, var(--on-signal) 74%, transparent 74%);
+  background-size: 62% 62%, 42% 42%;
+  background-position: 58% 62%, 26% 64%;
+  background-repeat: no-repeat;
+}
+
+.checklist-item span {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-lead);
+  line-height: var(--lh-tight);
+  word-break: break-word;
+}
+
+/* A ticked row stays where it is — a list that reorders under your thumb
+   mid-shop is worse than a long one — and goes quiet instead. On a
+   shopping list this is the "about to remove" state, not a done state,
+   which is why it reads as struck-out ink and never as a signal. */
 .checklist-item--checked span {
   color: var(--text-dim);
   text-decoration: line-through;
@@ -532,29 +581,43 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-top: 4px;
+  gap: var(--space-3);
+  border-top: var(--rule) solid var(--border-mid);
+  padding-top: var(--space-2);
+  margin-top: var(--space-1);
 }
 
 .checklist-count {
   font-size: var(--fs-label);
+  font-weight: 700;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
   color: var(--text-dim);
 }
 
+/* "reset" unticks a checklist and keeps the kit; "done shopping" commits
+   the marks and drops those lines everywhere. Same position, same
+   weight — neither is ever the loud thing on screen, and the shopping
+   one is disabled until something is actually marked. */
 .btn-checklist-reset,
 .btn-checklist-done {
   background: transparent;
   color: var(--text-dim);
   font-size: var(--fs-label);
-  padding: 2px 8px;
-  border: 1px solid var(--border);
+  font-weight: 700;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  min-height: var(--tap);
+  padding: 0 var(--space-3);
+  border: var(--rule) solid var(--border);
 }
 .btn-checklist-reset:hover, .btn-checklist-done:hover { color: var(--text); border-color: var(--text-dim); }
 .btn-checklist-done:disabled { opacity: 0.4; cursor: default; }
 
 .checklist-empty {
-  font-size: var(--fs-label);
-  font-style: italic;
+  font-size: var(--fs-body);
   color: var(--text-dim);
+  padding: var(--space-3) 0;
   margin: 0;
 }
 
