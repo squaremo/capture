@@ -294,15 +294,22 @@ export function renderForm(fields) {
 // dragging a light's brightness should look like dragging a speaker's
 // volume, since they're the same gesture on the same kind of value.
 // brightness arrives as a bare 0-100 number today, not a "35%" string, so
-// it's matched by field name too; a real percent/Kelvin *string* (from a
-// tool that formats its own values, or once the backend sends a type per
-// field — see getFormFields() in claude.js) is matched on sight either way.
+// it's matched by field name too — as a bare numeral, not just a typed
+// JS number: a favourite's saved plan_steps can hold brightness as a
+// numeral *string* ("20") rather than a number, since propose_plan's args
+// field is untyped and Claude's output isn't guaranteed to type it (see
+// normalizeBrightness() in claude.js), and that string was rendering as a
+// plain text box instead of a slider. A real percent/Kelvin *string*
+// (from a tool that formats its own values, or once the backend sends a
+// type per field — see getFormFields() in claude.js) is matched on sight
+// either way.
 const PERCENT_RE = /^\d+%$/
 const KELVIN_RE = /^\d+k$/i
+const BARE_NUMBER_RE = /^\d+$/
 
 function sniffSlider(f) {
   const str = String(f.value)
-  if (PERCENT_RE.test(str) || (f.field === 'brightness' && typeof f.value === 'number')) {
+  if (PERCENT_RE.test(str) || (f.field === 'brightness' && BARE_NUMBER_RE.test(str))) {
     return { min: 0, max: 100, step: 1, numeric: parseInt(str, 10), suffix: '%' }
   }
   if (KELVIN_RE.test(str)) {
