@@ -1,13 +1,28 @@
+// One map from status to a *role*, not a colour — see theme.css. The
+// role name is the whole point: 'awaiting_approval' is amber because it is
+// waiting on you, not because amber looked right, so a theme change can
+// move every waiting-on-you signal at once without touching this file.
 const STATUS_LABELS = {
-  pending:           { label: 'pending',   color: 'var(--text-dim)' },
-  triaged:           { label: 'triaged',   color: 'var(--blue)' },
-  reminder:          { label: 'reminder',  color: 'var(--amber)' },
-  urgent:            { label: 'urgent',    color: 'var(--red)' },
-  awaiting_approval: { label: 'review',    color: 'var(--amber)' },
-  acted:             { label: 'acted',     color: 'var(--accent)' },
-  vetoed:            { label: 'vetoed',    color: 'var(--text-dim)' },
-  failed:            { label: 'failed',    color: 'var(--red)' },
-  checklist:         { label: 'checklist', color: 'var(--blue)' },
+  pending:           { label: 'pending',   role: 'think' },
+  triaged:           { label: 'triaged',   role: 'think' },
+  reminder:          { label: 'reminder',  role: 'need' },
+  urgent:            { label: 'urgent',    role: 'fail' },
+  awaiting_approval: { label: 'review',    role: 'need' },
+  acted:             { label: 'acted',     role: 'done' },
+  vetoed:            { label: 'vetoed',    role: 'muted' },
+  failed:            { label: 'failed',    role: 'fail' },
+  checklist:         { label: 'checklist', role: 'think' },
+}
+
+// Roles resolve to CSS variables at render time. 'muted' is deliberately
+// not a signal: a vetoed item is finished business, so it stays ink.
+const ROLE_VARS = {
+  act:   'var(--sig-act)',
+  need:  'var(--sig-need)',
+  done:  'var(--sig-done)',
+  think: 'var(--sig-think)',
+  fail:  'var(--sig-fail)',
+  muted: 'var(--text-dim)',
 }
 
 // A checklist item's text IS a markdown task list (see save_checklist in
@@ -83,17 +98,20 @@ export function createItemEl(item) {
   const el = document.createElement('li')
   el.className = `item item--${item.status}`
   el.dataset.id = item.id
+  el.dataset.role = STATUS_LABELS[item.status]?.role ?? 'muted'
   el.innerHTML = renderItem(item)
   return el
 }
 
 export function updateItemEl(el, item) {
   el.className = `item item--${item.status}`
+  el.dataset.role = STATUS_LABELS[item.status]?.role ?? 'muted'
   el.innerHTML = renderItem(item)
 }
 
 function renderItem(item) {
-  const { label, color } = STATUS_LABELS[item.status] ?? STATUS_LABELS.pending
+  const { label, role } = STATUS_LABELS[item.status] ?? STATUS_LABELS.pending
+  const color = ROLE_VARS[role] ?? ROLE_VARS.muted
   const isPending = item.status === 'pending'
   const isAwaitingApproval = item.status === 'awaiting_approval'
   const isChecklist = item.status === 'checklist'
@@ -109,7 +127,7 @@ function renderItem(item) {
   return `
     <div class="item-body">
       <span class="item-text">${escHtml(isChecklist ? (checklist.title || 'Checklist') : item.text)}</span>
-      <span class="item-status" style="color:${color}">${label}</span>
+      <span class="item-status" data-role="${role}">${label}</span>
     </div>
     ${steps.length
       ? `<ul class="item-steps">${steps.map(s => `<li><span class="item-step-check">✓</span>${escHtml(s.label)}</li>`).join('')}</ul>`
@@ -118,7 +136,7 @@ function renderItem(item) {
     ${!isChecklist && isPending
       ? `<div class="item-shimmer"></div>`
       : !isChecklist && item.action_result
-        ? `<div class="item-result" style="border-color:${color}">
+        ? `<div class="item-result" data-role="${role}">
             <span class="item-result-text">${escHtml(item.action_result)}</span>
             ${isFavouritable
               ? `<button class="btn-favourite" data-action="favourite" title="Save as favourite" aria-label="Save as favourite">☆</button>`
@@ -174,8 +192,44 @@ export function renderForm(fields) {
   return `<div class="action-form">${fields.map(renderField).join('')}</div>`
 }
 
+// The control follows what the value looks like, not the field name —
+// dragging a light's brightness should look like dragging a speaker's
+// volume, since they're the same gesture on the same kind of value.
+// brightness arrives as a bare 0-100 number today, not a "35%" string, so
+// it's matched by field name too; a real percent/Kelvin *string* (from a
+// tool that formats its own values, or once the backend sends a type per
+// field — see getFormFields() in claude.js) is matched on sight either way.
+const PERCENT_RE = /^\d+%$/
+const KELVIN_RE = /^\d+k$/i
+
+function sniffSlider(f) {
+  const str = String(f.value)
+  if (PERCENT_RE.test(str) || (f.field === 'brightness' && typeof f.value === 'number')) {
+    return { min: 0, max: 100, step: 1, numeric: parseInt(str, 10), suffix: '%' }
+  }
+  if (KELVIN_RE.test(str)) {
+    return { min: 1800, max: 4000, step: 100, numeric: parseInt(str, 10), suffix: 'K' }
+  }
+  return null
+}
+
 function renderField(f) {
   const value = escHtml(String(f.value))
+  const slider = f.type !== 'color' && f.type !== 'textarea' ? sniffSlider(f) : null
+
+  if (slider) {
+    return `
+      <div class="action-form-field">
+        <div class="action-form-label-row">
+          <span class="action-form-label">${escHtml(f.label)}</span>
+          <span class="action-form-value">${slider.numeric}${slider.suffix}</span>
+        </div>
+        <input type="range" min="${slider.min}" max="${slider.max}" step="${slider.step}"
+          data-step="${escHtml(f.step)}" data-field="${escHtml(f.field)}" value="${slider.numeric}">
+      </div>
+    `
+  }
+
   const inputType = f.type === 'number' ? 'number' : f.type === 'color' ? 'color' : 'text'
   const control = f.type === 'textarea'
     ? `<textarea data-step="${escHtml(f.step)}" data-field="${escHtml(f.field)}" rows="2">${value}</textarea>`
@@ -213,7 +267,7 @@ export function escHtml(str) {
     .replace(/"/g, '&quot;')
 }
 
-function relativeTime(ts) {
+export function relativeTime(ts) {
   const diff = Date.now() - new Date(ts).getTime()
   const s = Math.floor(diff / 1000)
   if (s < 60) return 'just now'

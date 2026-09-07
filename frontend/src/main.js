@@ -4,6 +4,8 @@ import { createInbox } from './components/inbox.js'
 import { createVersionInfo } from './components/versionInfo.js'
 import { createFavouritesSidebar } from './components/favourites.js'
 import { createLocalActivity } from './components/localActivity.js'
+import { createStationShell } from './components/station.js'
+import { createThemePicker } from './themes.js'
 import { loadConfig } from './config.js'
 import {
   configureApi, postCapture, getItem, getItems, approveItem, vetoItem, getVersion, getSatellites,
@@ -23,6 +25,18 @@ async function init() {
   const config = await loadConfig()
   configureApi(config)
 
+  // index.html's inline pre-paint script already guessed data-density from
+  // the ?station query param, since it has to run before this config fetch
+  // resolves — reconcile it here now that a satellite can answer with its
+  // own real isStation (see /config.json), which wins over a stray/missing
+  // query param either way. Only matters when the two disagree; otherwise
+  // this is a no-op and there's no flash.
+  if (config.isStation) {
+    document.documentElement.dataset.density = 'station'
+  } else {
+    delete document.documentElement.dataset.density
+  }
+
   const app = document.getElementById('app')
 
   // ── Header ────────────────────────────────────────────────
@@ -36,6 +50,11 @@ async function init() {
   vpnBadge.textContent = 'tailscale'
 
   const versionInfo = createVersionInfo()
+
+  // Theme lives in the info panel — a rare, deliberate change, not header
+  // status. The theme itself is already applied (index.html, pre-paint).
+  const themePicker = createThemePicker()
+  versionInfo.panelExtrasEl.append(themePicker.el)
 
   const headerBadges = document.createElement('div')
   headerBadges.className = 'header-badges'
@@ -62,12 +81,65 @@ async function init() {
       const updated = await action()
       inbox.updateItem(updated)
       updateStats()
+      if (config.isStation) {
+        stationUpdateItem(updated, id)
+        settleStationItem(updated)
+      }
     } catch (err) {
       console.error(err)
     } finally {
       inFlight.delete(id)
     }
   }
+
+  // ── Local device activity (satellite-served pages only) ────
+  // Created here, ahead of station below, since station.js reparents its
+  // element into the rail (landscape) at construction time — it has to
+  // exist first. See the Now-playing entry in CLAUDE.md's Station section.
+  const localActivity = createLocalActivity()
+
+  // ── Station (wall-mounted panel) ───────────────────────────
+  // One thing at a time instead of the phone/laptop's always-visible
+  // inbox — see station.js and CLAUDE.md's Station flow entry. `inbox`
+  // above still exists and is kept up to date in station mode (its
+  // element is simply never appended to the page — see Assemble below),
+  // so this is purely additive: everything above is untouched, station
+  // is just another view onto the same handlers and API calls.
+  let stationItems = []
+
+  function stationAddItem(item) {
+    stationItems.unshift(item)
+    station.setLog(stationItems)
+  }
+
+  function stationUpdateItem(updated, matchId = updated.id) {
+    const idx = stationItems.findIndex(i => i.id === matchId)
+    if (idx === -1) stationItems.unshift(updated)
+    else stationItems[idx] = updated
+    station.setLog(stationItems)
+  }
+
+  // Resolution routes to the review pane when the item is awaiting a
+  // decision; anything else returns to idle with a flash (or the
+  // persistent failure bar) and is logged in the Earlier tab.
+  function settleStationItem(item) {
+    if (item.status === 'awaiting_approval') {
+      station.setMode('review', item)
+      return
+    }
+    station.setMode('idle')
+    if (item.status === 'failed') station.setFailure(item)
+    else if (item.action_result) station.setFlash(item.action_result)
+  }
+
+  const station = config.isStation ? createStationShell({
+    defaultHouse: config.defaultHouse,
+    localActivityEl: localActivity.el,
+    onSubmit: (text, house) => submitCapture(text, house),
+    onApprove: (id, overrides) => handleDecision(id, () => approveItem(id, overrides)),
+    onVeto: (id) => handleDecision(id, () => vetoItem(id)),
+    onReplay: (id, overrides) => handleFavouriteRun(id, overrides),
+  }) : null
 
   // ── Favourites ────────────────────────────────────────────
   // A favourite freezes one already-executed tool call (star it once, from a
@@ -104,6 +176,10 @@ async function init() {
       const item = await runFavourite(favouriteId, overrides)
       inbox.addItem(item) // shows up in the resolved section, same as any other capture
       updateStats()
+      if (config.isStation) {
+        stationAddItem(item)
+        settleStationItem(item)
+      }
       // A successful run can change the favourite itself now (see
       // POST /api/favourites/:id/run) — its label/input become whatever
       // just ran, so re-fetch rather than leave the sidebar showing the
@@ -131,6 +207,7 @@ async function init() {
     try {
       favourites = await getFavourites()
       favouritesSidebar.render(favourites)
+      if (config.isStation) station.setFavourites(favourites)
     } catch {
       // Backend not available yet — leave the sidebar hidden
     }
@@ -147,35 +224,54 @@ async function init() {
   // ── Capture input ─────────────────────────────────────────
   const captureInput = createCaptureInput({
     defaultHouse: config.defaultHouse,
-    onSubmit: async (text, house) => {
-      // Optimistic: add pending item immediately
-      const optimistic = {
-        id: `pending-${Date.now()}`,
-        text,
-        status: 'pending',
-        action_result: null,
-        created_at: new Date().toISOString(),
-      }
-      inbox.addItem(optimistic)
-      updateStats()
-
-      try {
-        const saved = await postCapture(text, house)
-        // Replace optimistic item with the real one — saved.id is the
-        // server-assigned id, different from optimistic.id, so the lookup
-        // needs to match on the old id while storing/rendering the new one.
-        inbox.updateItem(saved, optimistic.id)
-        updateStats()
-
-        // Poll for resolution (backend processes async)
-        pollForResolution(saved.id)
-      } catch (err) {
-        inbox.updateItem({ ...optimistic, status: 'failed', action_result: 'Failed to reach server.' }, optimistic.id)
-        updateStats()
-        console.error(err)
-      }
-    }
+    onSubmit: (text, house) => submitCapture(text, house),
   })
+
+  // Shared by the phone/laptop capture field above and the station's own
+  // (see station.js's createCaptureInput instance) — station calls this
+  // with no house, since there's no house chooser on the panel.
+  async function submitCapture(text, house) {
+    // Optimistic: add pending item immediately
+    const optimistic = {
+      id: `pending-${Date.now()}`,
+      text,
+      status: 'pending',
+      action_result: null,
+      created_at: new Date().toISOString(),
+    }
+    inbox.addItem(optimistic)
+    updateStats()
+    if (config.isStation) {
+      stationAddItem(optimistic)
+      station.setMode('thinking', { item: optimistic })
+    }
+
+    try {
+      const saved = await postCapture(text, house)
+      // Replace optimistic item with the real one — saved.id is the
+      // server-assigned id, different from optimistic.id, so the lookup
+      // needs to match on the old id while storing/rendering the new one.
+      inbox.updateItem(saved, optimistic.id)
+      updateStats()
+      if (config.isStation) {
+        stationUpdateItem(saved, optimistic.id)
+        station.setMode('thinking', { item: saved })
+      }
+
+      // Poll for resolution (backend processes async)
+      pollForResolution(saved.id)
+    } catch (err) {
+      const failed = { ...optimistic, status: 'failed', action_result: 'Failed to reach server.' }
+      inbox.updateItem(failed, optimistic.id)
+      updateStats()
+      if (config.isStation) {
+        stationUpdateItem(failed, optimistic.id)
+        station.setFailure(failed)
+        station.setMode('idle')
+      }
+      console.error(err)
+    }
+  }
 
   // ── Poll until item leaves pending state ──────────────────
   // A generous budget: ~40 attempts at up to 5s apart is a few minutes total,
@@ -197,6 +293,11 @@ async function init() {
         const item = await getItem(id)
         inbox.updateItem(item)
         updateStats()
+        if (config.isStation) {
+          stationUpdateItem(item, id)
+          if (item.status === 'pending') station.setMode('thinking', { item })
+          else settleStationItem(item)
+        }
         const progress = item.plan_progress?.length ?? 0
         if (item.status === 'pending') {
           pollForResolution(id, progress > lastProgress ? 0 : attempts + 1, progress)
@@ -213,6 +314,16 @@ async function init() {
       const items = await getItems()
       inbox.setItems(items)
       updateStats()
+      if (config.isStation) {
+        stationItems = items
+        station.setLog(stationItems)
+        // Anything still awaiting a decision from before a panel reboot
+        // is still awaiting_approval server-side (see CLAUDE.md's Station
+        // flow open questions) — surfaced as waiting rather than dropped
+        // straight into review, so reopening the app is never itself a
+        // decision you're forced into.
+        station.setWaiting(items.filter(i => i.status === 'awaiting_approval'))
+      }
     } catch {
       // Backend not available yet — start with empty inbox
       updateStats()
@@ -234,13 +345,11 @@ async function init() {
       const satellites = await getSatellites()
       versionInfo.renderSatellites(satellites)
       captureInput.setHouses(satellites)
+      if (config.isStation) station.setHouses(satellites)
     } catch {
       // Backend not available yet, or no satellites configured — leave blank
     }
   }
-
-  // ── Local device activity (satellite-served pages only) ────
-  const localActivity = createLocalActivity()
 
   // ── Assemble ──────────────────────────────────────────────
   // The favourites sidebar sits alongside the capture/inbox column — a real
@@ -248,13 +357,27 @@ async function init() {
   // stacks above it on a narrow one, since this app is phone-first.
   const main = document.createElement('div')
   main.className = 'main-column'
-  main.append(localActivity.el, captureInput.el, inbox.el)
+  main.append(captureInput.el, inbox.el)
+  // localActivity.el already lives inside station's own tree in station
+  // mode (see createStationShell above) — appending it here too would
+  // just steal it back, since a DOM node can only have one parent.
+  if (!config.isStation) main.prepend(localActivity.el)
 
   const layout = document.createElement('div')
   layout.className = 'layout'
   layout.append(favouritesSidebar.el, main)
 
-  app.append(header, layout, stats, versionInfo.footerEl)
+  // The station gets the wall-mounted, one-thing-at-a-time shell instead
+  // of the phone/laptop layout — see station.js. `inbox`/`captureInput`/
+  // `favouritesSidebar`/`localActivity`/`stats` above still exist and stay
+  // updated in station mode (harmless — they're just never appended to
+  // the page), so the API calls and decision logic above didn't need
+  // restructuring, only the extra `station.*` calls alongside them.
+  if (config.isStation) {
+    app.append(header, station.el)
+  } else {
+    app.append(header, layout, stats, versionInfo.footerEl)
+  }
   loadItems()
   loadVersion()
   loadSatellites()

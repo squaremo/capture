@@ -1,4 +1,4 @@
-import { escHtml, renderForm, collectFormOverrides } from './item.js'
+import { escHtml, renderForm, collectFormOverrides, relativeTime } from './item.js'
 
 // The sidebar of saved favourites (see GET /api/favourites) — each one a
 // saved program (see plan_steps/form_fields on the backend) that replays
@@ -86,6 +86,96 @@ export function createFavouritesSidebar({ onRun, onDelete } = {}) {
     const item = list.querySelector(`[data-id="${id}"]`)
     if (!item) return
     item.querySelectorAll('.favourite-run, .favourite-confirm').forEach(btn => { btn.disabled = running })
+  }
+
+  return { el: aside, render, setRunning }
+}
+
+// The station's right-rail variant (idle mode, landscape only — see
+// station.js): five rows instead of the full list, and a run count/time
+// alongside the label rather than an inline dropdown per row. Tapping the
+// pencil doesn't open a form under that one row — it replaces the whole
+// rail with a single editor, since there's no room for a second column
+// beside it on the panel. Reuses the same `.action-form`/renderForm()
+// fields and the same onRun(id, overrides) replay path as the sidebar —
+// this is a layout difference, not a new capability. There is no "save
+// without running" here: the backend has no such endpoint, and running
+// with edited inputs is already what persists them as the new defaults
+// (see updateFavourite() in db.js) — so the editor only offers run-now
+// and cancel, not a separate save.
+export function createFavouritesRail({ onRun, onOpenAll, onEdit } = {}) {
+  const aside = document.createElement('aside')
+  aside.className = 'favourites station-rail'
+
+  let favourites = []
+  let editingId = null
+
+  function render(list) {
+    favourites = list
+    if (editingId && !favourites.some(f => f.id === editingId)) editingId = null
+    editingId ? renderEditor() : renderList()
+  }
+
+  function renderList() {
+    const recent = favourites.slice(0, 5)
+    aside.innerHTML = `
+      <div class="station-rail-head">
+        <span class="station-rail-heading">recent</span>
+        <button type="button" class="station-rail-link" data-action="open-all">all ${favourites.length} saved</button>
+      </div>
+      <ul class="station-rail-list">
+        ${recent.map(fav => `
+          <li class="station-rail-row" data-id="${fav.id}">
+            <button type="button" class="favourite-run station-rail-run" data-action="run" title="Run again, exactly as before">${escHtml(fav.label)}</button>
+            <span class="station-rail-time">${relativeTime(fav.created_at)}</span>
+            ${(fav.form_fields ?? []).length
+              ? `<button type="button" class="favourite-edit" data-action="edit" title="Edit before running" aria-label="Edit before running">&#9998;</button>`
+              : ''}
+          </li>
+        `).join('')}
+      </ul>
+    `
+  }
+
+  function renderEditor() {
+    const fav = favourites.find(f => f.id === editingId)
+    if (!fav) {
+      editingId = null
+      return renderList()
+    }
+    aside.innerHTML = `
+      <div class="station-rail-head">
+        <span class="station-rail-heading" data-role="act">editing</span>
+      </div>
+      <div class="station-rail-editor-title">${escHtml(fav.label)}</div>
+      <div class="station-rail-editor-fields">${renderForm(fav.form_fields ?? [])}</div>
+      <div class="station-rail-editor-actions">
+        <button type="button" class="btn-approve" data-action="confirm">run now</button>
+        <button type="button" class="btn-veto" data-action="cancel">&times;</button>
+      </div>
+    `
+  }
+
+  aside.addEventListener('click', (e) => {
+    if (e.target.closest('[data-action="open-all"]')) return onOpenAll?.()
+    const row = e.target.closest('[data-id]')
+    const id = row?.dataset.id ?? editingId
+    if (e.target.closest('[data-action="edit"]')) {
+      editingId = id
+      onEdit?.(id)
+      return renderEditor()
+    }
+    if (e.target.closest('[data-action="cancel"]')) {
+      editingId = null
+      onEdit?.(null)
+      return renderList()
+    }
+    if (e.target.closest('[data-action="confirm"]')) return onRun?.(id, collectFormOverrides(aside))
+    if (e.target.closest('[data-action="run"]')) return onRun?.(id)
+  })
+
+  function setRunning(running) {
+    aside.querySelectorAll('.station-rail-run, [data-action="confirm"]').forEach(btn => { btn.disabled = running })
   }
 
   return { el: aside, render, setRunning }
