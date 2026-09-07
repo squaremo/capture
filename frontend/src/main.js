@@ -150,7 +150,7 @@ async function init() {
     }
     station.setMode('idle')
     if (item.status === 'failed') station.setFailure(item)
-    else if (item.action_result) station.setFlash(item.action_result)
+    else if (item.action_result) station.setFlash(item)
   }
 
   const station = config.isStation ? createStationShell({
@@ -163,6 +163,7 @@ async function init() {
     onApprove: (id, overrides) => handleDecision(id, () => approveItem(id, overrides)),
     onVeto: (id) => handleDecision(id, () => vetoItem(id)),
     onReplay: (id, overrides) => handleFavouriteRun(id, overrides),
+    onFavourite: (id) => handleFavourite(id),
   }) : null
 
   async function handleShoppingListUpdated(id) {
@@ -193,6 +194,7 @@ async function init() {
       favourites.unshift(favourite)
       favouritesSidebar.render(favourites)
       inbox.markFavourited(itemId)
+      if (config.isStation) station.markFavourited(itemId)
     } catch (err) {
       console.error(err)
     } finally {

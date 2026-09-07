@@ -29,7 +29,7 @@ const TOOL_LABELS = {
   control_light: 'will control lights',
 }
 
-export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEditFavourite, onListTextChange, defaultHouse, localActivityEl } = {}) {
+export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEditFavourite, onFavourite, onListTextChange, defaultHouse, localActivityEl } = {}) {
   let tab = 'capture'      // 'capture' | 'favourites' | 'earlier'
   let mode = 'idle'        // 'idle' | 'thinking' | 'review' | 'list'
   let active = null        // the item 'thinking'/'review'/'list' is about
@@ -319,14 +319,47 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
   flashEl.className = 'station-flash'
   flashEl.hidden = true
 
-  function setFlash(text) {
+  // Mirrors item.js's isFavouritable check for the ☆ on a resolved item's
+  // result strip — only an 'acted' item with an executed_action has a
+  // { tool, input } to freeze into a favourite.
+  function setFlash(item) {
     clearTimeout(flashTimer)
-    if (!text) {
+    if (!item) {
       flashEl.hidden = true
       return
     }
-    flashEl.innerHTML = `<span class="station-flash-check">&#10003;</span><span class="station-flash-text">${escHtml(text)}</span>`
+    const isFavouritable = item.status === 'acted' && Boolean(item.executed_action)
+    flashEl.innerHTML = `
+      <span class="station-flash-check">&#10003;</span>
+      <span class="station-flash-text">${escHtml(item.action_result)}</span>
+      ${isFavouritable
+        ? `<button type="button" class="btn-favourite station-flash-favourite" data-action="favourite" data-id="${item.id}" title="Save as favourite" aria-label="Save as favourite">☆</button>`
+        : ''}
+    `
     flashEl.hidden = false
+    // A favouritable flash stays up until starred (or replaced by the next
+    // flash/capture) instead of auto-hiding after 3s — tapping a star on a
+    // wall panel needs longer than a glance affords.
+    if (!isFavouritable) {
+      flashTimer = setTimeout(() => { flashEl.hidden = true }, 3000)
+    }
+  }
+
+  flashEl.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-action="favourite"]')
+    if (!btn) return
+    onFavourite?.(btn.dataset.id)
+  })
+
+  // Called after a successful POST .../favourite — swaps the flash's own
+  // star to a filled, disabled state (same treatment as inbox.js's
+  // markFavourited) and lets the flash auto-hide now that it's done its job.
+  function markFavourited(itemId) {
+    const btn = flashEl.querySelector(`[data-action="favourite"][data-id="${itemId}"]`)
+    if (!btn) return
+    btn.textContent = '★'
+    btn.disabled = true
+    btn.title = 'Saved as favourite'
     flashTimer = setTimeout(() => { flashEl.hidden = true }, 3000)
   }
 
@@ -512,6 +545,7 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
     openList,
     setWaiting(list) { waiting = [...list]; renderWaitingBadge() },
     setFlash,
+    markFavourited,
     setFailure,
     setFavourites(list) { rail.render(list); renderFavGrid(list) },
     setLog: setItems,
