@@ -275,7 +275,7 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
   // off .local-activity[hidden]) rather than the tab going blank.
   const controlsEmpty = document.createElement('div')
   controlsEmpty.className = 'station-empty station-controls-empty'
-  controlsEmpty.textContent = 'Nothing playing right now'
+  controlsEmpty.textContent = 'Nothing to control right now'
   controlsTab.append(controlsEmpty)
 
   // ── Earlier tab: read-only audit trail ──
