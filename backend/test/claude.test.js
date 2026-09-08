@@ -7,7 +7,7 @@ vi.mock('@anthropic-ai/sdk', () => ({
 }))
 
 import { processCapture, runProgram, getFormFields } from '../integrations/claude.js'
-import { createItem, getItem, updateItem } from '../db.js'
+import { createItem, getItem, updateItem } from '../store.js'
 
 beforeEach(() => {
   mockCreate.mockClear()
@@ -74,8 +74,8 @@ describe('processCapture', () => {
   })
 
   it('"swimming checklist" (find_checklist → recall_checklist) names the existing checklist to reset, without touching its server text', async () => {
-    const item = createItem('checklist for swimming: goggles, towel')
-    updateItem(item.id, { status: 'checklist', text: 'Swimming kit\n- [x] goggles\n- [ ] towel' })
+    const item = await createItem('checklist for swimming: goggles, towel')
+    await updateItem(item.id, { status: 'checklist', text: 'Swimming kit\n- [x] goggles\n- [ ] towel' })
 
     respondWithPlan([
       { id: 's1', tool: 'find_checklist', args: { query: 'swimming' } },
@@ -120,8 +120,8 @@ describe('processCapture', () => {
   })
 
   it('add_to_shopping_list folds into the existing list rather than starting a second one', async () => {
-    const list = createItem('add milk to shopping list')
-    updateItem(list.id, { status: 'shopping_list', text: '- [ ] milk' })
+    const list = await createItem('add milk to shopping list')
+    await updateItem(list.id, { status: 'shopping_list', text: '- [ ] milk' })
 
     respondWithStep('add_to_shopping_list', { items: ['bread'], tags: [] })
     const result = await processCapture('add bread to the shopping list')
@@ -189,8 +189,8 @@ describe('processCapture', () => {
 
 describe('needsApproval is a property of the final step, not implied by whether it causes something to happen', () => {
   it('recall_checklist causes a real, visible effect (the checklist resets) but resolves immediately, no approval', async () => {
-    const item = createItem('checklist for cycling: helmet, lights')
-    updateItem(item.id, { status: 'checklist', text: 'Cycling kit\n- [x] helmet\n- [x] lights' })
+    const item = await createItem('checklist for cycling: helmet, lights')
+    await updateItem(item.id, { status: 'checklist', text: 'Cycling kit\n- [x] helmet\n- [x] lights' })
 
     const result = await runProgram([
       { id: 's1', tool: 'find_checklist', args: { query: 'cycling' } },

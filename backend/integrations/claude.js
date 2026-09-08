@@ -3,7 +3,7 @@ import { resolveEnv } from '../secrets.js'
 import { createLinearTask, searchLinearIssues } from './linear.js'
 import { resolveSpeaker, commitPlayback, resolveLight, commitLight, getHouses } from './satellite.js'
 import { searchTrack } from './spotify.js'
-import { listItems, getItem as getItemFromDb, updateItem } from '../db.js'
+import { listItems, getItem as getItemFromDb, updateItem } from '../store.js'
 
 const client = new Anthropic({ apiKey: await resolveEnv('ANTHROPIC_API_KEY') })
 
@@ -141,12 +141,12 @@ const TOOL_REGISTRY = {
   add_to_shopping_list: {
     kind: 'final',
     status: 'acted',
-    extra: ({ items }) => {
+    extra: async ({ items }) => {
       const existing = listItems({ status: 'shopping_list' })[0]
       const action_result = `Added ${items.join(', ')} to shopping list`
       if (!existing) return { status: 'shopping_list', text: buildChecklistText(null, items), action_result }
       const merged = [...parseChecklistText(existing.text).items.map(i => i.text), ...items]
-      updateItem(existing.id, { text: buildChecklistText(null, merged) })
+      await updateItem(existing.id, { text: buildChecklistText(null, merged) })
       return { action_result, shopping_list_id: existing.id }
     },
   },
@@ -514,7 +514,7 @@ export async function runProgram(steps, { house, onStep, overrides } = {}) {
     } catch (err) {
       throw new Error(`resolving "${def.label ?? step.tool}" failed: ${err.message}`)
     }
-    onStep?.({ label: def.label ?? step.tool })
+    await onStep?.({ label: def.label ?? step.tool })
   }
 
   throw new Error('Plan finished without reaching a final step')

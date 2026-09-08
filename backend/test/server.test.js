@@ -27,7 +27,7 @@ vi.mock('../integrations/satellite.js', () => ({
 }))
 
 import { app } from '../server.js'
-import { createFavourite } from '../db.js'
+import { createFavourite } from '../store.js'
 
 beforeEach(() => {
   mockProcessCapture.mockClear()
@@ -558,7 +558,7 @@ describe('POST /api/favourites/:id/run', () => {
 
   it('re-resolves via runProgram with overrides when the favourite has a recorded program', async () => {
     const planSteps = [{ id: 's1', tool: 'create_linear_task', args: { title: 'Fix bug', tags: ['work'] } }]
-    const fav = createFavourite({
+    const fav = await createFavourite({
       label: 'Linear task created: "Fix bug" — https://linear.app/x/1',
       tool: 'create_linear_task',
       input: { title: 'Fix bug' },
@@ -595,7 +595,7 @@ describe('POST /api/favourites/:id/run', () => {
     // the one it was first favourited at.
     const planSteps = [{ id: 's1', tool: 'control_light', args: { room: 'living room', action: 'set_brightness', brightness: 10 } }]
     const oldRoom = { id: 'room_1', name: 'Living Room' }
-    const fav = createFavourite({
+    const fav = await createFavourite({
       label: 'Living Room lights (10%)',
       tool: 'control_light',
       input: { room: oldRoom, action: 'set_brightness', brightness: 10 },

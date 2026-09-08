@@ -1,6 +1,6 @@
 import Fastify from 'fastify'
 import { fileURLToPath } from 'url'
-import { createItem, getItem, listItems, updateItem, createFavourite, getFavourite, listFavourites, updateFavourite, deleteFavourite } from './db.js'
+import { createItem, getItem, listItems, updateItem, createFavourite, getFavourite, listFavourites, updateFavourite, deleteFavourite } from './store.js'
 import { processCapture, executeAction, runProgram, getFormFields, getFavouriteLabel, LINEAR_ENABLED, SATELLITES_ENABLED, SPOTIFY_ENABLED } from './integrations/claude.js'
 import { listSatellites, getHouses } from './integrations/satellite.js'
 import { BACKEND_VERSION, getConfigVersion } from './version.js'
@@ -46,18 +46,23 @@ app.post('/api/capture', async (req, reply) => {
     return reply.code(400).send({ error: 'text is required' })
   }
 
-  const item = createItem(text.trim(), house ?? null)
+  const item = await createItem(text.trim(), house ?? null)
 
   // Process in background — don't await
   const planProgress = []
   processCapture(item.text, {
     house: item.house,
+    // Returning the promise (rather than a plain fire-and-forget call)
+    // matters now that a write means a git commit, not just an in-memory
+    // update — runProgram() awaits onStep()'s return value, so a plan's
+    // readonly steps run in true sequence with their own progress commits
+    // rather than racing ahead of them.
     onStep: (step) => {
       planProgress.push(step)
-      updateItem(item.id, { plan_progress: planProgress })
+      return updateItem(item.id, { plan_progress: planProgress })
     },
   })
-    .then(({ status, tags, action_result, pending_action, plan_steps, text, recalled_checklist_id, shopping_list_id }) => {
+    .then(async ({ status, tags, action_result, pending_action, plan_steps, text, recalled_checklist_id, shopping_list_id }) => {
       // text is only present for save_checklist/add_to_shopping_list — it
       // rewrites the item's own text into a markdown task list (see
       // buildChecklistText() in claude.js). Every other tool leaves the
@@ -71,20 +76,20 @@ app.post('/api/capture', async (req, reply) => {
       // recalled_checklist_id, that other item's text really did just
       // change server-side, so the frontend re-fetches it instead of only
       // re-rendering local state (see inbox.js's updateItem()).
-      updateItem(item.id, {
+      await updateItem(item.id, {
         status, tags, action_result, pending_action: pending_action ?? null, plan_steps,
         ...(text !== undefined ? { text } : {}),
         ...(recalled_checklist_id !== undefined ? { recalled_checklist_id } : {}),
         ...(shopping_list_id !== undefined ? { shopping_list_id } : {}),
       })
     })
-    .catch(err => {
+    .catch(async err => {
       app.log.error({ err, itemId: item.id }, 'Claude processing failed')
       // err.message is already staged by claude.js (a Claude API error, a
       // malformed plan, or a readonly step's resolution failing) — this is
       // the "figuring out what to do" half of the pipeline, so say so and
       // let the underlying message say why.
-      updateItem(item.id, { status: 'failed', action_result: `Couldn't figure out what to do — ${err.message}` })
+      await updateItem(item.id, { status: 'failed', action_result: `Couldn't figure out what to do — ${err.message}` })
     })
 
   return reply.code(201).send(withFormFields(item))
@@ -129,13 +134,13 @@ app.post('/api/items/:id/approve', async (req, reply) => {
     // item favouritable afterwards. Only set on success: an item whose
     // action failed never actually did anything, so it has nothing to
     // replay.
-    return withFormFields(updateItem(item.id, { status, action_result, pending_action: null, executed_action: pending_action, plan_steps, tags }))
+    return withFormFields(await updateItem(item.id, { status, action_result, pending_action: null, executed_action: pending_action, plan_steps, tags }))
   } catch (err) {
     app.log.error({ err, itemId: item.id }, 'Approved action failed')
     // Distinct from the capture-time failure above: the plan was already
     // figured out and approved — this is the "doing it" half failing, e.g.
     // the Linear/Spotify/satellite API call itself erroring.
-    return withFormFields(updateItem(item.id, { status: 'failed', action_result: `Couldn't complete the action — ${err.message}`, pending_action: null }))
+    return withFormFields(await updateItem(item.id, { status: 'failed', action_result: `Couldn't complete the action — ${err.message}`, pending_action: null }))
   }
 })
 
@@ -147,7 +152,7 @@ app.post('/api/items/:id/veto', async (req, reply) => {
     return reply.code(409).send({ error: 'Item has no pending action to veto' })
   }
 
-  return withFormFields(updateItem(item.id, { status: 'vetoed', action_result: 'Cancelled.', pending_action: null }))
+  return withFormFields(await updateItem(item.id, { status: 'vetoed', action_result: 'Cancelled.', pending_action: null }))
 })
 
 // POST /api/items/:id/favourite — save a completed item's executed action
@@ -168,7 +173,7 @@ app.post('/api/items/:id/favourite', async (req, reply) => {
   if (item.status !== 'acted' || !item.executed_action) {
     return reply.code(409).send({ error: 'Item has no executed action to favourite' })
   }
-  const favourite = createFavourite({
+  const favourite = await createFavourite({
     label: getFavouriteLabel(item.executed_action.tool, item.executed_action.input, item.action_result),
     tool: item.executed_action.tool,
     input: item.executed_action.input,
@@ -185,7 +190,7 @@ app.get('/api/favourites', async () => listFavourites().map(withFormFields))
 // DELETE /api/favourites/:id — remove a favourite
 app.delete('/api/favourites/:id', async (req, reply) => {
   if (!getFavourite(req.params.id)) return reply.code(404).send({ error: 'Not found' })
-  deleteFavourite(req.params.id)
+  await deleteFavourite(req.params.id)
   return { ok: true }
 })
 
@@ -238,11 +243,11 @@ app.post('/api/favourites/:id/run', async (req, reply) => {
     }
   }
 
-  const item = createItem(favourite.label)
+  const item = await createItem(favourite.label)
   try {
     const { status, action_result } = await executeAction({ tool, input })
-    updateFavourite(favourite.id, { label: getFavouriteLabel(tool, input, action_result), tool, input, tags, plan_steps })
-    return withFormFields(updateItem(item.id, {
+    await updateFavourite(favourite.id, { label: getFavouriteLabel(tool, input, action_result), tool, input, tags, plan_steps })
+    return withFormFields(await updateItem(item.id, {
       status,
       action_result,
       tags,
@@ -254,7 +259,7 @@ app.post('/api/favourites/:id/run', async (req, reply) => {
     // Same "doing it" stage as the approve catch above — a favourite skips
     // straight to executeAction(), so there's no separate planning stage
     // to distinguish here.
-    return withFormFields(updateItem(item.id, { status: 'failed', action_result: `Couldn't complete the replay — ${err.message}` }))
+    return withFormFields(await updateItem(item.id, { status: 'failed', action_result: `Couldn't complete the replay — ${err.message}` }))
   }
 })
 
@@ -295,7 +300,7 @@ app.patch('/api/items/:id', async (req, reply) => {
   const item = getItem(req.params.id)
   if (!item) return reply.code(404).send({ error: 'Not found' })
   const { status, tags, action_result, text } = req.body ?? {}
-  return withFormFields(updateItem(req.params.id, { status, tags, action_result, text }))
+  return withFormFields(await updateItem(req.params.id, { status, tags, action_result, text }))
 })
 
 // ── Start ──────────────────────────────────────────────────

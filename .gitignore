@@ -1,10 +1,9 @@
 # Dependencies
 node_modules/
 
-# SQLite
-*.db
-*.db-shm
-*.db-wal
+# Local dev's default DATA_PATH — items/favourites as files, and
+# optionally its own nested git repo (see designs/file-backed-storage.md)
+backend/data/
 
 # Environment
 .env
