@@ -68,18 +68,18 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
   const paneIdle = document.createElement('div')
   paneIdle.className = 'station-pane station-pane--idle'
 
+  // hideHouseChooser: true — see STATIONS_AND_CONTROLS.md §4 and
+  // capture.js's own comment. The header's stations band (main.js) is
+  // where "is some other house not answering" now lives; this panel has
+  // nothing to choose, only somewhere to check. setHouses() below still
+  // runs (via main.js's loadSatellites()) so a capture here still gets
+  // tagged with this station's own house — the flag only hides the row.
   const captureInput = createCaptureInput({
     onSubmit: (text, house) => onSubmit?.(text, house),
     defaultHouse,
+    hideHouseChooser: true,
   })
   paneIdle.append(captureInput.el)
-
-  // The house switcher belongs with the other status chrome up top, not
-  // buried in the capture controls — reparent the actual element (its
-  // listeners are already bound to it, not to where it sits) rather than
-  // teaching capture.js about the station's layout.
-  const houseRow = captureInput.el.querySelector('.house-row')
-  if (houseRow) topbar.prepend(houseRow)
 
   const paneThinking = document.createElement('div')
   paneThinking.className = 'station-pane station-pane--thinking'

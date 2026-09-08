@@ -135,6 +135,20 @@ async function fetchStatus(address, timeoutMs = 3000) {
   }
 }
 
+// When each house last answered successfully — server-local, in-memory
+// state (resets on restart, same as everything else this module tracks),
+// but enough to give the UI's "no answer · 2h" a real duration instead of
+// just "not right now." Keyed by house, updated only on a genuine
+// reachable response — a mismatch is a config bug, not a sighting.
+const lastSeenAt = new Map()
+
+// Test-only: this module-level Map otherwise leaks a "last seen" sighting
+// from one test into the next, since it's keyed by house name and several
+// tests reuse "home" — real callers never need to clear it.
+export function _resetLastSeenForTests() {
+  lastSeenAt.clear()
+}
+
 // Reports what's configured (houses) and what's actually reachable right
 // now (capabilities) — for the UI. Each house is queried independently so
 // one down satellite doesn't block reporting on the others. houseMismatch
@@ -147,12 +161,13 @@ export async function listSatellites(houses) {
     Object.entries(houses).map(async ([house, address]) => {
       const status = await fetchStatus(address)
       if (status === null) {
-        return { house, address, reachable: false, capabilities: [], houseMismatch: false }
+        return { house, address, reachable: false, capabilities: [], houseMismatch: false, lastSeenAt: lastSeenAt.get(house) ?? null }
       }
       if (status.house !== house) {
-        return { house, address, reachable: false, capabilities: [], houseMismatch: true }
+        return { house, address, reachable: false, capabilities: [], houseMismatch: true, lastSeenAt: lastSeenAt.get(house) ?? null }
       }
-      return { house, address, reachable: true, capabilities: status.capabilities ?? [], houseMismatch: false }
+      lastSeenAt.set(house, new Date().toISOString())
+      return { house, address, reachable: true, capabilities: status.capabilities ?? [], houseMismatch: false, lastSeenAt: lastSeenAt.get(house) }
     })
   )
 }

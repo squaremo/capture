@@ -138,6 +138,10 @@ export async function getStatus() {
         const colorLight = roomLights.find(l => l.attributes.colorMode === 'color')
         return {
           room: { id, name: roomLights[0].room.name },
+          // "Is anything answering in here" — matches the isOn/brightness
+          // reasoning above: one live bulb is enough to still control the
+          // room, even if a second one in it has dropped off the mesh.
+          reachable: roomLights.some(l => l.isReachable),
           isOn: roomLights.some(l => l.attributes.isOn),
           brightness: roomLights[0].attributes.lightLevel ?? null,
           color: colorLight

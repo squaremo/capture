@@ -2,13 +2,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, writeFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { resolveSpeaker, commitPlayback, resolveLight, commitLight, listSatellites, getHouses } from '../integrations/satellite.js'
+import { resolveSpeaker, commitPlayback, resolveLight, commitLight, listSatellites, getHouses, _resetLastSeenForTests } from '../integrations/satellite.js'
 
 const mockFetch = vi.fn()
 vi.stubGlobal('fetch', mockFetch)
 
 beforeEach(() => {
   mockFetch.mockClear()
+  _resetLastSeenForTests()
 })
 
 function jsonResponse(body, ok = true, status = 200) {
@@ -210,7 +211,7 @@ describe('listSatellites', () => {
     const result = await listSatellites({ home: 'http://localhost:4000' })
 
     expect(result).toEqual([
-      { house: 'home', address: 'http://localhost:4000', reachable: true, capabilities: ['sonos'], houseMismatch: false },
+      { house: 'home', address: 'http://localhost:4000', reachable: true, capabilities: ['sonos'], houseMismatch: false, lastSeenAt: expect.any(String) },
     ])
   })
 
@@ -220,7 +221,7 @@ describe('listSatellites', () => {
     const result = await listSatellites({ home: 'http://localhost:4000' })
 
     expect(result).toEqual([
-      { house: 'home', address: 'http://localhost:4000', reachable: false, capabilities: [], houseMismatch: false },
+      { house: 'home', address: 'http://localhost:4000', reachable: false, capabilities: [], houseMismatch: false, lastSeenAt: null },
     ])
   })
 
@@ -229,7 +230,7 @@ describe('listSatellites', () => {
 
     const result = await listSatellites({ home: 'http://localhost:4000' })
 
-    expect(result[0]).toEqual({ house: 'home', address: 'http://localhost:4000', reachable: false, capabilities: [], houseMismatch: false })
+    expect(result[0]).toEqual({ house: 'home', address: 'http://localhost:4000', reachable: false, capabilities: [], houseMismatch: false, lastSeenAt: null })
   })
 
   it('reports houseMismatch: true, distinct from unreachable, when the satellite answers as a different house', async () => {
@@ -238,7 +239,7 @@ describe('listSatellites', () => {
     const result = await listSatellites({ home: 'http://localhost:4000' })
 
     expect(result).toEqual([
-      { house: 'home', address: 'http://localhost:4000', reachable: false, capabilities: [], houseMismatch: true },
+      { house: 'home', address: 'http://localhost:4000', reachable: false, capabilities: [], houseMismatch: true, lastSeenAt: null },
     ])
   })
 
@@ -250,9 +251,20 @@ describe('listSatellites', () => {
     const result = await listSatellites({ home: 'http://localhost:4000', lake: 'http://localhost:4001' })
 
     expect(result).toEqual([
-      { house: 'home', address: 'http://localhost:4000', reachable: true, capabilities: ['sonos'], houseMismatch: false },
-      { house: 'lake', address: 'http://localhost:4001', reachable: false, capabilities: [], houseMismatch: false },
+      { house: 'home', address: 'http://localhost:4000', reachable: true, capabilities: ['sonos'], houseMismatch: false, lastSeenAt: expect.any(String) },
+      { house: 'lake', address: 'http://localhost:4001', reachable: false, capabilities: [], houseMismatch: false, lastSeenAt: null },
     ])
+  })
+
+  it('remembers when a house last answered, across an unreachable poll', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ house: 'home', capabilities: ['sonos'] }))
+    const [first] = await listSatellites({ home: 'http://localhost:4000' })
+
+    mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'))
+    const [second] = await listSatellites({ home: 'http://localhost:4000' })
+
+    expect(second.reachable).toBe(false)
+    expect(second.lastSeenAt).toBe(first.lastSeenAt)
   })
 
   it('returns an empty array when no houses are configured', async () => {

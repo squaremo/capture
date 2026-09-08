@@ -5,6 +5,7 @@ import { createVersionInfo } from './components/versionInfo.js'
 import { createFavouritesSidebar } from './components/favourites.js'
 import { createLocalActivity } from './components/localActivity.js'
 import { createStationShell } from './components/station.js'
+import { createStationsIndicator, createStationClock } from './components/stations.js'
 import { createThemePicker } from './themes.js'
 import { loadConfig } from './config.js'
 import {
@@ -63,7 +64,22 @@ async function init() {
 
   const headerBadges = document.createElement('div')
   headerBadges.className = 'header-badges'
-  headerBadges.append(versionInfo.pillEl, vpnBadge)
+
+  // On a station, the info pill's two jobs split (see
+  // STATIONS_AND_CONTROLS.md): reachability becomes this dot + disclosure
+  // band (live status, wants a permanent seat), capabilities move to the
+  // foot of the Controls tab (reference material, doesn't). The pill
+  // itself — and the plain "tailscale" badge, which a station's own
+  // stations band already subsumes (this panel answering the backend at
+  // all implies the tailnet is up) — stay for phone/laptop, which still
+  // want version/build info and have no Controls tab to hold capabilities.
+  const stationsIndicator = createStationsIndicator()
+  const stationClock = createStationClock()
+  if (config.isStation) {
+    headerBadges.append(stationsIndicator.toggleEl, stationClock.el)
+  } else {
+    headerBadges.append(versionInfo.pillEl, vpnBadge)
+  }
 
   header.append(logo, headerBadges)
 
@@ -392,11 +408,21 @@ async function init() {
       const satellites = await getSatellites()
       versionInfo.renderSatellites(satellites)
       captureInput.setHouses(satellites)
-      if (config.isStation) station.setHouses(satellites)
+      if (config.isStation) {
+        station.setHouses(satellites)
+        // Reachability is live status, not a one-time read (see
+        // STATIONS_AND_CONTROLS.md §2) — the rest of this function only
+        // ever runs once at startup, but a station's own dot would go
+        // stale the moment some other house actually dropped off.
+        stationsIndicator.render(satellites)
+      }
     } catch {
       // Backend not available yet, or no satellites configured — leave blank
     }
   }
+
+  const SATELLITES_POLL_MS = 30000
+  if (config.isStation) setInterval(loadSatellites, SATELLITES_POLL_MS)
 
   // ── Assemble ──────────────────────────────────────────────
   // The favourites sidebar sits alongside the capture/inbox column — a real
@@ -421,7 +447,12 @@ async function init() {
   // the page), so the API calls and decision logic above didn't need
   // restructuring, only the extra `station.*` calls alongside them.
   if (config.isStation) {
-    app.append(header, station.el)
+    stationsIndicator.setHouse(config.defaultHouse)
+    // The band pushes station.el down rather than covering it (see
+    // STATIONS_AND_CONTROLS.md §2) — a plain sibling in normal flow does
+    // that for free; toggling stationsIndicator.bandEl's hidden attribute
+    // is all that's needed to open/close it.
+    app.append(header, stationsIndicator.bandEl, station.el)
   } else {
     app.append(header, layout, stats, versionInfo.footerEl)
   }
