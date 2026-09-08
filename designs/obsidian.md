@@ -1,8 +1,17 @@
 # Obsidian notes: captures land in a git-tracked directory, full stop
 
-Status: scoped, not yet implemented. Continues the wishlist's "Push to
-external services: tasks and calendar items into things like Proton
-Calendar, Linear, possibly Obsidian" (`TODO.md`).
+Status: **superseded by `designs/file-backed-storage.md`.** That doc
+drops SQLite entirely — every item becomes a git-tracked markdown file,
+not just ones a dedicated `save_to_obsidian` tool routes there — which
+removes the reason for this doc's tool to exist as its own thing (see
+"What this means for the Obsidian design" there). Kept here as the
+historical record of the sync-layer research (Syncthing vs. `obsidian-git`
+vs. `obsidian-headless`), still useful if you want to point Obsidian at
+the resulting data directory yourself later — not an active design.
+
+Continues the wishlist's "Push to external services: tasks and calendar
+items into things like Proton Calendar, Linear, possibly Obsidian"
+(`TODO.md`).
 
 ## Problem
 
