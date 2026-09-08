@@ -370,11 +370,19 @@ async function init() {
   }
 
   // ── Version / integrations info (header pill + footer) ─────
+  // Also the "tailscale" badge's only real signal: the app has no public
+  // exposure (see CLAUDE.md), so a successful GET /api/version means this
+  // request got here over the tailnet, and TAILSCALE_SUBNET's IP allowlist
+  // (when set) would have 403'd it otherwise. Not a live connection check —
+  // just "did the backend answer" — but that's the same ground truth the
+  // satellite dots and localActivity's polling already lean on.
   async function loadVersion() {
     try {
       versionInfo.render(await getVersion())
+      vpnBadge.classList.add('connected')
     } catch {
       // Backend not available yet — leave it blank rather than showing stale info
+      vpnBadge.classList.remove('connected')
     }
   }
 
