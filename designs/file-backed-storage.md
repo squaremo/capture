@@ -52,7 +52,7 @@ markdown body for the one field that's actually prose.
 
 ```markdown
 ---
-status: pending | triaged | reminder | urgent | awaiting_approval | acted | vetoed | failed
+status: pending | triaged | note | reminder | urgent | awaiting_approval | acted | vetoed | failed
 tags: [tag1, tag2]
 house: living-room-house | null
 created_at: 2026-09-08T14:23:17.000Z
@@ -163,16 +163,33 @@ organizing question you answer by how you view `DATA_PATH` afterward
 (a tag, a folder convention, an Obsidian search), not a capture-time
 decision.
 
-**This is a call to confirm, not one made unilaterally here**: if you
-still want a distinct "this is real note content, not just triage" first-
-class marker at capture time — a tag, a frontmatter field, a subfolder —
-say so and it can be layered on top cheaply (e.g. a status value or a
-tag the classification prompt already knows to reach for). Absent that,
-the simplest reading is that `save_to_obsidian` as a separate tool is now
-dead, and `designs/obsidian.md` stands only as the historical record of
-how the sync-layer research (Syncthing/`obsidian-git`/`obsidian-headless`)
-went, kept for reference if you want to point Obsidian at `DATA_PATH`
-yourself later.
+**Resolved**: yes, wanted. Not `save_to_obsidian` back from the dead as
+an acting tool with its own storage, though — just a fourth *terminal*
+classification alongside the existing three, exactly the same shape as
+`save_to_inbox`/`create_reminder`/`flag_urgent` (`kind: 'terminal'`, no
+approval, no external side effect beyond the file write every item
+already gets):
+
+```
+write_note — kind: 'terminal', status: 'note'
+  args: { action_result, tags }
+```
+
+The boundary this draws, in the words it was described with: `write_note`
+is for taking in some words to come back to later — a thought, an idea,
+a piece of information worth keeping in its own right. `save_to_inbox`
+narrows to match: a task or short actionable item to triage, not prose
+you'd want to reread. Both produce an ordinary file under `items/`, same
+as everything else — the only difference is `status: 'note'` vs.
+`status: 'triaged'` (and whatever system-prompt wording actually gets
+Claude to draw that line correctly in practice, worth iterating on once
+there's real capture text to test against — same caveat every
+classification boundary in this app has had).
+
+`designs/obsidian.md` stands as the historical record of the sync-layer
+research (Syncthing/`obsidian-git`/`obsidian-headless`), still useful if
+you want to point Obsidian at `DATA_PATH` (or just its `note`-status
+items) yourself later — not an active design either way.
 
 ## Config
 
@@ -204,8 +221,11 @@ scope of test coverage, different setup/teardown, not a design question.
 
 ## Open questions
 
-- **Does a distinct "this is a real note" marker still matter** — see
-  "What this means for the Obsidian design," above. Needs your call.
+- ~~**Does a distinct "this is a real note" marker still matter**~~ —
+  resolved: yes, a fourth terminal tool, `write_note` (`status: 'note'`).
+  See "What this means for the Obsidian design," above. The exact
+  system-prompt wording that draws the `write_note`/`save_to_inbox` line
+  well in practice is still to be tuned against real captures.
 - **`DATA_PATH` naming** — proposed above, not confirmed.
 - **Git author identity** for commits (name/email) — a config default,
   not yet chosen.
