@@ -285,7 +285,7 @@ scaling.
 Which houses exist and where is a house-id → satellite-address map, still
 hand-maintained rather than auto-discovered — but **not** committed
 config. It lives in a local JSON file on the backend server, outside git,
-in the same already-mounted `/data` volume `DB_PATH` already uses
+in the same already-mounted `/data` volume `DATA_PATH` already uses
 (`SATELLITE_HOUSES_PATH`, defaulting next to the backend code for local
 dev). `backend/integrations/satellite.js`'s `getHouses()` re-reads it on
 every call rather than caching, so editing the file takes effect on the
