@@ -1,4 +1,4 @@
-# Obsidian notes: git as the record, Syncthing as live delivery
+# Obsidian notes: captures land in a git-tracked directory, full stop
 
 Status: scoped, not yet implemented. Continues the wishlist's "Push to
 external services: tasks and calendar items into things like Proton
@@ -9,223 +9,128 @@ Calendar, Linear, possibly Obsidian" (`TODO.md`).
 Some captures aren't a task or a reminder — they're a fact, a link, a
 longer note worth keeping around and organizing later, the kind of thing
 that belongs in an actual notes tool rather than this app's own inbox.
-Obsidian is that tool already in use outside capture. The goal: a capture
-that reads as "keep this" lands in the real vault, on whatever devices
-already open it, without capture becoming a second place notes live —
-and, since notes get edited after the fact, an edit made in Obsidian
-should make its way back too, not just flow one way from capture outward.
+The goal, scoped down to what capture actually needs to do: write that
+note as a plain markdown file into a git-tracked directory, with a real
+commit history. Whatever happens to that directory afterward — syncing
+it into an Obsidian vault, or anywhere else — is not capture's problem.
 
 ## Centralized, not satellite
 
-Decided already (see conversation this doc grew out of): the backend —
-the one thing in this whole system that's always on — should be the
-thing that writes the note, the same way it's the only thing that ever
-touches the SQLite DB or `satellites.json`. The alternative considered
-and rejected was running Obsidian's desktop app open on some tailnet
-device with the community "Local REST API" plugin installed, and having
-the backend call it over HTTPS — rejected because it makes a `POST
+The backend — the one thing in this whole system that's always on —
+writes the note, the same way it's the only thing that ever touches the
+SQLite DB or `satellites.json`. The alternative considered and rejected
+early on was running Obsidian's desktop app open on some tailnet device
+with the community "Local REST API" plugin installed, and having the
+backend call it over HTTPS — rejected because it makes a `POST
 /api/capture` succeed or fail depending on whether a particular laptop's
-GUI happens to be open, which is exactly the kind of satellite-shaped
-dependency capture already avoids for its core inbox (see
-`designs/satellites.md`'s reasoning for *why* device control needs a
-satellite at all — a local network the backend can't otherwise reach —
-which doesn't apply here at all; a vault has no local-network-only state
-to resolve, so there's no satellite-shaped reason to route through one).
+GUI happens to be open, exactly the satellite-shaped dependency capture
+already avoids elsewhere (see `designs/satellites.md`'s reasoning for
+*why* device control needs a satellite at all — a local network the
+backend can't otherwise reach — which doesn't apply here; a git
+directory has no local-network-only state to resolve).
 
-## Approach: two layers doing two different jobs
+## Approach: write, commit, done
 
-- **Git** is the durable record: every note that ever passed through this
-  channel, in order, with real history, reachable from anywhere via
-  `git clone`/GitHub's web UI regardless of whether any Obsidian device
-  is online. This is what makes the whole thing trustworthy — the vault
-  copies are just views onto it.
-- **Syncthing** is live delivery into an actual open vault: it replicates
-  the git working tree's files (not `.git/` itself — see below) out to
-  wherever Obsidian is running, bidirectionally, so an edit made there
-  flows back too.
+`save_to_obsidian`'s `execute()`:
 
-They don't know about each other. Syncthing just replicates whatever
-files sit in a directory; git just records whatever's in that directory
-when something commits. One working directory on the VM serves both
-roles — there's no need for a separate bare repo plus a distinct
-checkout, and no need for `save_to_obsidian`'s own code to know git
-exists at all (see "Who runs git" below).
+1. Writes one markdown file per capture into a configured directory on
+   the VM ("kind of like a memory" — a discrete, addressable thing, not
+   a line appended to a running log).
+2. `git add` + `git commit`, synchronously, in the same call — one clean
+   commit per capture, with the actual `action_result` as the message.
+   That's a real, meaningful audit trail: every commit is one real event
+   capture actually did, nothing else in the history, no batching, no
+   "vault sync: 3 files changed" noise.
+3. `git push`, if a remote is configured — optional; the whole thing
+   works with a purely local repo too, at the cost of that history only
+   existing on the VM.
 
-## Sync layer: Syncthing for delivery — `obsidian-git` and `obsidian-headless` both ruled out as the whole mechanism
-
-Three real options surfaced during research (see the earlier conversation
-turns on how Obsidian syncing works) for *how a note gets into a live
-vault*:
-
-- **`obsidian-headless`** (official, `obsidianmd/obsidian-headless` on
-  GitHub) — `ob sync --continuous` runs Obsidian Sync from the command
-  line, no GUI. Would have been the "correct" long-term answer: first-
-  party, end-to-end encrypted, proper per-file version history. **Ruled
-  out, checked directly against its own README rather than assumed**: the
-  only supported auth is `ob login`, email/password (`--email`/`--password`
-  flags) plus MFA against your real Obsidian account — no app password,
-  scoped API token, or service-account option exists at all. Every other
-  secret this app stores (`ANTHROPIC_API_KEY`, `LINEAR_API_KEY`) is
-  narrow and independently revocable; a stolen scoped key only exposes
-  what it can reach. An Obsidian account password is the whole account —
-  every vault, every device — with no way to scope or revoke it short of
-  changing your master password. Not a fit for this app's secret-handling
-  model regardless of the beta status, which was the weaker objection.
-- **`obsidian-git`** (community plugin) — wraps the vault, or a subfolder
-  of it, in an ordinary git repo and does `add`/`commit`/`push`/`pull`
-  against a remote, on an interval, at startup, or a hotkey, *from inside
-  Obsidian itself*. **Disqualified, checked directly against the plugin's
-  own docs rather than assumed**: neither iOS nor Android lets an app
-  shell out to real git, so on mobile the plugin runs `isomorphic-git` (a
-  JS reimplementation) instead, and its own README says outright — "The
-  Git implementation on mobile is **very unstable**! I would not
-  recommend using this plugin on mobile." — with no SSH auth,
-  memory-limited repo size, no rebase, no submodules, and open issues
-  reporting crashes/hangs on iPhone pull specifically. That's a platform
-  limitation the maintainer states plainly, not a risk to test later.
-  (Earlier drafts of this doc over-reached by treating this as
-  disqualifying *because capture's own UI is phone-first* — that's not
-  the same claim as how you actually use Obsidian day to day, which
-  wasn't checked before writing "ruled out." The actual disqualifier
-  stands regardless: the plugin's own maintainer doesn't recommend it on
-  mobile, full stop.)
-- **Syncthing** — self-hosted, P2P, free, mature, no account/credential
-  to store at all (device pairing is a one-time local handshake, same
-  trust tier as the Dirigera pairing token in `designs/matter-lighting.md`).
-  Runs as a genuine persistent background service on desktop and Android;
-  worth knowing there's no official iOS app — only a third-party wrapper
-  (Möbius Sync) bound by the same "no app can run continuously in the
-  background" iOS restriction that limits `obsidian-git`'s pulls there.
-  That's a platform ceiling any third-party sync app hits on iOS, not a
-  defect specific to Syncthing, and it doesn't carry `obsidian-git`'s
-  actual instability/crash problems — worst case on iPhone is "syncs
-  promptly when opened" rather than "may crash or hang."
-
-**Decided: Syncthing, doing a narrower job than originally scoped.**
-Once git owns the durable record and the audit trail, Syncthing's
-remaining job is just best-effort mirroring of an already-versioned
-directory into a live vault — its lack of vault-aware merging barely
-matters, because merging isn't what it's being asked to do here; see
-"Who reconciles conflicts" below for where that job actually sits. Revisit
-`obsidian-headless` only if it ever adds a scoped, revocable auth option.
-
-Shape: a `syncthing` service added to `docker-compose.yml` (own image,
-own volume for its config/keys — not `/opt/capture/data`, which is
-Postgres-adjacent territory that shouldn't gain a second consumer),
-sharing a bind-mounted folder with the `backend` container the same way
-`backend` already shares `/opt/capture/data`. Configured **send &
-receive** (Syncthing's default), not send-only, since edits made in
-Obsidian need to flow back. One-time manual pairing with the device(s)
-that actually run Obsidian, same operational shape as the Dirigera token
-mint or the `satellites.json` edit — not something `capture-sync` or
-Watchtower need to know about. A `.stignore` entry excludes `.git/` from
-what Syncthing replicates — it has no reason to touch git's internal
-object store, and a sync landing mid-write inside `.git/` is a real
-corruption risk for a directory Syncthing doesn't understand at all.
-
-## Who runs git, and when
-
-Simplest split: **`save_to_obsidian`'s `execute()` never calls git at
-all** — it just writes a file (`fs.writeFile`, one new file per capture;
-see below). A separate, small periodic job — same shape as
-`capture-sync.timer`, a systemd timer rather than anything inside the
-Node process — runs every few minutes against that same directory:
-stage everything, commit if there's a diff, push to a remote. This one
-job is what makes edits durable in git whether they came from the
-backend's own write or from an edit made in Obsidian and delivered back
-by Syncthing — it doesn't need to tell those two sources apart, it just
-snapshots whatever's currently on disk.
-
-This is a meaningful simplification over having the backend do its own
-`git commit`/`git push` synchronously per capture: one code path for git
-operations instead of two, and the Node process never needs push
-credentials for a git remote at all — only the timer's systemd unit does
-(a deploy key or PAT, scoped to this one repo, same tier of secret as
-everything else `secrets.js` already handles). The cost is latency: a
-captured note isn't durably committed until the next periodic run, not
-the instant `POST /api/capture` returns. That's an acceptable trade for
-personal notes — nothing here is time-critical the way, say, approving a
-Linear task or a Sonos command is — and matches how `capture-sync`
-already treats "eventually reconciled every N minutes" as fine for
-config, not just for this.
-
-## Who reconciles conflicts
-
-Two independent devices editing the *same file* inside the same sync
-window is a Syncthing-level event, not a git-level one — by the time the
-periodic job runs `git add`, Syncthing has already either merged nothing
-(files are opaque bytes to it) or produced a `.sync-conflict-<device>-
-<timestamp>.md` copy alongside the original. Git's job here is only to
-record that faithfully as history, not to arbitrate it. One-file-per-
-capture (see below) makes the realistic version of this collision rare —
-the backend's own capture files aren't things a human is mid-edit on at
-the moment they're written — whereas the daily-note-append shape
-considered earlier would have made "the backend appends to today's note
-while you're actively editing today's note" a routine collision instead
-of an edge case. That's the deciding reason for the note-shape call
-below, not just tidiness.
-
-## Tool shape: `save_to_obsidian`
-
-No resolve step needed — unlike `resolve_playback`/`resolve_light`,
-there's no per-house local state to look up first; the vault is one
-global destination, not something to match against free text. A single
-`acting` tool, registered in `TOOL_REGISTRY` the same way
-`create_linear_task` is:
+That's the entire scope. No Syncthing service, no periodic reconciliation
+job, no two-way anything, no dependency on any Obsidian device or plugin
+existing at all — this is now exactly as simple as `create_linear_task`:
+one acting tool, one external call, no resolve step (there's no per-house
+state to look up; the directory is one global destination).
 
 ```
 save_to_obsidian — kind: 'acting'
   args: { content, tags }
   describe: (input) => `Proposed: save note to Obsidian`
-  execute: async ({ content, tags }) => { ...write one file... ; return "Saved to Obsidian: <path>" }
+  execute: async ({ content, tags }) => {
+    // write file, git add, git commit (message = action_result), git push if configured
+    return `Saved to Obsidian: <path>`
+  }
 ```
 
-**Decided: one file per capture, not a daily-note append** — "kind of
-like a memory," each capture a standalone, addressable thing rather than
-a line appended to a running log. Beyond the conflict-avoidance reasoning
-above, it's a better fit for that framing on its own terms: a memory is a
-discrete unit, not a fragment of a bigger document you'd need to open and
-scroll to find it in.
+## Getting the files into an actual vault is your own concern, not capture's
 
-Proposed default (not yet confirmed, but a reasonable starting point):
-filename `Capture/<timestamp>-<item id>.md` — the item's own SQLite row
-id guarantees uniqueness without inventing a slugification scheme for
-arbitrary capture text, and ties the note back to its source record for
-free. YAML frontmatter (`created`, `tags`) rather than inline `#tags` —
-fits the "addressable memory object" framing, and makes tags queryable
-via Obsidian's own search/Dataview the way nothing else in this app's
-tags currently are. Body is the capture's content as Claude resolved it.
-All of this is a starting proposal, not locked in the way the sync layer
-and note-shape decisions above are.
+This was the thing this design went back and forth on for a long
+conversation — Syncthing vs. `obsidian-git` vs. `obsidian-headless`,
+two-way sync, conflict ownership, read-only vault folders. None of that
+needs building or maintaining as part of capture. A git-tracked directory
+of markdown files already *is* a valid Obsidian vault — no plugin
+required to open one, `git clone` it wherever you want and point Obsidian
+at that folder. Keeping it current after that (a manual `git pull`, a
+cron job, `obsidian-git`, Syncthing pointed at a local clone, whatever) is
+entirely up to you, tuned to how you actually want to use it, and can
+change without touching capture at all.
+
+Kept here for reference only, since real research went into it and it's
+useful if you want to wire up your own sync later — not part of capture's
+design, and none of it should gate building `save_to_obsidian` itself:
+
+- **`obsidian-git`** (community plugin, runs commit/push/pull from inside
+  Obsidian) — its own maintainer states plainly it's "very unstable" on
+  mobile (no real git on iOS/Android, falls back to a JS reimplementation
+  with memory limits, no SSH, documented crashes on pull). Fine on
+  desktop if that's where you'd use it.
+- **`obsidian-headless`** (official, `obsidianmd/obsidian-headless`) —
+  the "correct" first-party answer if you want it synced via Obsidian
+  Sync itself, but its only auth is a real account email/password/MFA
+  login, no scoped token — a much heavier credential than anything
+  capture itself would need to hold, which is exactly why it's not
+  capture's job to run this.
+- **Syncthing** — mature, self-hosted, no account needed, replicates a
+  folder P2P; no official iOS app (a third-party wrapper, Möbius Sync,
+  is bound by the same iOS background-execution limits as everything
+  else there). Would work well as *your own* mechanism for turning a
+  local clone of the git repo into a live, two-way-editable vault, if
+  you want that — again, your setup, not capture's.
 
 ## Config
 
-Following `SATELLITE_HOUSES_PATH`'s pattern for the path itself — not a
-secret:
-
 ```
 OBSIDIAN_VAULT_PATH=/data/obsidian   (the git working tree; mounted into the same volume backend already uses, or a new one)
+OBSIDIAN_GIT_REMOTE=...              (optional — omit for a local-only repo)
 ```
 
 `OBSIDIAN_ENABLED = Boolean(process.env.OBSIDIAN_VAULT_PATH)`, checked
 directly rather than through `resolveEnv()` since it's not a secret —
-same as `SPOTIFY_MARKET`. Tool only offered to Claude when enabled, same
-as every other optional integration. The git remote's push credential
-(a deploy key or PAT, scoped to one repo) lives with the periodic timer's
-systemd unit, not in `production.env` or `.env.secret` at all — the Node
-process has no reason to hold it if it never runs git itself (see "Who
-runs git," above).
+same as `SPOTIFY_MARKET`. If a remote is configured, its push credential
+(a deploy key or PAT, scoped to one repo) goes through `secrets.js`
+exactly like `LINEAR_API_KEY` — the backend already commits and would
+push in the same call, so unlike the earlier "periodic job" design there
+is no case for keeping this secret out of the Node process.
+
+## Tool shape details
+
+**Decided: one file per capture** — proposed default filename
+`Capture/<timestamp>-<item id>.md` (the item's own SQLite row id
+guarantees uniqueness without inventing a slugification scheme for
+arbitrary capture text, and ties the note back to its source record).
+YAML frontmatter (`created`, `tags`) rather than inline `#tags` — fits
+the "addressable memory object" framing and is queryable via Obsidian's
+own search/Dataview if and when you do point Obsidian at this directory.
+Not yet confirmed, just a reasonable starting point.
 
 ## When Claude should reach for this vs `save_to_inbox`
 
 Not yet settled, and worth getting right before writing the system
-prompt — a boundary that's too loose floods the vault with routine
+prompt — a boundary that's too loose floods the directory with routine
 triage items; too strict and the tool never fires. Rough cut: durable
 reference material (a fact, a link, something to look back on) goes to
 Obsidian; short-lived triage/task-shaped captures stay in the app's own
-inbox, same as today. This is the one part of this scope most worth
-a second pass once there's real capture text to test it against, rather
-than guessing from first principles.
+inbox, same as today. Worth a second pass once there's real capture text
+to test it against, rather than guessing from first principles.
 
 ## Favouriting
 
@@ -236,18 +141,34 @@ obviously useful shortcut the way replaying "the same song" is. Not
 worth designing for specifically — leave it available, don't build
 toward it.
 
+## Out of scope, deliberately
+
+Raised in the same conversation this doc grew out of, worth naming so
+they don't get silently folded back in later:
+
+- **Favourites as git-backed files** (rather than SQLite rows) — a real
+  idea, applying the same "textual content belongs in git" principle to
+  an existing feature, not a new one. Bigger change than this doc covers
+  — `getFormFields()`/`runProgram()`/`POST /api/favourites/:id/run` are
+  all built around SQLite today. Separate piece of work if wanted.
+- **Shopping lists / checklists** — a genuinely new capture concept
+  (append-to-a-growing-list, not one-file-per-capture) that doesn't exist
+  in any form yet. Would need its own tool (e.g. `add_to_list`) and its
+  own design, including the append-collision questions this doc
+  deliberately sidestepped by going with one file per capture. Separate
+  piece of work if wanted.
+- **General backup/disaster-recovery for `/opt/capture/data`** (the
+  SQLite DB, `satellites.json`) — a real, currently-unaddressed gap, but
+  a distinct concern from this doc: that's about not losing the app's
+  own operational/audit data if the VM dies, not about note content.
+  Notes are already covered by whatever git remote you choose to push
+  to, if any.
+
 ## Open questions
 
-- **Filename/frontmatter scheme** — proposed above (`Capture/<timestamp>-
-  <item id>.md`, YAML frontmatter for tags), not confirmed.
-- **Git remote** — GitHub (private repo) vs. self-hosted (Gitea, or a
-  bare repo on the VM itself pushed to from the working tree). GitHub
-  reintroduces a third party holding your notes, the same tension
-  Obsidian Sync's relay has; self-hosted avoids that at the cost of one
-  more service to run. Not decided.
-- **Periodic job interval** — `capture-sync` uses 5 minutes; no reason
-  yet to pick differently here, but not confirmed.
+- **Filename/frontmatter scheme** — proposed above, not confirmed.
+- **Git remote** — push anywhere at all, and if so where (GitHub,
+  self-hosted, or none — purely local to the VM). Entirely your call,
+  not something capture's design needs to resolve.
 - **Classification boundary** (Obsidian vs inbox) — see above, needs
   real captures to test against.
-- **Conflict frequency in practice** — reasoned about above, not
-  stress-tested against real concurrent edits.
