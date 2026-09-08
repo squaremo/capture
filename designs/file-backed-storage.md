@@ -195,13 +195,29 @@ items) yourself later — not an active design either way.
 
 ```
 DATA_PATH=/data   (was DB_PATH — now a directory, git repo root, not a single file)
+GIT_REMOTE_URL=https://github.com/<owner>/<repo>.git   (or gitlab.com — either works identically)
+GIT_REMOTE_TOKEN=op://Capture/git-notes/token          (a fine-grained PAT, through secrets.js exactly like LINEAR_API_KEY)
 ```
 
-Everything downstream of that — whether/where to push, git author
-identity — same optional, your-own-call framing already settled for the
-Obsidian design: works with zero remote configured, and if you do want
-one, that's a deploy key/PAT through `secrets.js` exactly like
-`LINEAR_API_KEY`.
+**Push remote: resolved.** A PAT on a dedicated bot account (GitHub or
+GitLab — host doesn't matter, either works the same way), not the user's
+own account — the same "narrow and independently revocable" secret class
+`LINEAR_API_KEY` already is, and exactly what disqualified
+`obsidian-headless` earlier in this whole discussion (a whole-account
+credential with no way to scope or revoke it). A fine-grained GitHub PAT
+scoped to just this one repo with only Contents read/write, or a
+GitLab project access token with the equivalent scope, both fit. Both
+config values above become optional together — `GIT_ENABLED` is true
+only when both are set, otherwise the repo just stays local to the VM,
+same as before.
+
+One detail worth building in rather than leaving to chance: don't run
+`git remote add` with the token baked into the URL (that writes it into
+`.git/config` in plaintext, sitting on disk indefinitely). Pass the
+token-bearing URL directly to each `git push <url> HEAD:main` call
+instead — it only exists in that one process's argument list for the
+few hundred milliseconds the push takes, never persisted to a config
+file.
 
 ## Testing
 
@@ -232,5 +248,5 @@ scope of test coverage, different setup/teardown, not a design question.
 - **Per-write commit granularity** — proposed as "commit every meaningful
   write, no squashing," worth confirming that's not too noisy once
   there's a real commit log to look at.
-- **Push remote** — same open, your-own-call question the Obsidian design
-  left open; now app-wide rather than notes-specific.
+- ~~**Push remote**~~ — resolved: a PAT on a dedicated bot account
+  (GitHub or GitLab), not the user's own account. See Config, above.
