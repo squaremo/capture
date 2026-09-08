@@ -75,6 +75,35 @@
   --on-fail:    #fdf6f4;   /* ink on the failure fill */
 }
 
+/* Daylight — Meadow in the daytime: the same four hues on a paper ground.
+   The signals are NOT the same colours: a 0.78-lightness green is a fill on
+   ink and unreadable as text on paper, so every role drops to ~0.52 while
+   keeping its hue, and --on-signal inverts to near-white. That keeps each
+   role recognisably itself between the two themes (green still acts, olive
+   still waits) and keeps signal text above 4.5:1 either way round. */
+[data-theme="daylight"] {
+  --bg:         #f2f4f2;
+  --bg-raised:  #ffffff;
+  --border:     #c7d0cb;
+  --border-mid: #e0e6e2;
+
+  --text:       #131817;
+  --text-dim:   #5b6866;
+  /* On paper the recessive role has to work harder than it does on ink:
+     the ground is bright, so a light grey recedes past legibility rather
+     than quietly. 4.3:1 — the same job, a darker value. */
+  --text-dimmer:#64716e;
+
+  --sig-act:    oklch(0.52 0.15 128);
+  --sig-need:   oklch(0.52 0.13 88);
+  --sig-done:   oklch(0.52 0.15 128);
+  --sig-think:  oklch(0.5 0.14 235);
+  --sig-fail:   oklch(0.47 0.21 25);
+
+  --on-signal:  #f6f8f6;   /* inverted: ink on paper, paper on the fills */
+  --on-fail:    #fff4f2;
+}
+
 /* Ember — warm ground; amber acts, teal confirms, red kept for failure alone. */
 [data-theme="ember"] {
   --bg:         #16130f;

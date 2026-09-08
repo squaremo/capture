@@ -1,3 +1,5 @@
+import { icon } from './icons.js'
+
 const STORAGE_KEY = 'captureHouse'
 
 // defaultHouse comes from runtime config (see config.js) — which house
@@ -48,7 +50,7 @@ export function createCaptureInput({ onSubmit, defaultHouse }) {
 
   const submitBtn = document.createElement('button')
   submitBtn.className = 'btn-submit'
-  submitBtn.textContent = 'capture'
+  submitBtn.innerHTML = `${icon('send', 20)}<span>send</span>`
 
   const hint = document.createElement('span')
   hint.className = 'capture-hint'

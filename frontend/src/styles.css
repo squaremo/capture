@@ -28,6 +28,10 @@ body::before {
   opacity: 0.35;
 }
 
+/* The grain is dark noise: welcome tooth on an ink ground, visible dirt on
+   a paper one. Kept, at a third of the strength. */
+[data-theme="daylight"] body::before { opacity: 0.12; }
+
 /* ── Layout ──────────────────────────────────────────────── */
 #app {
   min-height: 100vh;
@@ -365,6 +369,9 @@ button {
 button:disabled { opacity: 0.35; cursor: not-allowed; }
 
 .btn-submit {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   background: var(--sig-act);
   color: var(--on-signal);
   padding: var(--space-2) var(--space-5);
@@ -893,6 +900,7 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 .theme-swatch--active { border-color: var(--text); }
 
 .theme-swatch[data-theme="meadow"]   { background: oklch(0.78 0.15 128); }
+.theme-swatch[data-theme="daylight"] { background: oklch(0.52 0.15 128); }
 .theme-swatch[data-theme="ember"]    { background: oklch(0.74 0.15 55); }
 .theme-swatch[data-theme="dusk"]     { background: oklch(0.74 0.14 300); }
 .theme-swatch[data-theme="original"] { background: #c8f060; }
@@ -1179,6 +1187,17 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   margin-bottom: var(--space-3);
 }
 
+/* Only present on a list pane, which has a kind icon beside its title —
+   the thinking/review headings have no icon and stay plain <h1>s. */
+[data-density="station"] .station-heading-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+[data-density="station"] .station-heading-row .station-heading { margin-bottom: 0; }
+[data-density="station"] .station-heading-icon { display: flex; color: var(--sig-act); }
+
 [data-density="station"] .station-scan-rule {
   position: relative;
   height: 2px;
@@ -1241,12 +1260,13 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   text-transform: uppercase;
   letter-spacing: var(--tracking-label);
 }
-[data-density="station"] .station-approve { flex: 2; }
+[data-density="station"] .station-approve { flex: 2; gap: 14px; }
 [data-density="station"] .station-veto,
 [data-density="station"] .station-later {
   flex: 1;
   border-left: var(--rule) solid var(--border);
 }
+[data-density="station"] .station-veto { gap: 12px; }
 [data-density="station"] .station-key-hint {
   margin-left: var(--space-2);
   opacity: 0.6;
@@ -1308,14 +1328,16 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 [data-density="station"] .station-tabs {
   display: flex;
   flex-shrink: 0;
-  height: 58px;
+  height: 72px;
   border-top: var(--rule) solid var(--border);
 }
 [data-density="station"] .station-tab {
   flex: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 5px;
   background: transparent;
   color: var(--text-dim);
   font-weight: 700;
@@ -1419,6 +1441,9 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 [data-density="station"] .station-rail-row:first-child { border-top: none; }
 [data-density="station"] .station-rail-run {
   flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   text-align: left;
   background: transparent;
   color: var(--text);

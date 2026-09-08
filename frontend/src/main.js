@@ -43,7 +43,12 @@ async function init() {
   const header = document.createElement('header')
   const logo = document.createElement('span')
   logo.className = 'logo'
-  logo.textContent = 'capture'
+  // On the station the wordmark names the panel, not the product — you're
+  // standing in front of it, so where it is is the only thing here you
+  // might not already know. config.defaultHouse is the room the panel's
+  // own satellite is grouped to (see config.js); falls back to the
+  // product name when a station has none configured.
+  logo.textContent = (config.isStation && config.defaultHouse) || 'capture'
 
   const vpnBadge = document.createElement('span')
   vpnBadge.className = 'vpn-badge'

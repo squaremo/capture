@@ -11,6 +11,7 @@ const KEY = 'capture:theme'
 
 export const THEMES = [
   { id: 'meadow',   label: 'meadow' },
+  { id: 'daylight', label: 'daylight' },
   { id: 'ember',    label: 'ember' },
   { id: 'dusk',     label: 'dusk' },
   { id: 'original', label: 'original' },

@@ -5,6 +5,7 @@ import {
   parseChecklist, renderChecklist, renderShoppingList,
 } from './item.js'
 import { handleListAction } from './lists.js'
+import { icon } from './icons.js'
 
 // The station is a one-thing-at-a-time shell for a wall-mounted panel —
 // see TODO.md / CLAUDE.md's Station flow entry. main.js mounts this
@@ -105,7 +106,10 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
         <span class="station-pane-label" data-role="think">${isShopping ? 'shopping list' : 'checklist'}</span>
         <button type="button" class="station-rail-link" data-action="close-list">close</button>
       </div>
-      <h1 class="station-heading">${escHtml(parsed.title || (isShopping ? 'Shopping list' : 'Checklist'))}</h1>
+      <div class="station-heading-row">
+        <span class="station-heading-icon">${icon(isShopping ? 'shopping-cart' : 'list-checks', 26)}</span>
+        <h1 class="station-heading">${escHtml(parsed.title || (isShopping ? 'Shopping list' : 'Checklist'))}</h1>
+      </div>
       ${isShopping ? renderShoppingList(active.id, parsed) : renderChecklist(active.id, parsed)}
       ${isShopping
         ? `<form class="station-list-add" data-action="add-row">
@@ -197,7 +201,7 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
           const parsed = parseChecklist(i.text)
           const shopping = i.status === 'shopping_list'
           return `<li class="station-rail-row" data-id="${i.id}">
-            <button type="button" class="station-rail-run">${escHtml(parsed.title || (shopping ? 'Shopping list' : 'Checklist'))}</button>
+            <button type="button" class="station-rail-run">${icon(shopping ? 'shopping-cart' : 'list-checks', 20)}${escHtml(parsed.title || (shopping ? 'Shopping list' : 'Checklist'))}</button>
             <span class="station-rail-time">${parsed.items.length}</span>
           </li>`
         }).join('')}
@@ -224,8 +228,8 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
   reviewActions.className = 'station-review-actions'
   reviewActions.hidden = true
   reviewActions.innerHTML = `
-    <button type="button" class="btn-approve station-approve" data-action="approve">approve <span class="station-key-hint">&crarr;</span></button>
-    <button type="button" class="btn-veto station-veto" data-action="veto">veto</button>
+    <button type="button" class="btn-approve station-approve" data-action="approve">${icon('check', 26)}approve <span class="station-key-hint">&crarr;</span></button>
+    <button type="button" class="btn-veto station-veto" data-action="veto">${icon('x', 22)}veto</button>
     <button type="button" class="btn-veto station-later" data-action="later">later <span class="station-key-hint">esc</span></button>
   `
   reviewActions.addEventListener('click', (e) => {
@@ -296,6 +300,11 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
   }
 
   // ── Bottom tabs ──
+  // The internal tab name stays 'capture' (setTab('capture') etc., wired
+  // throughout this file) — only the tab's own label reads "home": the
+  // panel rests here rather than one thing it does.
+  const TAB_ICONS = { capture: 'house', favourites: 'star', controls: 'sliders-horizontal', earlier: 'history' }
+  const TAB_LABELS = { capture: 'home', favourites: 'favourites', controls: 'controls', earlier: 'earlier' }
   const tabsBar = document.createElement('div')
   tabsBar.className = 'station-tabs'
   const tabButtons = {}
@@ -304,7 +313,7 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
     btn.type = 'button'
     btn.className = 'station-tab'
     btn.dataset.tab = name
-    btn.textContent = name
+    btn.innerHTML = `${icon(TAB_ICONS[name], 21)}<span>${TAB_LABELS[name]}</span>`
     btn.addEventListener('click', () => setTab(name))
     tabsBar.append(btn)
     tabButtons[name] = btn
