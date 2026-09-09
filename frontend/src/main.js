@@ -125,7 +125,8 @@ async function init() {
   // Created here, ahead of station below, since station.js reparents its
   // element into the rail (landscape) at construction time — it has to
   // exist first. See the Now-playing entry in CLAUDE.md's Station section.
-  const localActivity = createLocalActivity()
+  const localActivity = createLocalActivity({ variant: config.isStation ? 'rich' : 'compact' })
+  if (config.isStation) localActivity.setHouse(config.defaultHouse)
 
   // ── Station (wall-mounted panel) ───────────────────────────
   // One thing at a time instead of the phone/laptop's always-visible
@@ -176,7 +177,7 @@ async function init() {
 
   const station = config.isStation ? createStationShell({
     defaultHouse: config.defaultHouse,
-    localActivityEl: localActivity.el,
+    localActivity,
     // The list pane's own edits — "done shopping" and the add row — are
     // the same PATCH the inbox's are (see onShoppingListChange above).
     onListTextChange: (id, text) => handleDecision(id, () => patchItem(id, { text })),
@@ -394,8 +395,20 @@ async function init() {
   // satellite dots and localActivity's polling already lean on.
   async function loadVersion() {
     try {
-      versionInfo.render(await getVersion())
+      const data = await getVersion()
+      versionInfo.render(data)
       vpnBadge.classList.add('connected')
+      // The Controls tab's capabilities footer wants the same integrations
+      // data the info pill already fetches — no reason for a second call
+      // just because it renders somewhere else on a station.
+      if (config.isStation) {
+        station.setIntegrations({
+          linear: data.integrations?.linear,
+          linearTeamName: data.linearTeamName,
+          satellite: data.integrations?.satellite,
+          spotify: data.integrations?.spotify,
+        })
+      }
     } catch {
       // Backend not available yet — leave it blank rather than showing stale info
       vpnBadge.classList.remove('connected')

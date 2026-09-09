@@ -17,6 +17,12 @@ const SEARCH_ISSUES_QUERY = `
   }
 `
 
+const TEAM_QUERY = `
+  query GetTeam($teamId: String!) {
+    team(id: $teamId) { name }
+  }
+`
+
 async function linearRequest({ apiKey, query, variables }) {
   const res = await fetch(LINEAR_API_URL, {
     method: 'POST',
@@ -46,4 +52,12 @@ export async function searchLinearIssues({ apiKey, teamId, query }) {
   const data = await linearRequest({ apiKey, query: SEARCH_ISSUES_QUERY, variables: { teamId, query } })
   const matchingIssue = data.issues.nodes[0] ?? null
   return { duplicate_found: Boolean(matchingIssue), matching_issue: matchingIssue }
+}
+
+// Read-only, and purely cosmetic: names the configured team for the
+// Controls tab's capabilities footer ("Issues · Home team"). See
+// claude.js's caching of this — never called more than once at startup.
+export async function getLinearTeamName({ apiKey, teamId }) {
+  const data = await linearRequest({ apiKey, query: TEAM_QUERY, variables: { teamId } })
+  return data.team?.name ?? null
 }

@@ -1222,22 +1222,139 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   border-bottom: none;
 }
 
-[data-density="station"] .local-activity-row {
+/* ── Controls tab (rich): Music, Lights grid, capabilities footer —
+   see STATIONS_AND_CONTROLS.md §5/§3. localActivity.js's 'rich' variant
+   is the only thing that ever renders this markup — the compact
+   .local-activity-row treatment (phone/laptop) never appears here. ── */
+[data-density="station"] .controls-section {
+  padding-bottom: var(--space-5);
+  margin-bottom: var(--space-5);
+  border-bottom: var(--rule) solid var(--border);
+}
+[data-density="station"] .controls-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+[data-density="station"] .controls-section-title {
+  font-size: var(--fs-label);
+  font-weight: 700;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--text-dimmer);
+}
+[data-density="station"] .controls-section-meta {
+  font-size: var(--fs-label);
+  color: var(--text-dim);
+}
+[data-density="station"] .controls-empty {
+  color: var(--text-dim);
+}
+
+[data-density="station"] .controls-music-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
   flex-wrap: wrap;
+}
+[data-density="station"] .controls-music-title { font-size: 22px; font-weight: 700; }
+[data-density="station"] .controls-music-artist { font-size: 14px; font-weight: 500; color: var(--text-dim); margin-top: var(--space-1); }
+[data-density="station"] .controls-music-transport {
+  display: flex;
+  align-items: center;
   gap: var(--space-2);
 }
-
-[data-density="station"] .btn-local-pause {
-  min-height: var(--tap);
-  min-width: 76px;
-  padding-inline: var(--space-4);
+[data-density="station"] .controls-transport-btn {
+  height: 48px;
+  width: 64px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 2px solid var(--border);
+  color: var(--text);
 }
-
-[data-density="station"] .local-activity-volume {
-  flex: 1;
-  width: auto;
-  height: var(--tap);
+[data-density="station"] .controls-transport-btn--play {
+  width: 96px;
+  background: var(--sig-act);
+  border-color: var(--sig-act);
+  color: var(--on-signal);
 }
+[data-density="station"] .controls-volume { width: 240px; height: var(--tap); margin-left: var(--space-2); accent-color: var(--sig-act); }
+[data-density="station"] .controls-volume-pct { font-size: 13px; font-weight: 700; color: var(--text-dim); }
+
+[data-density="station"] .controls-lights-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px;
+  background: var(--border-mid);
+}
+[data-density="station"] .controls-light-cell {
+  background: var(--bg-raised);
+  padding: var(--space-4);
+}
+[data-density="station"] .controls-light-top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+[data-density="station"] .controls-light-icon { display: flex; color: var(--text-dim); }
+[data-density="station"] .controls-light-name { font-size: 17px; font-weight: 600; }
+[data-density="station"] .controls-light-status {
+  margin-left: auto;
+  font-size: var(--fs-label);
+  font-weight: 700;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--text-dimmer);
+}
+[data-density="station"] .controls-light-status[data-state="on"] { color: var(--sig-act); }
+[data-density="station"] .controls-light-status[data-state="unreachable"] { color: var(--sig-fail); }
+[data-density="station"] .controls-light-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+[data-density="station"] .controls-light-btn {
+  width: 88px;
+  height: 48px;
+  flex-shrink: 0;
+  background: transparent;
+  border: 2px solid var(--border);
+  color: var(--text);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+}
+[data-density="station"] .controls-light-btn[data-state="on"] { background: var(--sig-act); border-color: var(--sig-act); color: var(--on-signal); }
+[data-density="station"] .controls-light-btn[data-state="unreachable"] { border-color: var(--sig-fail); color: var(--sig-fail); }
+[data-density="station"] .controls-light-slider { flex: 1; height: 48px; accent-color: var(--sig-act); }
+[data-density="station"] .controls-light-slider[data-state="off"] { opacity: 0.45; }
+[data-density="station"] .controls-light-slider[data-state="unreachable"] { opacity: 0.3; }
+[data-density="station"] .controls-light-pct { flex-shrink: 0; font-size: 13px; font-weight: 700; color: var(--text-dim); width: 3em; text-align: right; }
+
+[data-density="station"] .controls-capabilities-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2) var(--space-4);
+}
+[data-density="station"] .controls-capability-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+[data-density="station"] .controls-capability-dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  background: var(--sig-act);
+}
+[data-density="station"] .controls-capability-name { font-size: 14px; font-weight: 600; }
+[data-density="station"] .controls-capability-detail { font-size: 13px; font-weight: 500; color: var(--text-dim); }
 
 [data-density="station"] .station-rail {
   flex: 1;

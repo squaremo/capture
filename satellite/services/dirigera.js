@@ -123,7 +123,7 @@ export async function resolveLight({ room, action, brightness, color }) {
 // panel's own "set" always applies the same value to the whole room
 // anyway, so it can't represent per-bulb divergence either way).
 export async function getStatus() {
-  if (!accessToken) return { lights: [] }
+  if (!accessToken) return { lights: [], deviceCount: 0 }
   try {
     const client = await getClient()
     const lights = await client.lights.list()
@@ -134,6 +134,14 @@ export async function getStatus() {
       byRoom.get(light.room.id).push(light)
     }
     return {
+      // Whole-house count, not a per-room breakdown — this is only for the
+      // Controls tab's "what this house can do" reference line ("Dirigera
+      // · Lights · 14 devices"), which cares how much is connected, not
+      // where. Every device from the hub, including one that's dropped
+      // off the mesh (isReachable: false) — it's still a configured light,
+      // same reasoning as why an unreachable room still gets a cell below
+      // rather than disappearing.
+      deviceCount: lights.length,
       lights: [...byRoom.entries()].map(([id, roomLights]) => {
         const colorLight = roomLights.find(l => l.attributes.colorMode === 'color')
         return {
@@ -155,7 +163,7 @@ export async function getStatus() {
     // was" treatment the frontend already gives a failed /api/status
     // fetch, just one level down: report nothing rather than a stale or
     // partial list.
-    return { lights: [], lightsError: err.message }
+    return { lights: [], deviceCount: 0, lightsError: err.message }
   }
 }
 

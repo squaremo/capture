@@ -6,6 +6,7 @@ import {
 } from './item.js'
 import { handleListAction } from './lists.js'
 import { icon } from './icons.js'
+import { createCapabilities } from './capabilities.js'
 
 // The station is a one-thing-at-a-time shell for a wall-mounted panel —
 // see TODO.md / CLAUDE.md's Station flow entry. main.js mounts this
@@ -30,7 +31,7 @@ const TOOL_LABELS = {
   control_light: 'will control lights',
 }
 
-export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEditFavourite, onFavourite, onListTextChange, defaultHouse, localActivityEl } = {}) {
+export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEditFavourite, onFavourite, onListTextChange, defaultHouse, localActivity } = {}) {
   let tab = 'capture'      // 'capture' | 'favourites' | 'earlier'
   let mode = 'idle'        // 'idle' | 'thinking' | 'review' | 'list'
   let active = null        // the item 'thinking'/'review'/'list' is about
@@ -262,18 +263,19 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
       : `<div class="station-empty">No favourites saved yet</div>`
   }
 
-  // ── Controls tab: local device controls (now-playing etc), summoned
-  // on demand rather than sat permanently in the idle rail — see
-  // localActivity.js for what actually lives inside localActivityEl. On
-  // a general (non-satellite) deployment localActivityEl still exists
-  // (main.js always creates it) but its GET /api/status 404s immediately,
-  // so the tab renders empty rather than being hidden outright — one less
-  // conditional to keep in sync with a state that can only be known async. ──
+  // ── Controls tab: local device controls (Music/Lights), summoned on
+  // demand rather than sat permanently in the idle rail — see
+  // localActivity.js (variant: 'rich') for what actually lives inside
+  // localActivity.el. On a general (non-satellite) deployment
+  // localActivity still exists (main.js always creates it) but its GET
+  // /api/status 404s immediately, so the tab renders empty rather than
+  // being hidden outright — one less conditional to keep in sync with a
+  // state that can only be known async. ──
   const controlsTab = document.createElement('div')
   controlsTab.className = 'station-tabpanel station-tabpanel--controls'
   controlsTab.hidden = true
-  if (localActivityEl) controlsTab.append(localActivityEl)
-  // localActivityEl hides *itself* (see localActivity.js) once it knows
+  if (localActivity) controlsTab.append(localActivity.el)
+  // localActivity.el hides *itself* (see localActivity.js) once it knows
   // there's nothing to show — no activity, or no satellite serving this
   // page at all. This sibling only shows when that happens (CSS, keyed
   // off .local-activity[hidden]) rather than the tab going blank.
@@ -281,6 +283,19 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
   controlsEmpty.className = 'station-empty station-controls-empty'
   controlsEmpty.textContent = 'Nothing to control right now'
   controlsTab.append(controlsEmpty)
+
+  // "What this house can do" — reference material, not live status (see
+  // STATIONS_AND_CONTROLS.md §3), so it renders on demand rather than
+  // owning its own poll: once whenever integrations info arrives
+  // (setIntegrations, from main.js's GET /api/version), and again on
+  // every localActivity poll tick so device/room counts stay current.
+  const capabilities = createCapabilities()
+  controlsTab.append(capabilities.el)
+  let integrations = null
+  function renderCapabilities() {
+    capabilities.render({ integrations, localStatus: localActivity?.getLastStatus() })
+  }
+  localActivity?.onStatus(renderCapabilities)
 
   // ── Earlier tab: read-only audit trail ──
   const earlierTab = document.createElement('div')
@@ -573,6 +588,7 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
     setLog: setItems,
     setItems,
     setHouses: captureInput.setHouses,
+    setIntegrations(data) { integrations = data; renderCapabilities() },
     focusInput,
   }
 }

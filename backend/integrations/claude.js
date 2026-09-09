@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { resolveEnv } from '../secrets.js'
-import { createLinearTask, searchLinearIssues } from './linear.js'
+import { createLinearTask, searchLinearIssues, getLinearTeamName } from './linear.js'
 import { resolveSpeaker, commitPlayback, resolveLight, commitLight, getHouses } from './satellite.js'
 import { searchTrack } from './spotify.js'
 import { listItems, getItem as getItemFromDb, updateItem } from '../db.js'
@@ -10,6 +10,21 @@ const client = new Anthropic({ apiKey: await resolveEnv('ANTHROPIC_API_KEY') })
 const linearApiKey = await resolveEnv('LINEAR_API_KEY')
 const linearTeamId = await resolveEnv('LINEAR_TEAM_ID')
 export const LINEAR_ENABLED = Boolean(linearApiKey && linearTeamId)
+
+// Fetched once, lazily, purely for the Controls tab's capabilities footer
+// label ("Issues · Home team" — see STATIONS_AND_CONTROLS.md §3). No
+// top-level await: a slow or unreachable Linear API must never delay
+// backend startup for a cosmetic label, so GET /api/version just reports
+// null until this resolves (or forever, if it never does).
+let linearTeamName = null
+if (LINEAR_ENABLED) {
+  getLinearTeamName({ apiKey: linearApiKey, teamId: linearTeamId })
+    .then((name) => { linearTeamName = name })
+    .catch(() => {})
+}
+export function getLinearTeamNameCached() {
+  return linearTeamName
+}
 
 // Whether the control_playback tool exists at all is decided once, here,
 // at startup — from whether any houses were configured at boot. Repointing
