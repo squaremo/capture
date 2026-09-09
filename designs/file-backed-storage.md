@@ -161,6 +161,31 @@ noise to squash. `git push`, if a remote is configured, same optional
 knob as the superseded Obsidian design had — the whole thing works with
 a purely local repo too.
 
+**Clone-if-missing, added after implementation**: `store.js` still never
+runs `git init` — a from-scratch local-only repo stays a deliberate
+manual step — but a *genuinely fresh* `DATA_PATH` (a new server, or a
+wiped volume) with a remote already configured gets cloned automatically
+rather than silently starting a second, disconnected local history.
+Only fires when `DATA_PATH` doesn't already contain a `.git` and is
+otherwise empty (or doesn't exist yet); a non-empty directory that
+predates git being configured is left alone — ambiguous enough that
+guessing would be worse than staying local-only until sorted out by
+hand. A failed clone (bad token, network) logs and falls back to
+local-only rather than blocking startup, matching every other optional
+integration's degrade-gracefully pattern. **Deliberately not** paired
+with pull-on-every-restart: nothing else currently writes to this
+remote (single writer — only the backend ever commits/pushes), so a
+restart-time pull would almost always be a no-op today while
+reintroducing the same reconciliation/conflict complexity the rest of
+this design went out of its way to avoid (see `designs/obsidian.md`'s
+abandoned two-way-sync detour). Revisit only if a second writer to the
+same remote actually shows up. Manually verified against a real seeded
+local remote: cloning picks up existing history immediately (`listItems()`
+returns the seeded item right after clone), a subsequent local commit
+lands cleanly on top, and a push failure (tested by pushing into a
+non-bare checked-out remote) is caught and logged without blocking the
+write that triggered it.
+
 ## Concurrency
 
 SQLite gave atomic single-writer safety for free; plain file writes
