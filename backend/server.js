@@ -1,7 +1,7 @@
 import Fastify from 'fastify'
 import { fileURLToPath } from 'url'
 import { createItem, getItem, listItems, updateItem, createFavourite, getFavourite, listFavourites, updateFavourite, deleteFavourite } from './db.js'
-import { processCapture, executeAction, runProgram, getFormFields, getFavouriteLabel, LINEAR_ENABLED, SATELLITES_ENABLED, SPOTIFY_ENABLED } from './integrations/claude.js'
+import { processCapture, executeAction, runProgram, getFormFields, getFavouriteLabel, LINEAR_ENABLED, SATELLITES_ENABLED, SPOTIFY_ENABLED, getLinearTeamNameCached } from './integrations/claude.js'
 import { listSatellites, getHouses } from './integrations/satellite.js'
 import { BACKEND_VERSION, getConfigVersion } from './version.js'
 
@@ -264,6 +264,9 @@ app.get('/api/version', async () => ({
   backend: BACKEND_VERSION,
   config: getConfigVersion(),
   integrations: { linear: LINEAR_ENABLED, satellite: SATELLITES_ENABLED, spotify: SPOTIFY_ENABLED },
+  // Cosmetic only (see claude.js) — null until the lazy Linear lookup
+  // resolves, or if Linear isn't configured at all.
+  linearTeamName: getLinearTeamNameCached(),
 }))
 
 // GET /api/satellites — configured houses and their live capabilities,

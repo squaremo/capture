@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createLinearTask, searchLinearIssues } from '../integrations/linear.js'
+import { createLinearTask, searchLinearIssues, getLinearTeamName } from '../integrations/linear.js'
 
 const mockFetch = vi.fn()
 vi.stubGlobal('fetch', mockFetch)
@@ -69,5 +69,19 @@ describe('searchLinearIssues', () => {
     mockFetch.mockResolvedValue(jsonResponse({ data: { issues: { nodes: [issue] } } }))
     const result = await searchLinearIssues({ apiKey: 'x', teamId: 'team-1', query: 'login bug' })
     expect(result).toEqual({ duplicate_found: true, matching_issue: issue })
+  })
+})
+
+describe('getLinearTeamName', () => {
+  it('returns the team name', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ data: { team: { name: 'Home team' } } }))
+    const name = await getLinearTeamName({ apiKey: 'x', teamId: 'team-1' })
+    expect(name).toBe('Home team')
+  })
+
+  it('returns null when the team has no name (or was not found)', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ data: { team: null } }))
+    const name = await getLinearTeamName({ apiKey: 'x', teamId: 'team-1' })
+    expect(name).toBeNull()
   })
 })

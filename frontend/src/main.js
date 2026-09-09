@@ -5,6 +5,7 @@ import { createVersionInfo } from './components/versionInfo.js'
 import { createFavouritesSidebar } from './components/favourites.js'
 import { createLocalActivity } from './components/localActivity.js'
 import { createStationShell } from './components/station.js'
+import { createStationsIndicator, createStationClock } from './components/stations.js'
 import { createThemePicker } from './themes.js'
 import { loadConfig } from './config.js'
 import {
@@ -43,7 +44,12 @@ async function init() {
   const header = document.createElement('header')
   const logo = document.createElement('span')
   logo.className = 'logo'
-  logo.textContent = 'capture'
+  // On the station the wordmark names the panel, not the product — you're
+  // standing in front of it, so where it is is the only thing here you
+  // might not already know. config.defaultHouse is the room the panel's
+  // own satellite is grouped to (see config.js); falls back to the
+  // product name when a station has none configured.
+  logo.textContent = (config.isStation && config.defaultHouse) || 'capture'
 
   const vpnBadge = document.createElement('span')
   vpnBadge.className = 'vpn-badge'
@@ -58,7 +64,22 @@ async function init() {
 
   const headerBadges = document.createElement('div')
   headerBadges.className = 'header-badges'
-  headerBadges.append(versionInfo.pillEl, vpnBadge)
+
+  // On a station, the info pill's two jobs split (see
+  // STATIONS_AND_CONTROLS.md): reachability becomes this dot + disclosure
+  // band (live status, wants a permanent seat), capabilities move to the
+  // foot of the Controls tab (reference material, doesn't). The pill
+  // itself — and the plain "tailscale" badge, which a station's own
+  // stations band already subsumes (this panel answering the backend at
+  // all implies the tailnet is up) — stay for phone/laptop, which still
+  // want version/build info and have no Controls tab to hold capabilities.
+  const stationsIndicator = createStationsIndicator()
+  const stationClock = createStationClock()
+  if (config.isStation) {
+    headerBadges.append(stationsIndicator.toggleEl, stationClock.el)
+  } else {
+    headerBadges.append(versionInfo.pillEl, vpnBadge)
+  }
 
   header.append(logo, headerBadges)
 
@@ -104,7 +125,8 @@ async function init() {
   // Created here, ahead of station below, since station.js reparents its
   // element into the rail (landscape) at construction time — it has to
   // exist first. See the Now-playing entry in CLAUDE.md's Station section.
-  const localActivity = createLocalActivity()
+  const localActivity = createLocalActivity({ variant: config.isStation ? 'rich' : 'compact' })
+  if (config.isStation) localActivity.setHouse(config.defaultHouse)
 
   // ── Station (wall-mounted panel) ───────────────────────────
   // One thing at a time instead of the phone/laptop's always-visible
@@ -155,7 +177,7 @@ async function init() {
 
   const station = config.isStation ? createStationShell({
     defaultHouse: config.defaultHouse,
-    localActivityEl: localActivity.el,
+    localActivity,
     // The list pane's own edits — "done shopping" and the add row — are
     // the same PATCH the inbox's are (see onShoppingListChange above).
     onListTextChange: (id, text) => handleDecision(id, () => patchItem(id, { text })),
@@ -365,11 +387,31 @@ async function init() {
   }
 
   // ── Version / integrations info (header pill + footer) ─────
+  // Also the "tailscale" badge's only real signal: the app has no public
+  // exposure (see CLAUDE.md), so a successful GET /api/version means this
+  // request got here over the tailnet, and TAILSCALE_SUBNET's IP allowlist
+  // (when set) would have 403'd it otherwise. Not a live connection check —
+  // just "did the backend answer" — but that's the same ground truth the
+  // satellite dots and localActivity's polling already lean on.
   async function loadVersion() {
     try {
-      versionInfo.render(await getVersion())
+      const data = await getVersion()
+      versionInfo.render(data)
+      vpnBadge.classList.add('connected')
+      // The Controls tab's capabilities footer wants the same integrations
+      // data the info pill already fetches — no reason for a second call
+      // just because it renders somewhere else on a station.
+      if (config.isStation) {
+        station.setIntegrations({
+          linear: data.integrations?.linear,
+          linearTeamName: data.linearTeamName,
+          satellite: data.integrations?.satellite,
+          spotify: data.integrations?.spotify,
+        })
+      }
     } catch {
       // Backend not available yet — leave it blank rather than showing stale info
+      vpnBadge.classList.remove('connected')
     }
   }
 
@@ -379,11 +421,21 @@ async function init() {
       const satellites = await getSatellites()
       versionInfo.renderSatellites(satellites)
       captureInput.setHouses(satellites)
-      if (config.isStation) station.setHouses(satellites)
+      if (config.isStation) {
+        station.setHouses(satellites)
+        // Reachability is live status, not a one-time read (see
+        // STATIONS_AND_CONTROLS.md §2) — the rest of this function only
+        // ever runs once at startup, but a station's own dot would go
+        // stale the moment some other house actually dropped off.
+        stationsIndicator.render(satellites)
+      }
     } catch {
       // Backend not available yet, or no satellites configured — leave blank
     }
   }
+
+  const SATELLITES_POLL_MS = 30000
+  if (config.isStation) setInterval(loadSatellites, SATELLITES_POLL_MS)
 
   // ── Assemble ──────────────────────────────────────────────
   // The favourites sidebar sits alongside the capture/inbox column — a real
@@ -408,7 +460,12 @@ async function init() {
   // the page), so the API calls and decision logic above didn't need
   // restructuring, only the extra `station.*` calls alongside them.
   if (config.isStation) {
-    app.append(header, station.el)
+    stationsIndicator.setHouse(config.defaultHouse)
+    // The band pushes station.el down rather than covering it (see
+    // STATIONS_AND_CONTROLS.md §2) — a plain sibling in normal flow does
+    // that for free; toggling stationsIndicator.bandEl's hidden attribute
+    // is all that's needed to open/close it.
+    app.append(header, stationsIndicator.bandEl, station.el)
   } else {
     app.append(header, layout, stats, versionInfo.footerEl)
   }

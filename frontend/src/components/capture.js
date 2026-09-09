@@ -1,9 +1,20 @@
+import { icon } from './icons.js'
+
 const STORAGE_KEY = 'captureHouse'
 
 // defaultHouse comes from runtime config (see config.js) — which house
 // this deployment "is," empty for the general frontend, set when a
 // satellite is the one serving this page.
-export function createCaptureInput({ onSubmit, defaultHouse }) {
+//
+// hideHouseChooser: the station passes this — see STATIONS_AND_CONTROLS.md
+// §4. On a wall panel the station is wherever you are standing, so there's
+// nothing to choose and the picker just invites "what happens if I pick
+// Hall?" (reachability of other houses is the header's stations band, not
+// this). The routing this chooser exists for still has to happen though —
+// a capture still needs tagging with the right house — so setHouses()
+// below keeps computing houseSelect's value exactly as before; this flag
+// only ever suppresses *showing* the row.
+export function createCaptureInput({ onSubmit, defaultHouse, hideHouseChooser = false }) {
   const section = document.createElement('section')
   section.className = 'capture'
 
@@ -48,7 +59,7 @@ export function createCaptureInput({ onSubmit, defaultHouse }) {
 
   const submitBtn = document.createElement('button')
   submitBtn.className = 'btn-submit'
-  submitBtn.textContent = 'capture'
+  submitBtn.innerHTML = `${icon('send', 20)}<span>send</span>`
 
   const hint = document.createElement('span')
   hint.className = 'capture-hint'
@@ -145,8 +156,8 @@ export function createCaptureInput({ onSubmit, defaultHouse }) {
     })
 
     const hasHouses = satellites.length > 0
-    houseRow.hidden = !hasHouses
-    controls.classList.toggle('capture-controls--with-house', hasHouses)
+    houseRow.hidden = hideHouseChooser || !hasHouses
+    controls.classList.toggle('capture-controls--with-house', hasHouses && !hideHouseChooser)
     if (!hasHouses) return
 
     const known = new Set(satellites.map(s => s.house))

@@ -13,6 +13,10 @@ vi.mock('@anthropic-ai/sdk', () => ({
 vi.mock('../integrations/linear.js', () => ({
   createLinearTask: mockCreateLinearTask,
   searchLinearIssues: mockSearchLinearIssues,
+  // Resolved but unused by these tests — claude.js calls this once at
+  // module load (LINEAR_ENABLED is true here) purely to cache a cosmetic
+  // team name; without a mock it'd be undefined and throw on call.
+  getLinearTeamName: vi.fn().mockResolvedValue('Test Team'),
 }))
 
 // LINEAR_ENABLED is decided at module load time, so these must be set

@@ -19,6 +19,7 @@ vi.mock('../integrations/claude.js', () => ({
   LINEAR_ENABLED: true,
   SATELLITES_ENABLED: false,
   SPOTIFY_ENABLED: false,
+  getLinearTeamNameCached: () => 'Home team',
 }))
 
 vi.mock('../integrations/satellite.js', () => ({
@@ -156,6 +157,7 @@ describe('GET /api/version', () => {
       backend: 'dev',
       config: null,
       integrations: { linear: true, satellite: false, spotify: false },
+      linearTeamName: 'Home team',
     })
   })
 })

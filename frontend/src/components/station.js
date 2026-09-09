@@ -5,6 +5,8 @@ import {
   parseChecklist, renderChecklist, renderShoppingList,
 } from './item.js'
 import { handleListAction } from './lists.js'
+import { icon } from './icons.js'
+import { createCapabilities } from './capabilities.js'
 
 // The station is a one-thing-at-a-time shell for a wall-mounted panel —
 // see TODO.md / CLAUDE.md's Station flow entry. main.js mounts this
@@ -29,7 +31,7 @@ const TOOL_LABELS = {
   control_light: 'will control lights',
 }
 
-export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEditFavourite, onFavourite, onListTextChange, defaultHouse, localActivityEl } = {}) {
+export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEditFavourite, onFavourite, onListTextChange, defaultHouse, localActivity } = {}) {
   let tab = 'capture'      // 'capture' | 'favourites' | 'earlier'
   let mode = 'idle'        // 'idle' | 'thinking' | 'review' | 'list'
   let active = null        // the item 'thinking'/'review'/'list' is about
@@ -67,18 +69,18 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
   const paneIdle = document.createElement('div')
   paneIdle.className = 'station-pane station-pane--idle'
 
+  // hideHouseChooser: true — see STATIONS_AND_CONTROLS.md §4 and
+  // capture.js's own comment. The header's stations band (main.js) is
+  // where "is some other house not answering" now lives; this panel has
+  // nothing to choose, only somewhere to check. setHouses() below still
+  // runs (via main.js's loadSatellites()) so a capture here still gets
+  // tagged with this station's own house — the flag only hides the row.
   const captureInput = createCaptureInput({
     onSubmit: (text, house) => onSubmit?.(text, house),
     defaultHouse,
+    hideHouseChooser: true,
   })
   paneIdle.append(captureInput.el)
-
-  // The house switcher belongs with the other status chrome up top, not
-  // buried in the capture controls — reparent the actual element (its
-  // listeners are already bound to it, not to where it sits) rather than
-  // teaching capture.js about the station's layout.
-  const houseRow = captureInput.el.querySelector('.house-row')
-  if (houseRow) topbar.prepend(houseRow)
 
   const paneThinking = document.createElement('div')
   paneThinking.className = 'station-pane station-pane--thinking'
@@ -105,7 +107,10 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
         <span class="station-pane-label" data-role="think">${isShopping ? 'shopping list' : 'checklist'}</span>
         <button type="button" class="station-rail-link" data-action="close-list">close</button>
       </div>
-      <h1 class="station-heading">${escHtml(parsed.title || (isShopping ? 'Shopping list' : 'Checklist'))}</h1>
+      <div class="station-heading-row">
+        <span class="station-heading-icon">${icon(isShopping ? 'shopping-cart' : 'list-checks', 26)}</span>
+        <h1 class="station-heading">${escHtml(parsed.title || (isShopping ? 'Shopping list' : 'Checklist'))}</h1>
+      </div>
       ${isShopping ? renderShoppingList(active.id, parsed) : renderChecklist(active.id, parsed)}
       ${isShopping
         ? `<form class="station-list-add" data-action="add-row">
@@ -197,7 +202,7 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
           const parsed = parseChecklist(i.text)
           const shopping = i.status === 'shopping_list'
           return `<li class="station-rail-row" data-id="${i.id}">
-            <button type="button" class="station-rail-run">${escHtml(parsed.title || (shopping ? 'Shopping list' : 'Checklist'))}</button>
+            <button type="button" class="station-rail-run">${icon(shopping ? 'shopping-cart' : 'list-checks', 20)}${escHtml(parsed.title || (shopping ? 'Shopping list' : 'Checklist'))}</button>
             <span class="station-rail-time">${parsed.items.length}</span>
           </li>`
         }).join('')}
@@ -224,8 +229,8 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
   reviewActions.className = 'station-review-actions'
   reviewActions.hidden = true
   reviewActions.innerHTML = `
-    <button type="button" class="btn-approve station-approve" data-action="approve">approve <span class="station-key-hint">&crarr;</span></button>
-    <button type="button" class="btn-veto station-veto" data-action="veto">veto</button>
+    <button type="button" class="btn-approve station-approve" data-action="approve">${icon('check', 26)}approve <span class="station-key-hint">&crarr;</span></button>
+    <button type="button" class="btn-veto station-veto" data-action="veto">${icon('x', 22)}veto</button>
     <button type="button" class="btn-veto station-later" data-action="later">later <span class="station-key-hint">esc</span></button>
   `
   reviewActions.addEventListener('click', (e) => {
@@ -258,18 +263,19 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
       : `<div class="station-empty">No favourites saved yet</div>`
   }
 
-  // ── Controls tab: local device controls (now-playing etc), summoned
-  // on demand rather than sat permanently in the idle rail — see
-  // localActivity.js for what actually lives inside localActivityEl. On
-  // a general (non-satellite) deployment localActivityEl still exists
-  // (main.js always creates it) but its GET /api/status 404s immediately,
-  // so the tab renders empty rather than being hidden outright — one less
-  // conditional to keep in sync with a state that can only be known async. ──
+  // ── Controls tab: local device controls (Music/Lights), summoned on
+  // demand rather than sat permanently in the idle rail — see
+  // localActivity.js (variant: 'rich') for what actually lives inside
+  // localActivity.el. On a general (non-satellite) deployment
+  // localActivity still exists (main.js always creates it) but its GET
+  // /api/status 404s immediately, so the tab renders empty rather than
+  // being hidden outright — one less conditional to keep in sync with a
+  // state that can only be known async. ──
   const controlsTab = document.createElement('div')
   controlsTab.className = 'station-tabpanel station-tabpanel--controls'
   controlsTab.hidden = true
-  if (localActivityEl) controlsTab.append(localActivityEl)
-  // localActivityEl hides *itself* (see localActivity.js) once it knows
+  if (localActivity) controlsTab.append(localActivity.el)
+  // localActivity.el hides *itself* (see localActivity.js) once it knows
   // there's nothing to show — no activity, or no satellite serving this
   // page at all. This sibling only shows when that happens (CSS, keyed
   // off .local-activity[hidden]) rather than the tab going blank.
@@ -277,6 +283,19 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
   controlsEmpty.className = 'station-empty station-controls-empty'
   controlsEmpty.textContent = 'Nothing to control right now'
   controlsTab.append(controlsEmpty)
+
+  // "What this house can do" — reference material, not live status (see
+  // STATIONS_AND_CONTROLS.md §3), so it renders on demand rather than
+  // owning its own poll: once whenever integrations info arrives
+  // (setIntegrations, from main.js's GET /api/version), and again on
+  // every localActivity poll tick so device/room counts stay current.
+  const capabilities = createCapabilities()
+  controlsTab.append(capabilities.el)
+  let integrations = null
+  function renderCapabilities() {
+    capabilities.render({ integrations, localStatus: localActivity?.getLastStatus() })
+  }
+  localActivity?.onStatus(renderCapabilities)
 
   // ── Earlier tab: read-only audit trail ──
   const earlierTab = document.createElement('div')
@@ -296,6 +315,11 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
   }
 
   // ── Bottom tabs ──
+  // The internal tab name stays 'capture' (setTab('capture') etc., wired
+  // throughout this file) — only the tab's own label reads "home": the
+  // panel rests here rather than one thing it does.
+  const TAB_ICONS = { capture: 'house', favourites: 'star', controls: 'sliders-horizontal', earlier: 'history' }
+  const TAB_LABELS = { capture: 'home', favourites: 'favourites', controls: 'controls', earlier: 'earlier' }
   const tabsBar = document.createElement('div')
   tabsBar.className = 'station-tabs'
   const tabButtons = {}
@@ -304,7 +328,7 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
     btn.type = 'button'
     btn.className = 'station-tab'
     btn.dataset.tab = name
-    btn.textContent = name
+    btn.innerHTML = `${icon(TAB_ICONS[name], 21)}<span>${TAB_LABELS[name]}</span>`
     btn.addEventListener('click', () => setTab(name))
     tabsBar.append(btn)
     tabButtons[name] = btn
@@ -564,6 +588,7 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
     setLog: setItems,
     setItems,
     setHouses: captureInput.setHouses,
+    setIntegrations(data) { integrations = data; renderCapabilities() },
     focusInput,
   }
 }
