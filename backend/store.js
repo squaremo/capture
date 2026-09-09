@@ -13,22 +13,8 @@ const DATA_PATH = process.env.DATA_PATH ?? join(__dirname, 'data')
 const ITEMS_DIR = join(DATA_PATH, 'items')
 const FAVOURITES_DIR = join(DATA_PATH, 'favourites')
 
-for (const dir of [ITEMS_DIR, FAVOURITES_DIR]) mkdirSync(dir, { recursive: true })
-
-// See designs/file-backed-storage.md. Local commits happen whenever
-// DATA_PATH is already a git repo — this module never runs `git init`
-// itself; bootstrapping the repo (a one-time `git init` in DATA_PATH, plus
-// `git config user.name`/`user.email` if you want something other than
-// the defaults below) is an operational step, same tier as creating
-// /opt/capture/data itself. That also means most tests can point
-// DATA_PATH at a plain temp directory and never touch the real `git`
-// binary at all — see test/setup.js.
-const GIT_ENABLED = existsSync(join(DATA_PATH, '.git'))
-
 const GIT_REMOTE_URL = process.env.GIT_REMOTE_URL
 const GIT_REMOTE_TOKEN = await resolveEnv('GIT_REMOTE_TOKEN')
-const GIT_PUSH_ENABLED = GIT_ENABLED && Boolean(GIT_REMOTE_URL && GIT_REMOTE_TOKEN)
-
 const GIT_AUTHOR_NAME = process.env.GIT_AUTHOR_NAME ?? 'capture'
 const GIT_AUTHOR_EMAIL = process.env.GIT_AUTHOR_EMAIL ?? 'capture@localhost'
 
@@ -43,14 +29,53 @@ async function git(args) {
   })
 }
 
-// Embeds the token directly in the push URL argument rather than ever
-// running `git remote add` — that would write the token into
+// Embeds the token directly in the push (or clone) URL argument rather
+// than ever running `git remote add` — that would write the token into
 // .git/config in plaintext, sitting on disk indefinitely. This way it
-// only exists in one process's argument list for the moment the push
-// takes. See designs/file-backed-storage.md's Config section.
+// only exists in one process's argument list for the moment the
+// operation takes. See designs/file-backed-storage.md's Config section.
 function remoteWithToken() {
   return GIT_REMOTE_URL.replace(/^https:\/\//, `https://${GIT_REMOTE_TOKEN}@`)
 }
+
+// See designs/file-backed-storage.md. This module never runs `git init`
+// itself — bootstrapping a from-scratch local-only repo (a one-time
+// `git init` in DATA_PATH) stays a deliberate operational step, same
+// tier as creating /opt/capture/data itself. Reconnecting to an
+// *existing* remote's history is different: on a genuinely fresh
+// DATA_PATH (a new server, or a wiped volume) with a remote configured,
+// there's a real repo to pick up rather than a choice to make, so this
+// clones it automatically rather than silently starting a second,
+// disconnected local history. Only fires when DATA_PATH is empty (or
+// doesn't exist yet) and isn't already a repo — a non-empty directory
+// that predates git being configured (or is mid-migration from the old
+// SQLite file) is left alone entirely; it's ambiguous enough that
+// guessing would be worse than just staying local-only until a human
+// sorts it out by hand. A failed clone (bad token, network) logs and
+// falls back to local-only rather than blocking startup — same
+// "an optional integration never blocks core function" pattern
+// LINEAR_ENABLED/SPOTIFY_ENABLED/SATELLITES_ENABLED already follow.
+async function cloneIfMissing() {
+  if (existsSync(join(DATA_PATH, '.git'))) return true
+  if (!GIT_REMOTE_URL || !GIT_REMOTE_TOKEN) return false
+  if (existsSync(DATA_PATH) && readdirSync(DATA_PATH).length > 0) {
+    console.error(`DATA_PATH (${DATA_PATH}) is non-empty and not a git repo — staying local-only. git init/clone it by hand if you want git enabled here.`)
+    return false
+  }
+  try {
+    await execFileAsync('git', ['clone', remoteWithToken(), DATA_PATH])
+    console.log(`Cloned ${GIT_REMOTE_URL} into ${DATA_PATH}`)
+    return true
+  } catch (err) {
+    console.error(`git clone failed (staying local-only this run): ${err.message}`)
+    return false
+  }
+}
+
+const GIT_ENABLED = await cloneIfMissing()
+const GIT_PUSH_ENABLED = GIT_ENABLED && Boolean(GIT_REMOTE_URL && GIT_REMOTE_TOKEN)
+
+for (const dir of [ITEMS_DIR, FAVOURITES_DIR]) mkdirSync(dir, { recursive: true })
 
 // Stages and commits one file's current on-disk state (the caller has
 // already written or deleted it) — one commit per meaningful write, no
