@@ -84,6 +84,25 @@ export async function commitPlayback({ houses, house, track, speaker }) {
   return res.json()
 }
 
+// Adds an already-resolved track/speaker to that speaker's Sonos queue
+// instead of playing it now — same never-re-search guarantee as
+// commitPlayback above. See designs/satellites.md's "Sonos queue: now
+// and next".
+export async function commitQueue({ houses, house, track, speaker }) {
+  const address = await verifySatellite(houses, house, 'sonos', 'Sonos')
+
+  const res = await fetch(`${address}/api/queue`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ track, speaker }),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.error ?? `Satellite queue failed: ${res.status}`)
+  }
+  return res.json()
+}
+
 // Resolves a room name (and validates action/brightness) without
 // changing any device state — same split as resolveSpeaker above. See
 // designs/matter-lighting.md.

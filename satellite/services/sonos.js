@@ -57,12 +57,22 @@ export function getStatus() {
     // when nothing has ever been loaded on that player (playbackState
     // 'STOPPED' with an empty currentTrack.title) — the frontend uses
     // that to skip the play/pause toggle but still offer volume.
+    //
+    // nextTrack is the same live-eventing shape, one further ahead in the
+    // queue — see designs/satellites.md's "Sonos queue: now and next".
+    // sonos-discovery already parses AVTransport's r:NextTrackURI/
+    // NextTrackMetaData the same way it parses the current track, so this
+    // is free once play()/queueTrack() actually populate the queue with
+    // more than one item; null with nothing queued up after the current
+    // track (or nothing playing at all).
     activity: system.players.map((player) => {
       const track = player.state.currentTrack
+      const next = player.state.nextTrack
       return {
         speaker: player.roomName,
         playing: player.state.playbackState === 'PLAYING',
         track: track?.title ? { title: track.title, artist: track.artist || undefined, album: track.album || undefined } : null,
+        nextTrack: next?.title ? { title: next.title, artist: next.artist || undefined, album: next.album || undefined } : null,
         volume: player.state.volume,
       }
     }),
@@ -84,30 +94,78 @@ export async function matchRoom(room) {
   return { speaker }
 }
 
-// Commits playback using an already-resolved track/speaker (from a prior
-// matchRoom() call) against a real, discovered Sonos player — no
-// matching happens here, so this can't land on a different result than
-// what was resolved and shown for approval.
-export async function play({ track, speaker }) {
-  await ready
+// Shared by every command below that needs an already-resolved speaker —
+// the "speaker vanished between resolve and commit" check used to be
+// copy-pasted into play/pause/resume/setVolume individually.
+function getPlayerOrThrow(speaker) {
   const player = system.getPlayer(speaker.name)
   if (!player) {
     throw new Error(`Speaker "${speaker.name}" is no longer available`)
   }
+  return player
+}
+
+// Sonos's own address for "this player's queue" as an AVTransport source
+// — distinct from the x-sonos-spotify: URI a single resolved track uses.
+// Switching a player's transport to this is what makes it actually
+// advance through what's been queued via addURIToQueue() below, and is
+// what makes state.nextTrack (see getStatus()) mean anything.
+function queueUri(player) {
+  return `x-rincon-queue:${player.uuid}#0`
+}
+
+// Commits playback using an already-resolved track/speaker (from a prior
+// matchRoom() call) against a real, discovered Sonos player — no
+// matching happens here, so this can't land on a different result than
+// what was resolved and shown for approval.
+//
+// Replaces the queue with this one track and plays it from there, rather
+// than the earlier direct setAVTransport(spotifyUri) approach — the
+// switch is what makes "play now" and queueTrack() below share one
+// underlying queue, which is what "now and next" (see
+// designs/satellites.md) actually reflects. The URI/metadata construction
+// itself (the hard-won reverse-engineered part, see spotifyPlayable()) is
+// unchanged; only the sequence of Sonos calls is. Not yet independently
+// re-verified against real hardware in this queue-routed form — the
+// direct-URI form this replaces was.
+export async function play({ track, speaker }) {
+  await ready
+  const player = getPlayerOrThrow(speaker)
   const { uri, metadata } = spotifyPlayable(track)
-  await player.setAVTransport(uri, metadata)
+  await player.clearQueue()
+  await player.addURIToQueue(uri, metadata)
+  await player.setAVTransport(queueUri(player))
   await player.play()
   return { playing: true, track, speaker: { name: player.roomName } }
+}
+
+// Appends a resolved track to a speaker's queue, without disturbing
+// whatever's already playing — see designs/satellites.md's "Sonos queue:
+// now and next". If the speaker is currently idle (nothing loaded, or
+// stopped), there's nothing for the new item to queue behind, so this
+// also switches it onto its own queue and starts playing — otherwise the
+// track would just sit added and silent with no obvious way to start it.
+// If something is already playing, this never touches transport state:
+// the track lands after whatever's ahead of it in the queue and plays in
+// its turn.
+export async function queueTrack({ track, speaker }) {
+  await ready
+  const player = getPlayerOrThrow(speaker)
+  const wasIdle = player.state.playbackState !== 'PLAYING' && player.state.playbackState !== 'PAUSED_PLAYBACK'
+  const { uri, metadata } = spotifyPlayable(track)
+  await player.addURIToQueue(uri, metadata)
+  if (wasIdle) {
+    await player.setAVTransport(queueUri(player))
+    await player.play()
+  }
+  return { queued: true, startedPlaying: wasIdle, track, speaker: { name: player.roomName } }
 }
 
 // Pauses a specific, already-known speaker — there's no single "the
 // system" to pause once there's more than one real player.
 export async function pause({ speaker }) {
   await ready
-  const player = system.getPlayer(speaker.name)
-  if (!player) {
-    throw new Error(`Speaker "${speaker.name}" is no longer available`)
-  }
+  const player = getPlayerOrThrow(speaker)
   await player.pause()
   return { playing: false, speaker: { name: player.roomName } }
 }
@@ -120,12 +178,28 @@ export async function pause({ speaker }) {
 // already has one loaded from the original play() call.
 export async function resume({ speaker }) {
   await ready
-  const player = system.getPlayer(speaker.name)
-  if (!player) {
-    throw new Error(`Speaker "${speaker.name}" is no longer available`)
-  }
+  const player = getPlayerOrThrow(speaker)
   await player.play()
   return { playing: true, speaker: { name: player.roomName } }
+}
+
+// Skips to the next/previous item in the speaker's own queue — only
+// meaningful once play()/queueTrack() have put it there, since both now
+// always route through the queue (see play() above). Manual, ungated,
+// speaker-scoped, same as pause()/resume() — never proposed/approved by
+// the LLM plan system, only reachable from the local controls panel.
+export async function next({ speaker }) {
+  await ready
+  const player = getPlayerOrThrow(speaker)
+  await player.nextTrack()
+  return { speaker: { name: player.roomName } }
+}
+
+export async function previous({ speaker }) {
+  await ready
+  const player = getPlayerOrThrow(speaker)
+  await player.previousTrack()
+  return { speaker: { name: player.roomName } }
 }
 
 // Sets a specific speaker's volume (0-100) — same manual, ungated,
@@ -133,10 +207,7 @@ export async function resume({ speaker }) {
 // getStatus() reads volume (and everything else) live off the player.
 export async function setVolume({ speaker, level }) {
   await ready
-  const player = system.getPlayer(speaker.name)
-  if (!player) {
-    throw new Error(`Speaker "${speaker.name}" is no longer available`)
-  }
+  const player = getPlayerOrThrow(speaker)
   const clamped = Math.max(0, Math.min(100, Math.round(level)))
   await player.setVolume(clamped)
   return { speaker: { name: player.roomName }, volume: clamped }

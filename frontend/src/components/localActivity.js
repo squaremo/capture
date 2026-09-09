@@ -10,10 +10,11 @@ import { icon } from './icons.js'
 // good — it's a structural fact about that deployment, not a transient
 // hiccup worth retrying).
 //
-// Pausing/resuming/adjusting volume (Sonos) or toggling/dimming/colouring
-// a room (lights) here calls the satellite's own /api/pause, /api/resume,
-// /api/volume, or /api/lights directly, bypassing the capture/Claude/
-// approval pipeline entirely and deliberately — see designs/satellites.md's
+// Pausing/resuming/skipping/adjusting volume (Sonos) or toggling/dimming/
+// colouring a room (lights) here calls the satellite's own /api/pause,
+// /api/resume, /api/next, /api/previous, /api/volume, or /api/lights
+// directly, bypassing the capture/Claude/approval pipeline entirely and
+// deliberately — see designs/satellites.md's
 // Satellite-served frontend & local device controls: a human pressing a
 // button or dragging a slider here is direct manual control, the same
 // trust level as walking up to the speaker or the light switch, not an
@@ -83,16 +84,34 @@ export function createLocalActivity({ variant = 'compact' } = {}) {
     fetchAndRender()
   }
 
-  function renderSonosRow({ speaker, track, playing, volume }) {
+  function renderSonosRow({ speaker, track, nextTrack, playing, volume }) {
     const row = document.createElement('div')
     row.className = 'local-activity-row'
+
+    // Wrapped in its own column so a "next" line stacks under the title
+    // instead of stretching the row horizontally — the badge/buttons
+    // that follow stay a fixed size regardless of how long either gets.
+    const info = document.createElement('span')
+    info.className = 'local-activity-info'
 
     const label = document.createElement('span')
     label.className = 'local-activity-label'
     label.textContent = track
       ? `${track.title}${track.artist ? ` — ${track.artist}` : ''} · ${speaker}`
       : speaker
-    row.appendChild(label)
+    info.appendChild(label)
+
+    // "Now and next" — only ever present once something's actually queued
+    // up behind the current track (see sonos.js's getStatus()), so a
+    // single-track play or an empty queue just shows nothing here.
+    if (nextTrack) {
+      const next = document.createElement('span')
+      next.className = 'local-activity-next'
+      next.textContent = `Next: ${nextTrack.title}${nextTrack.artist ? ` — ${nextTrack.artist}` : ''}`
+      info.appendChild(next)
+    }
+
+    row.appendChild(info)
 
     const badge = document.createElement('span')
     badge.className = `local-activity-badge${playing ? ' local-activity-badge--playing' : ''}`
@@ -239,13 +258,14 @@ export function createLocalActivity({ variant = 'compact' } = {}) {
       el.appendChild(section)
       return
     }
-    const { track, playing, volume, speaker: name } = speaker
+    const { track, nextTrack, playing, volume, speaker: name } = speaker
     const body = document.createElement('div')
     body.className = 'controls-music-body'
     body.innerHTML = `
       <div class="controls-music-info">
         <div class="controls-music-title">${escHtml(track.title)}</div>
         <div class="controls-music-artist">${escHtml([track.artist, track.album].filter(Boolean).join(' · '))}</div>
+        ${nextTrack ? `<div class="controls-music-next">Next: ${escHtml(nextTrack.title)}${nextTrack.artist ? ` — ${escHtml(nextTrack.artist)}` : ''}</div>` : ''}
       </div>
       <div class="controls-music-transport">
         <button type="button" class="controls-transport-btn" data-action="prev" aria-label="Previous track">${icon('skip-back', 20)}</button>
@@ -261,11 +281,14 @@ export function createLocalActivity({ variant = 'compact' } = {}) {
       e.currentTarget.disabled = true
       postAndRefresh(playing ? '/api/pause' : '/api/resume', { speaker: { name } })
     })
-    // Sonos has no next/previous-track endpoint on the satellite today —
-    // these buttons match the design's transport row but are visually
-    // present, disabled placeholders rather than promising a skip that
-    // isn't wired up.
-    body.querySelectorAll('[data-action="prev"], [data-action="next"]').forEach(btn => { btn.disabled = true })
+    body.querySelector('[data-action="prev"]')?.addEventListener('click', (e) => {
+      e.currentTarget.disabled = true
+      postAndRefresh('/api/previous', { speaker: { name } })
+    })
+    body.querySelector('[data-action="next"]')?.addEventListener('click', (e) => {
+      e.currentTarget.disabled = true
+      postAndRefresh('/api/next', { speaker: { name } })
+    })
     body.querySelector('.controls-volume')?.addEventListener('change', (e) => {
       postAndRefresh('/api/volume', { speaker: { name }, level: Number(e.target.value) })
     })

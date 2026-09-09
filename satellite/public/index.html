@@ -32,7 +32,10 @@
     <input id="artist" placeholder="artist (optional)" size="16">
     <input id="room" placeholder="room" size="12">
     <button id="play">play</button>
+    <button id="queue">queue</button>
     <button id="pause">pause</button>
+    <button id="prev">prev</button>
+    <button id="next">next</button>
   </div>
   <div class="row">
     <input id="lightRoom" placeholder="room" size="12">
@@ -59,17 +62,18 @@ async function refresh() {
     `[${s.house}] ${s.playersFound} speaker${s.playersFound === 1 ? '' : 's'} found: ${s.rooms.join(', ') || '(none yet — still discovering, or none on this network)'}`
 }
 
-document.getElementById('play').onclick = async () => {
+// Real track resolution happens on the central backend against Spotify
+// (see designs/satellites.md) — this standalone harness has no backend
+// to call, so it only asks the satellite to resolve the room, same
+// two-step protocol the hub uses (search first, can fail and plays
+// nothing; then commit that result). Shared by play/queue below — they
+// differ only in which endpoint commits the resolved track/speaker.
+async function resolveTrackAndSpeaker() {
   const title = document.getElementById('title').value.trim()
   const artist = document.getElementById('artist').value.trim()
   const room = document.getElementById('room').value.trim()
-  if (!title) return
+  if (!title) return null
 
-  // Real track resolution happens on the central backend against Spotify
-  // (see designs/satellites.md) — this standalone harness has no backend
-  // to call, so it only asks the satellite to resolve the room, same
-  // two-step protocol the hub uses (search first, can fail and plays
-  // nothing; then commit that result).
   const searchRes = await fetch('/api/search', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -78,28 +82,39 @@ document.getElementById('play').onclick = async () => {
   if (!searchRes.ok) {
     const { error } = await searchRes.json()
     document.getElementById('status').textContent = `error: ${error}`
-    return
+    return null
   }
   const { speaker } = await searchRes.json()
   lastSpeaker = speaker
   // Synthetic track from the title/artist inputs — enough to exercise
-  // search + play/pause wiring against real hardware, but without a real
-  // Spotify track id (which only the backend's real search produces),
-  // play() issues a real transport call that won't produce actual audio.
+  // search + play/queue/pause wiring against real hardware, but without a
+  // real Spotify track id (which only the backend's real search
+  // produces), play()/queueTrack() issue real transport calls that won't
+  // produce actual audio.
   const track = { title, artist: artist || null, album: null, matchConfidence: 'unresolved' }
+  return { track, speaker }
+}
 
-  const playRes = await fetch('/api/play', {
+async function commitTo(path, verb) {
+  const resolved = await resolveTrackAndSpeaker()
+  if (!resolved) return
+  const { track, speaker } = resolved
+
+  const res = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ track, speaker }),
   })
-  if (!playRes.ok) {
-    const { error } = await playRes.json()
+  if (!res.ok) {
+    const { error } = await res.json()
     document.getElementById('status').textContent = `error: ${error}`
     return
   }
-  document.getElementById('status').textContent = `playing "${track.title}"${track.artist ? ` by ${track.artist}` : ''} on ${speaker.name}`
+  document.getElementById('status').textContent = `${verb} "${track.title}"${track.artist ? ` by ${track.artist}` : ''} on ${speaker.name}`
 }
+
+document.getElementById('play').onclick = () => commitTo('/api/play', 'playing')
+document.getElementById('queue').onclick = () => commitTo('/api/queue', 'queued')
 
 document.getElementById('pause').onclick = async () => {
   if (!lastSpeaker) {
@@ -118,6 +133,27 @@ document.getElementById('pause').onclick = async () => {
   }
   document.getElementById('status').textContent = `[${lastSpeaker.name}] paused`
 }
+
+async function skip(path, verb) {
+  if (!lastSpeaker) {
+    document.getElementById('status').textContent = 'nothing played from here yet'
+    return
+  }
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ speaker: lastSpeaker }),
+  })
+  if (!res.ok) {
+    const { error } = await res.json()
+    document.getElementById('status').textContent = `error: ${error}`
+    return
+  }
+  document.getElementById('status').textContent = `[${lastSpeaker.name}] ${verb}`
+}
+
+document.getElementById('prev').onclick = () => skip('/api/previous', 'skipped to previous')
+document.getElementById('next').onclick = () => skip('/api/next', 'skipped to next')
 
 // Same search-then-commit shape as play/pause above: resolve first (can
 // fail, changes nothing), then commit exactly that resolved room. 'set'

@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { resolveEnv } from '../secrets.js'
 import { createLinearTask, searchLinearIssues, getLinearTeamName } from './linear.js'
-import { resolveSpeaker, commitPlayback, resolveLight, commitLight, getHouses } from './satellite.js'
+import { resolveSpeaker, commitPlayback, commitQueue, resolveLight, commitLight, getHouses } from './satellite.js'
 import { searchTrack } from './spotify.js'
 import { listItems, getItem as getItemFromDb, updateItem } from '../db.js'
 
@@ -253,6 +253,20 @@ if (PLAYBACK_ENABLED) {
     // replay right now, never a stale first-run value.
     favouriteLabel: ({ track, speaker }) => `${speaker.name}: "${track.title}"${track.artist ? ` by ${track.artist}` : ''}`,
   }
+  // Same resolve_playback readonly step, different acting tool — appends
+  // to the speaker's queue instead of interrupting whatever's playing.
+  // See designs/satellites.md's "Sonos queue: now and next".
+  TOOL_REGISTRY.queue_playback = {
+    kind: 'final',
+    needsApproval: true,
+    describe: ({ track, speaker, target_house }) =>
+      `Proposed: queue "${track.title}"${track.artist ? ` by ${track.artist}` : ''} on ${speaker.name}${target_house ? ` (${target_house})` : ''}`,
+    execute: async ({ target_house, track, speaker }) => {
+      const result = await commitQueue({ houses: getHouses(), house: target_house, track, speaker })
+      return `Queued "${result.track.title}"${result.track.artist ? ` by ${result.track.artist}` : ''} on ${result.speaker.name}`
+    },
+    favouriteLabel: ({ track, speaker }) => `Queue on ${speaker.name}: "${track.title}"${track.artist ? ` by ${track.artist}` : ''}`,
+  }
 }
 
 if (SATELLITES_ENABLED) {
@@ -360,11 +374,12 @@ For a capture that just names a checklist with no items (recalling one): find_ch
 - search_linear_issues (read-only — runs automatically, no approval needed): args { query }. Searches existing Linear issues for a similar title. Outputs: { duplicate_found: boolean, matching_issue: { title, url } | null }.
 - create_linear_task (acting — only proposes; a human must approve before anything is actually created): args { title, description?, tags }. Real project/engineering work that should be tracked in Linear (e.g. "fix the login bug", "add dark mode").` : ''}${PLAYBACK_ENABLED ? `
 - resolve_playback (read-only — runs automatically, no approval needed): args { title, artist?, album?, room, target_house? }. Looks up the actual matching track and speaker for a Sonos playback request — never guess a specific speaker name or track yourself, this does the matching. room is free text like "living room" or "bedroom", passed through as written. target_house should only be set when the capture text unambiguously names one of these houses: ${houseNames.join(', ')}. Leave it unset otherwise — the app fills in the house the capture came from. Outputs: { target_house, track: { title, artist, album, image, matchConfidence }, speaker: { name, confidence } }.
-- control_playback (acting — proposes the exact resolved track and speaker; a human must approve before anything plays): args { target_house, track, speaker, tags }. Always follows resolve_playback in the same plan, referencing its whole output rather than re-stating anything: target_house: "\${s1.target_house}", track: "\${s1.track}", speaker: "\${s1.speaker}" (using whichever step id you gave resolve_playback). Never call control_playback without a resolve_playback step earlier in the same plan.` : ''}${SATELLITES_ENABLED ? `
+- control_playback (acting — proposes the exact resolved track and speaker; a human must approve before anything plays): args { target_house, track, speaker, tags }. Use for "play X", "play X now" — anything that should start playing immediately, interrupting whatever's currently on. Always follows resolve_playback in the same plan, referencing its whole output rather than re-stating anything: target_house: "\${s1.target_house}", track: "\${s1.track}", speaker: "\${s1.speaker}" (using whichever step id you gave resolve_playback). Never call control_playback without a resolve_playback step earlier in the same plan.
+- queue_playback (acting — proposes the exact resolved track and speaker; a human must approve before anything is added): args { target_house, track, speaker, tags }. Use for "queue X", "add X to the queue", "play X next" — anything that should join what's already lined up rather than interrupt it. Same resolve_playback step and argument shape as control_playback above — never call it without a resolve_playback step earlier in the same plan.` : ''}${SATELLITES_ENABLED ? `
 - resolve_light (read-only — runs automatically, no approval needed): args { room, action, brightness?, color?, target_house? }. Looks up the actual matching room for a light-control request via the house's Matter hub — never guess a specific room name yourself, this does the matching. room is free text like "living room", passed through as written. action is "on", "off", or "set" (with brightness — 1-100 — and/or color — a 6-digit hex string — whichever the capture actually specifies, never both unless both are actually asked for: "set the living room lights to green" -> action "set", color "#00ff00" (no brightness); "dim the living room to 20%" -> action "set", brightness 20 (no color); "dim the living room to 20% and make it red" -> action "set", brightness 20, color "#ff0000". For color, figure out the hex value yourself from the named colour, same as you would for any other colour question — room matching is the only thing that gets resolved locally). target_house follows the same rule as resolve_playback's. Outputs: { target_house, room: { name, confidence }, action, brightness, color }.
 - control_light (acting — proposes the exact resolved room; a human must approve before anything happens): args { target_house, room, action, brightness, color, tags }. Always follows resolve_light in the same plan, referencing its whole output: target_house: "\${s1.target_house}", room: "\${s1.room}", action: "\${s1.action}", brightness: "\${s1.brightness}", color: "\${s1.color}" (using whichever step id you gave resolve_light). Never call control_light without a resolve_light step earlier in the same plan.` : ''}
 
-action_result is a short natural-language description of what was done, e.g. "Saved to inbox", "Reminder set: 'Call dentist' — Tomorrow, 9:00am", "Flagged as urgent". Not needed for create_linear_task, control_playback, control_light, or add_to_shopping_list — their descriptions are generated automatically. tags is an array of 1–3 lowercase tags.
+action_result is a short natural-language description of what was done, e.g. "Saved to inbox", "Reminder set: 'Call dentist' — Tomorrow, 9:00am", "Flagged as urgent". Not needed for create_linear_task, control_playback, queue_playback, control_light, or add_to_shopping_list — their descriptions are generated automatically. tags is an array of 1–3 lowercase tags.
 
 Steps run in the order given. A read-only step's output is not shown to you before you finish planning — you only see it by referencing it later, so cover both outcomes of a boolean output using "if"/"unless" on separate steps rather than guessing which one will happen.
 

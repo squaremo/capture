@@ -391,6 +391,85 @@ interface is up, e.g. local dev without Tailscale running — still
 restrictive by default, never "listen everywhere." `HOST` overrides it
 explicitly if that's ever genuinely needed.
 
+## Sonos queue: now and next
+
+Status: implemented, unverified against real hardware (see caveat below).
+
+**Problem.** `control_playback` only ever played one resolved track
+directly (`SetAVTransportURI` to an `x-sonos-spotify:` URI, then `Play`)
+— there was no way to line up a second song, and nothing for a "now and
+next" display to show, since Sonos only computes a meaningful "next
+track" when a player's transport is actually sourced from its own queue.
+
+**API.** Sonos does support this — `sonos-discovery`'s `Player` exposes
+the underlying UPnP `AddURIToQueue`/`RemoveAllTracksFromQueue` actions as
+`addURIToQueue(uri, metadata)`/`clearQueue()`, and a player's queue is
+addressed as an AVTransport source via `x-rincon-queue:<uuid>#0`
+(`player.uuid` is the same Sonos-assigned id sonos-discovery already
+tracks per player). Once a player's transport is set to its own queue,
+`player.state.nextTrack` populates live via the same GENA eventing that
+already drives `currentTrack`/`playbackState` — see `getStatus()`'s
+existing doc comment in `services/sonos.js`.
+
+**Design.** Rather than add a queue-only path alongside the existing
+direct-URI one (which would leave anything played via `control_playback`
+un-queued, so nothing added afterwards would ever actually play), `play()`
+in `satellite/services/sonos.js` now routes through the queue too:
+`clearQueue()` → `addURIToQueue()` → `setAVTransport(queueUri)` → `play()`.
+This is what makes `control_playback` ("play now" — interrupts) and the
+new `queue_playback` ("queue" / "add to the queue" / "play next" — joins
+what's lined up) share one underlying queue, which is what makes "now and
+next" mean anything: both tools' resolve step is the unchanged
+`resolve_playback` (same track/speaker lookup), so only the acting tool
+differs. `queueTrack()` just calls `addURIToQueue()`; if the speaker is
+currently idle it also switches it onto the queue and starts playing —
+otherwise a first add to an idle, otherwise-untouched speaker would sit
+silently queued with no way to start it. If something's already playing,
+`queueTrack()` never touches transport state — the track lands after
+whatever's ahead of it and plays in its turn.
+
+New surface, following the existing resolve/commit and readonly/final
+shapes throughout this doc:
+
+- `POST /api/queue` on the satellite (`satellite/server.js`) — same body
+  shape as `/api/play` (`{ track, speaker }`, both already resolved, no
+  free text), calling `sonos.queueTrack()`.
+- `commitQueue()` in `backend/integrations/satellite.js` — same
+  verify-then-POST shape as `commitPlayback()`.
+- `queue_playback` in `TOOL_REGISTRY` (`backend/integrations/claude.js`)
+  — `kind: 'final', needsApproval: true`, same as `control_playback`;
+  follows the same `resolve_playback` step in a plan, and gets its own
+  `describe`/`execute`/`favouriteLabel` (queueing is favourite-able too —
+  replaying it re-queues the frozen track on the frozen speaker, same
+  "exactly as approved" contract as every other favourite). The system
+  prompt tells Claude to route "play X now" to `control_playback` and
+  "queue X" / "add X to the queue" / "play X next" to `queue_playback`.
+- `POST /api/next` / `POST /api/previous` on the satellite, wrapping
+  `player.nextTrack()`/`previousTrack()` — manual, ungated, local-only
+  controls (same trust level as `/api/pause`/`/api/resume`, see the
+  bypass-the-pipeline reasoning above), not reachable from the LLM plan
+  system at all.
+- `getStatus()`'s `activity` entries gained `nextTrack` (same shape as
+  `track`, `null` when nothing's queued up behind the current track) —
+  what makes "now and next" actually show something.
+- `frontend/src/components/localActivity.js`: the compact panel shows a
+  "Next: …" line under the current track when present; the station
+  Controls tab's Music block shows the same line and — previously
+  disabled, unwired placeholders, since there was no `/api/next`/
+  `/api/previous` to call — now wires its prev/next transport buttons to
+  the new endpoints.
+
+**Caveat.** The URI/metadata construction in `spotifyPlayable()` (the
+hard-won reverse-engineered part — see Open questions below) is
+completely unchanged; only the *sequence* of Sonos calls `play()` makes
+around it is new (queue-then-switch-then-play, instead of a direct
+`setAVTransport`). That's a small, mechanically similar change, but the
+direct-URI form was the one actually confirmed against real hardware
+(see Open questions) — the queue-routed form hasn't been independently
+re-confirmed there yet. If it turns out Sonos wants different DIDL
+metadata for a queued item than for a direct `SetAVTransportURI` target,
+that's the first thing to check.
+
 ## Open questions
 
 - Provisioning story for a new satellite (how house-id and local device

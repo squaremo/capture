@@ -58,13 +58,30 @@ enough, the request fails outright (`422 { "error": "No speaker matching
 resolved via Spotify; `speaker` is exactly the object a prior
 `/api/search` returned. Both are passed back verbatim — no free text
 accepted here and no re-matching happens, so this can't land on a
-different result than what was already resolved. Issues a real Sonos
-`SetAVTransportURI` + `Play` against the named speaker. Response is the
-same shape plus `"playing": true`.
+different result than what was already resolved. Clears the speaker's
+queue, adds this one track, switches its transport to that queue, and
+plays — see "Sonos queue: now and next" in `../designs/satellites.md` for
+why this now goes via the queue rather than a direct `SetAVTransportURI`.
+Response is the same shape plus `"playing": true`.
+
+`POST /api/queue` — same body shape as `/api/play`, but appends to the
+speaker's queue instead of replacing it and interrupting playback. If the
+speaker is currently idle, this also switches it onto its own queue and
+starts playing (there'd otherwise be no way for the added track to ever
+play); if something's already playing, the track just joins the queue
+and plays in its turn. Response is the same shape plus `"queued": true`
+and `"startedPlaying": boolean`.
 
 `POST /api/pause` — body `{ speaker }`. Needs a speaker now — there's no
 single "the system" to pause once there's real, possibly-multiple
 hardware behind this.
+
+`POST /api/next` / `POST /api/previous` — body `{ speaker }`. Skips to
+the next/previous item in that speaker's queue — manual, ungated, local
+controls only (see `frontend/src/components/localActivity.js`), never
+proposed or approved by the LLM plan system. Only meaningful once
+`/api/play`/`/api/queue` have actually put more than one item in the
+queue.
 
 `services/dirigera.js` talks to a real IKEA Dirigera hub via the
 `dirigera` npm client — real, not a stub, same as Sonos above. Same
@@ -93,8 +110,13 @@ speaker, real audio) against a fixed placeholder track before the
 backend's Spotify search existed — `play()` only depends on `track.id`,
 so a real resolved id is a drop-in — with the default `1` on at least one
 real household; if playback ever fails elsewhere, this is the first
-thing to try adjusting. See the comments in `services/sonos.js` and Open
-questions in `designs/satellites.md`.
+thing to try adjusting. That verification predates `play()` routing
+through the queue rather than a direct `SetAVTransportURI` (see "Sonos
+queue: now and next" in `designs/satellites.md`) — the URI/metadata
+construction itself is unchanged, only the sequence of Sonos calls
+around it, but the queue-routed form hasn't yet been independently
+re-confirmed against real hardware. See the comments in
+`services/sonos.js` and Open questions in `designs/satellites.md`.
 
 ## Serving the real frontend
 
