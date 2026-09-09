@@ -58,7 +58,12 @@ function remoteWithToken() {
 async function cloneIfMissing() {
   if (existsSync(join(DATA_PATH, '.git'))) return true
   if (!GIT_REMOTE_URL || !GIT_REMOTE_TOKEN) return false
-  if (existsSync(DATA_PATH) && readdirSync(DATA_PATH).length > 0) {
+  // README.md doesn't count — it's for anyone browsing the git repo
+  // directly, not app content, so its mere presence during this one
+  // directory scan (the only place anything here looks at DATA_PATH's
+  // top level at all) shouldn't read as "real content is here."
+  const entries = existsSync(DATA_PATH) ? readdirSync(DATA_PATH) : []
+  if (entries.some(f => f !== 'README.md')) {
     console.error(`DATA_PATH (${DATA_PATH}) is non-empty and not a git repo — staying local-only. git init/clone it by hand if you want git enabled here.`)
     return false
   }

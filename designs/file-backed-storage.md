@@ -186,6 +186,24 @@ lands cleanly on top, and a push failure (tested by pushing into a
 non-bare checked-out remote) is caught and logged without blocking the
 write that triggered it.
 
+**`cloneIfMissing()`'s directory scan is the only place anything here
+looks at `DATA_PATH`'s top level at all** — `listItems`/`listFavourites`
+are already scoped to the `items/`/`favourites/` subdirectories, so they
+never could see a stray top-level file regardless. That one scan
+explicitly excludes `README.md` (there to explain the repo to anyone
+browsing it directly, not app content) from what counts as "real
+content blocking a clone," rather than leaving that as an accident of
+`listItems`/`listFavourites` happening not to look there. **Known
+residual gap, deliberately not solved here**: excluding it from the
+*eligibility check* doesn't make the actual `git clone` succeed if the
+file is physically present — git itself refuses any non-empty target
+directory regardless of why it's non-empty, so a real README sitting in
+`DATA_PATH` still makes the clone attempt fail today (caught, logged,
+falls back to local-only — no crash, just no history picked up). An
+earlier attempt at this held the file in memory across the clone and
+restored it after, which would close that gap — reverted twice as more
+than what was actually wanted, so it's not reintroduced here.
+
 ## Concurrency
 
 SQLite gave atomic single-writer safety for free; plain file writes
