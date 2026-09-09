@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const { mockCreate, mockResolveSpeaker, mockCommitPlayback, mockResolveLight, mockCommitLight, mockGetHouses, mockSearchTrack } = vi.hoisted(() => ({
+const { mockCreate, mockResolveSpeaker, mockCommitPlayback, mockCommitQueue, mockResolveLight, mockCommitLight, mockGetHouses, mockSearchTrack } = vi.hoisted(() => ({
   mockCreate: vi.fn(),
   mockResolveSpeaker: vi.fn(),
   mockCommitPlayback: vi.fn(),
+  mockCommitQueue: vi.fn(),
   mockResolveLight: vi.fn(),
   mockCommitLight: vi.fn(),
   mockGetHouses: vi.fn(),
@@ -17,6 +18,7 @@ vi.mock('@anthropic-ai/sdk', () => ({
 vi.mock('../integrations/satellite.js', () => ({
   resolveSpeaker: mockResolveSpeaker,
   commitPlayback: mockCommitPlayback,
+  commitQueue: mockCommitQueue,
   resolveLight: mockResolveLight,
   commitLight: mockCommitLight,
   getHouses: mockGetHouses,
@@ -46,6 +48,7 @@ beforeEach(() => {
   mockCreate.mockClear()
   mockResolveSpeaker.mockClear()
   mockCommitPlayback.mockClear()
+  mockCommitQueue.mockClear()
   mockResolveLight.mockClear()
   mockCommitLight.mockClear()
   mockGetHouses.mockClear()
@@ -75,6 +78,19 @@ function playbackPlan(resolveArgs, overrides = {}) {
   ]
 }
 
+// Same shape as playbackPlan, but the acting step is queue_playback —
+// exercises the "add to queue" branch instead of "play now".
+function queuePlaybackPlan(resolveArgs, overrides = {}) {
+  return [
+    { id: 's1', tool: 'resolve_playback', args: resolveArgs },
+    {
+      id: 's2',
+      tool: 'queue_playback',
+      args: { target_house: '${s1.target_house}', track: '${s1.track}', speaker: '${s1.speaker}', tags: [], ...overrides },
+    },
+  ]
+}
+
 // Same two-step shape for lights: resolve_light (readonly) runs
 // automatically, control_light (acting) references its whole output.
 function lightPlan(resolveArgs, overrides = {}) {
@@ -89,12 +105,13 @@ function lightPlan(resolveArgs, overrides = {}) {
 }
 
 describe('processCapture with satellites and Spotify enabled', () => {
-  it('offers resolve_playback and control_playback as tools', async () => {
+  it('offers resolve_playback, control_playback and queue_playback as tools', async () => {
     respondWithPlan([{ id: 's1', tool: 'save_to_inbox', args: { action_result: 'ok', tags: [] } }])
     await processCapture('anything')
     const toolNames = mockCreate.mock.calls[0][0].tools[0].input_schema.properties.steps.items.properties.tool.enum
     expect(toolNames).toContain('resolve_playback')
     expect(toolNames).toContain('control_playback')
+    expect(toolNames).toContain('queue_playback')
   })
 
   it('resolves before proposing, and the proposal shows the resolved particulars', async () => {
@@ -169,6 +186,25 @@ describe('processCapture with satellites and Spotify enabled', () => {
     await expect(processCapture('play x in the living room')).rejects.toThrow(
       'resolving "Finding matching track and speaker" failed: No Spotify track matching "x"'
     )
+  })
+
+  it('resolves before proposing a queue_playback plan, and shows the resolved particulars', async () => {
+    const plan = queuePlaybackPlan({ title: 'Silver Machine', artist: 'Hawkwind', room: 'living room' })
+    respondWithPlan(plan)
+
+    const result = await processCapture("queue 'Silver Machine' by Hawkwind in the living room")
+
+    expect(mockCommitQueue).not.toHaveBeenCalled()
+    expect(result).toEqual({
+      status: 'awaiting_approval',
+      tags: [],
+      action_result: 'Proposed: queue "Silver Machine" by Hawkwind on Living Room',
+      pending_action: {
+        tool: 'queue_playback',
+        input: { target_house: null, track: resolved.track, speaker: resolved.speaker },
+      },
+      plan_steps: plan,
+    })
   })
 
   it('reflects a house added to getHouses() since startup, without re-importing', async () => {
@@ -316,6 +352,34 @@ describe('executeAction with satellites enabled', () => {
       executeAction({ tool: 'control_playback', input: { target_house: 'lake', track: resolved.track, speaker: resolved.speaker } })
     ).rejects.toThrow('Unknown house')
   })
+
+  it('commits queue_playback via commitQueue, not commitPlayback, and returns status acted', async () => {
+    mockCommitQueue.mockResolvedValue({ queued: true, startedPlaying: false, ...resolved })
+
+    const result = await executeAction({
+      tool: 'queue_playback',
+      input: { target_house: 'home', track: resolved.track, speaker: resolved.speaker },
+    })
+
+    expect(mockCommitQueue).toHaveBeenCalledWith({
+      houses: { home: 'http://localhost:4000' },
+      house: 'home',
+      track: resolved.track,
+      speaker: resolved.speaker,
+    })
+    expect(mockCommitPlayback).not.toHaveBeenCalled()
+    expect(result).toEqual({
+      status: 'acted',
+      action_result: 'Queued "Silver Machine" by Hawkwind on Living Room',
+    })
+  })
+
+  it('propagates satellite errors from queue_playback as thrown exceptions', async () => {
+    mockCommitQueue.mockRejectedValue(new Error('Unknown house: "lake"'))
+    await expect(
+      executeAction({ tool: 'queue_playback', input: { target_house: 'lake', track: resolved.track, speaker: resolved.speaker } })
+    ).rejects.toThrow('Unknown house')
+  })
 })
 
 describe('control_light execution', () => {
@@ -418,6 +482,11 @@ describe('getFavouriteLabel', () => {
   it('renders control_playback as a live template', () => {
     expect(getFavouriteLabel('control_playback', { track, speaker }, 'Played "Silver Machine" by Hawkwind on Living Room'))
       .toBe('Living Room: "Silver Machine" by Hawkwind')
+  })
+
+  it('renders queue_playback as its own live template, distinct from control_playback', () => {
+    expect(getFavouriteLabel('queue_playback', { track, speaker }, 'Queued "Silver Machine" by Hawkwind on Living Room'))
+      .toBe('Queue on Living Room: "Silver Machine" by Hawkwind')
   })
 
   it('falls back to the given fallback for a tool with no favouriteLabel (e.g. create_linear_task)', () => {

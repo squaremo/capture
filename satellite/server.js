@@ -144,6 +144,25 @@ app.post('/api/play', async (req, reply) => {
   }
 })
 
+// Adds an already-resolved track to a speaker's queue instead of playing
+// it immediately — same resolved-track/speaker shape as /api/play, same
+// "no free text accepted" guarantee. See designs/satellites.md's "Sonos
+// queue: now and next".
+app.post('/api/queue', async (req, reply) => {
+  const { track, speaker } = req.body ?? {}
+  if (!track?.title || typeof track.title !== 'string') {
+    return reply.code(400).send({ error: 'track.title is required' })
+  }
+  if (!speaker?.name || typeof speaker.name !== 'string') {
+    return reply.code(400).send({ error: 'speaker.name is required' })
+  }
+  try {
+    return await sonos.queueTrack({ track, speaker })
+  } catch (err) {
+    return reply.code(422).send({ error: err.message })
+  }
+})
+
 // Needs a speaker now that this controls real, possibly-multiple
 // hardware — there's no single "the system" to pause.
 app.post('/api/pause', async (req, reply) => {
@@ -167,6 +186,33 @@ app.post('/api/resume', async (req, reply) => {
   }
   try {
     return await sonos.resume({ speaker })
+  } catch (err) {
+    return reply.code(422).send({ error: err.message })
+  }
+})
+
+// Skip to the next/previous item in the queue — same manual, ungated,
+// speaker-scoped shape as /api/pause/resume, only reachable from the
+// local controls panel, not the LLM plan system.
+app.post('/api/next', async (req, reply) => {
+  const { speaker } = req.body ?? {}
+  if (!speaker?.name || typeof speaker.name !== 'string') {
+    return reply.code(400).send({ error: 'speaker.name is required' })
+  }
+  try {
+    return await sonos.next({ speaker })
+  } catch (err) {
+    return reply.code(422).send({ error: err.message })
+  }
+})
+
+app.post('/api/previous', async (req, reply) => {
+  const { speaker } = req.body ?? {}
+  if (!speaker?.name || typeof speaker.name !== 'string') {
+    return reply.code(400).send({ error: 'speaker.name is required' })
+  }
+  try {
+    return await sonos.previous({ speaker })
   } catch (err) {
     return reply.code(422).send({ error: err.message })
   }

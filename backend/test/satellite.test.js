@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, writeFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { resolveSpeaker, commitPlayback, resolveLight, commitLight, listSatellites, getHouses, _resetLastSeenForTests } from '../integrations/satellite.js'
+import { resolveSpeaker, commitPlayback, commitQueue, resolveLight, commitLight, listSatellites, getHouses, _resetLastSeenForTests } from '../integrations/satellite.js'
 
 const mockFetch = vi.fn()
 vi.stubGlobal('fetch', mockFetch)
@@ -100,6 +100,43 @@ describe('commitPlayback', () => {
       .mockResolvedValueOnce(jsonResponse({ error: 'speaker.name is required' }, false, 400))
 
     await expect(commitPlayback({ houses, house: 'home', track, speaker: {} })).rejects.toThrow('speaker.name is required')
+  })
+})
+
+describe('commitQueue', () => {
+  const track = { id: 'trk_abc123', title: 'Silver Machine', artist: 'Hawkwind', album: null, matchConfidence: 'exact' }
+  const speaker = { name: 'Living Room', requested: 'living room', confidence: 'exact' }
+
+  it('throws for an unknown house without calling out', async () => {
+    await expect(commitQueue({ houses, house: 'lake', track, speaker })).rejects.toThrow('Unknown house')
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it('throws when the satellite reports a different house than the config expects', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ house: 'lake', capabilities: ['sonos'] }))
+    await expect(commitQueue({ houses, house: 'home', track, speaker })).rejects.toThrow('mismatch')
+  })
+
+  it('posts exactly the resolved track/speaker to /api/queue, not a fresh query', async () => {
+    const queueResult = { queued: true, startedPlaying: false, track, speaker }
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse({ house: 'home', capabilities: ['sonos'] }))
+      .mockResolvedValueOnce(jsonResponse(queueResult))
+
+    const result = await commitQueue({ houses, house: 'home', track, speaker })
+
+    expect(result).toEqual(queueResult)
+    const [url, options] = mockFetch.mock.calls[1]
+    expect(url).toBe('http://localhost:4000/api/queue')
+    expect(JSON.parse(options.body)).toEqual({ track, speaker })
+  })
+
+  it('throws with the satellite-reported error on a failed queue', async () => {
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse({ house: 'home', capabilities: ['sonos'] }))
+      .mockResolvedValueOnce(jsonResponse({ error: 'speaker.name is required' }, false, 400))
+
+    await expect(commitQueue({ houses, house: 'home', track, speaker: {} })).rejects.toThrow('speaker.name is required')
   })
 })
 
