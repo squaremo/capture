@@ -508,6 +508,16 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 .btn-favourite:hover { color: var(--sig-need); }
 .btn-favourite:disabled { color: var(--sig-need); opacity: 1; cursor: default; }
 
+.btn-speak {
+  background: transparent;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-1);
+  flex-shrink: 0;
+}
+.btn-speak:hover { color: var(--accent); }
+
 .item-steps {
   list-style: none;
   display: flex;
@@ -917,6 +927,20 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 .theme-swatch[data-theme="dusk"]     { background: oklch(0.74 0.14 300); }
 .theme-swatch[data-theme="original"] { background: #c8f060; }
 
+/* ── Speech toggle (inside the info panel) ───────────────── */
+.speech-toggle {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: var(--rule) solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: var(--fs-label);
+  text-align: left;
+  width: 100%;
+}
+.speech-toggle--on { color: var(--accent); }
+.speech-toggle:disabled { opacity: 0.5; cursor: default; }
+
 /* ── Stats footer ────────────────────────────────────────── */
 .stats {
   margin-top: auto;
@@ -1154,6 +1178,17 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   justify-content: space-between;
   flex-shrink: 0;
 }
+
+[data-density="station"] .station-speech-toggle {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  padding: var(--space-2);
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+[data-density="station"] .station-speech-toggle--on { color: var(--accent); }
 
 [data-density="station"] .station-waiting-badge {
   background: var(--sig-need);
@@ -1458,10 +1493,19 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 }
 
 [data-density="station"] .station-review-quote {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   font-size: var(--fs-lead);
   border-left: 2px solid var(--border);
   padding-left: var(--space-3);
 }
+[data-density="station"] .station-review-quote-text { flex: 1; }
+[data-density="station"] .station-speak {
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+[data-density="station"] .station-speak:hover { color: var(--accent); }
 
 [data-density="station"] .station-review-actions {
   display: flex;
@@ -1504,6 +1548,18 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 }
 [data-density="station"] .station-flash-check { font-weight: 700; }
 [data-density="station"] .station-flash-text { flex: 1; }
+[data-density="station"] .station-flash-speak {
+  background: transparent;
+  border: none;
+  color: var(--on-signal);
+  opacity: 0.85;
+  padding: var(--space-1) var(--space-2);
+  flex-shrink: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+[data-density="station"] .station-flash-speak:hover { opacity: 1; }
 [data-density="station"] .station-flash-favourite {
   background: transparent;
   border: none;

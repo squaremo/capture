@@ -2,6 +2,7 @@ import {
   createItemEl, updateItemEl, collectFormOverrides, clearLocalChecked,
 } from './item.js'
 import { handleListAction } from './lists.js'
+import { speak } from '../speech.js'
 
 // "Needs attention": still processing, classified but no action decided
 // yet, or an acting tool proposed something waiting on approve/veto.
@@ -75,6 +76,9 @@ export function createInbox({ onApprove, onVeto, onFavourite, onShoppingListChan
     if (btn.dataset.action === 'approve') onApprove?.(id, collectFormOverrides(itemEl))
     if (btn.dataset.action === 'veto') onVeto?.(id)
     if (btn.dataset.action === 'favourite') onFavourite?.(id)
+    // Read-aloud never leaves the browser — same "no callback out to
+    // main.js" shape as checklist ticking, since it's not server state.
+    if (btn.dataset.action === 'speak') speak(items.find(i => i.id === id)?.action_result)
     // Ticking, resetting, and committing a shopping removal all live in
     // lists.js — the station's list pane renders the same rows and calls
     // the same handler (see station.js), which is what keeps the two
