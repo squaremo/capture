@@ -471,16 +471,16 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
         <span class="station-pane-hint">start typing to set aside</span>
       </div>
       <h1 class="station-heading">${escHtml(item?.text ?? '')}</h1>
-      ${toolLabel
-        ? `<div class="station-review-meta">${escHtml(toolLabel)}${item?.house ? ` &middot; ${escHtml(item.house)}` : ''}</div>`
-        : ''}
-      ${fields.length ? renderForm(fields) : ''}
       ${item?.action_result
         ? `<div class="station-review-quote">
             <span class="station-review-quote-text">${escHtml(item.action_result)}</span>
             <button type="button" class="btn-speak station-speak" data-action="speak" title="Read this out" aria-label="Read this out">${icon('volume-2', 20)}</button>
           </div>`
         : ''}
+      ${toolLabel
+        ? `<div class="station-review-meta">${escHtml(toolLabel)}${item?.house ? ` &middot; ${escHtml(item.house)}` : ''}</div>`
+        : ''}
+      ${fields.length ? renderForm(fields) : ''}
     `
   }
 

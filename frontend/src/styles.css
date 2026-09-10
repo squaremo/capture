@@ -1499,11 +1499,23 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   margin-bottom: var(--space-3);
 }
 
+/* Review mode inverts the usual heading/body weight: the captured text is
+   what you already said, the proposed action is the one thing being
+   decided — so the heading here shrinks to lead size and the action
+   quote takes the display size instead, right underneath it. */
+[data-density="station"] .station-pane--review .station-heading {
+  font-size: var(--fs-lead);
+  margin-bottom: var(--space-2);
+}
+
 [data-density="station"] .station-review-quote {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  font-size: var(--fs-lead);
+  font-size: var(--fs-display);
+  font-weight: 700;
+  line-height: var(--lh-tight);
+  margin-bottom: var(--space-3);
   border-left: 2px solid var(--border);
   padding-left: var(--space-3);
 }
