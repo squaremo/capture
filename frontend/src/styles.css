@@ -927,19 +927,28 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 .theme-swatch[data-theme="dusk"]     { background: oklch(0.74 0.14 300); }
 .theme-swatch[data-theme="original"] { background: #c8f060; }
 
-/* ── Speech toggle (inside the info panel) ───────────────── */
-.speech-toggle {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: var(--rule) solid var(--border);
+/* ── Speech toggle — shared icon button (speech.js), sized per caller ── */
+.speech-toggle-btn {
   background: transparent;
+  border: none;
   color: var(--text-dim);
-  font-size: var(--fs-label);
-  text-align: left;
-  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
 }
-.speech-toggle--on { color: var(--accent); }
-.speech-toggle:disabled { opacity: 0.5; cursor: default; }
+.speech-toggle-btn--on { color: var(--accent); }
+.speech-toggle-btn:disabled { opacity: 0.5; cursor: default; }
+
+/* Header (phone/laptop): a control reached for often, so it gets a real
+   thumb-sized hit area (44px+) without visually growing the header row —
+   a negative margin offsets the extra padding. */
+.header-speech-toggle {
+  min-width: 44px;
+  min-height: 44px;
+  padding: var(--space-3);
+  margin: calc(-1 * var(--space-3));
+}
 
 /* ── Stats footer ────────────────────────────────────────── */
 .stats {
@@ -1179,16 +1188,14 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   flex-shrink: 0;
 }
 
+/* Base look (colour, layout, disabled/--on state) comes from the shared
+   .speech-toggle-btn class (see styles.css's Speech toggle section) — this
+   just sizes the hit area for a wall panel touched at arm's length. */
 [data-density="station"] .station-speech-toggle {
-  background: transparent;
-  border: none;
-  color: var(--text-dim);
-  padding: var(--space-2);
-  display: flex;
-  align-items: center;
-  cursor: pointer;
+  min-width: 44px;
+  min-height: 44px;
+  padding: var(--space-3);
 }
-[data-density="station"] .station-speech-toggle--on { color: var(--accent); }
 
 [data-density="station"] .station-waiting-badge {
   background: var(--sig-need);

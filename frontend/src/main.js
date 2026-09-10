@@ -7,7 +7,7 @@ import { createLocalActivity } from './components/localActivity.js'
 import { createStationShell } from './components/station.js'
 import { createStationsIndicator, createStationClock } from './components/stations.js'
 import { createThemePicker } from './themes.js'
-import { createSpeechToggle, speakIfEnabled } from './speech.js'
+import { createSpeechToggleButton, speakIfEnabled } from './speech.js'
 import { loadConfig } from './config.js'
 import {
   configureApi, postCapture, getItem, getItems, approveItem, vetoItem, getVersion, getSatellites,
@@ -63,13 +63,14 @@ async function init() {
   const themePicker = createThemePicker()
   versionInfo.panelExtrasEl.append(themePicker.el)
 
-  // Global read-aloud-by-default toggle (see speech.js) — same "settings
-  // live in the info panel" slot as the theme picker, since like theme
-  // it's a rare, deliberate change rather than header status. The station
-  // gets its own persistent icon instead (see station.js) — a wall panel
-  // shouldn't need a panel disclosure to find it.
-  const speechToggle = createSpeechToggle()
-  versionInfo.panelExtrasEl.append(speechToggle.el)
+  // Global read-aloud-by-default toggle (see speech.js) — unlike theme,
+  // this is a control worth reaching for often (mute it before a meeting,
+  // turn it on walking into the kitchen), so it sits directly in the
+  // header rather than behind the info panel's disclosure — same
+  // reasoning as the station's own topbar icon, and sized the same way:
+  // a big thumb target, not a fiddly badge.
+  const speechToggle = createSpeechToggleButton(20)
+  speechToggle.el.classList.add('header-speech-toggle')
 
   const headerBadges = document.createElement('div')
   headerBadges.className = 'header-badges'
@@ -86,8 +87,11 @@ async function init() {
   const stationClock = createStationClock()
   if (config.isStation) {
     headerBadges.append(stationsIndicator.toggleEl, stationClock.el)
+    // Station gets its own copy in its topbar (see station.js) — bigger,
+    // and beside the other one-thing-at-a-time controls — so it isn't
+    // duplicated up here too.
   } else {
-    headerBadges.append(versionInfo.pillEl, vpnBadge)
+    headerBadges.append(speechToggle.el, versionInfo.pillEl, vpnBadge)
   }
 
   header.append(logo, headerBadges)

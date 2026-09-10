@@ -7,7 +7,7 @@ import {
 import { handleListAction } from './lists.js'
 import { icon } from './icons.js'
 import { createCapabilities } from './capabilities.js'
-import { isSpeechEnabled, setSpeechEnabled, speak } from '../speech.js'
+import { speak, createSpeechToggleButton } from '../speech.js'
 
 // The station is a one-thing-at-a-time shell for a wall-mounted panel —
 // see TODO.md / CLAUDE.md's Station flow entry. main.js mounts this
@@ -49,24 +49,12 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
 
   // Global read-aloud-by-default toggle, per device (see speech.js) — a
   // persistent icon here rather than tucked in Controls, since this is the
-  // one surface voice output actually matters on.
-  const speechToggle = document.createElement('button')
-  speechToggle.type = 'button'
-  speechToggle.className = 'station-speech-toggle'
-  function syncSpeechToggle() {
-    const on = isSpeechEnabled()
-    speechToggle.innerHTML = icon(on ? 'volume-2' : 'volume-x', 22)
-    speechToggle.classList.toggle('station-speech-toggle--on', on)
-    speechToggle.setAttribute('aria-pressed', String(on))
-    speechToggle.title = on ? 'Read results aloud: on' : 'Read results aloud: off'
-    speechToggle.setAttribute('aria-label', speechToggle.title)
-  }
-  speechToggle.addEventListener('click', () => {
-    setSpeechEnabled(!isSpeechEnabled())
-    syncSpeechToggle()
-  })
-  syncSpeechToggle()
-  topbar.append(speechToggle)
+  // one surface voice output actually matters on. Sized as a big thumb
+  // target (station-speech-toggle CSS) — this is a control reached for
+  // often, on a wall panel touched at arm's length, not a fiddly setting.
+  const speechToggle = createSpeechToggleButton(26)
+  speechToggle.el.classList.add('station-speech-toggle')
+  topbar.append(speechToggle.el)
 
   const waitingBadge = document.createElement('button')
   waitingBadge.type = 'button'
