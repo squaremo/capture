@@ -508,6 +508,16 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 .btn-favourite:hover { color: var(--sig-need); }
 .btn-favourite:disabled { color: var(--sig-need); opacity: 1; cursor: default; }
 
+.btn-speak {
+  background: transparent;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-1);
+  flex-shrink: 0;
+}
+.btn-speak:hover { color: var(--accent); }
+
 .item-steps {
   list-style: none;
   display: flex;
@@ -879,43 +889,31 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   font-size: var(--fs-body);
 }
 
-/* ── Theme picker (inside the info panel) ────────────────── */
-.theme-picker {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: var(--rule) solid var(--border);
-}
-
-.theme-picker-heading {
-  font-size: var(--fs-label);
+/* ── Header icon toggles — shared look (speech.js's mute, themes.js's
+   light/dark), sized per caller ── */
+.speech-toggle-btn,
+.theme-toggle-btn {
+  background: transparent;
+  border: none;
   color: var(--text-dim);
-  margin-bottom: 6px;
-}
-
-.theme-picker-row {
   display: flex;
-  gap: var(--space-1);
-}
-
-/* Each swatch previews its own theme by scoping the theme block to
-   itself — no duplicated hex values in this file. */
-.theme-swatch {
-  width: 26px;
-  height: 20px;
-  padding: 0;
-  border: var(--rule) solid var(--border);
-  border-radius: var(--radius);
-  background: var(--sig-act);
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
 }
-.theme-swatch:hover { border-color: var(--text-dim); }
-.theme-swatch--active { border-color: var(--text); }
+.speech-toggle-btn--on { color: var(--accent); }
+.speech-toggle-btn:disabled { opacity: 0.5; cursor: default; }
 
-.theme-swatch[data-theme="meadow"]   { background: oklch(0.78 0.15 128); }
-.theme-swatch[data-theme="daylight"] { background: oklch(0.52 0.15 128); }
-.theme-swatch[data-theme="ember"]    { background: oklch(0.74 0.15 55); }
-.theme-swatch[data-theme="dusk"]     { background: oklch(0.74 0.14 300); }
-.theme-swatch[data-theme="original"] { background: #c8f060; }
+/* Controls reached for often, so they get a real thumb-sized hit area
+   (44px+) without visually growing the header row — a negative margin
+   offsets the extra padding. */
+.header-speech-toggle,
+.header-theme-toggle {
+  min-width: 44px;
+  min-height: 44px;
+  padding: var(--space-3);
+  margin: calc(-1 * var(--space-3));
+}
 
 /* ── Stats footer ────────────────────────────────────────── */
 .stats {
@@ -1457,11 +1455,32 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   margin-bottom: var(--space-3);
 }
 
-[data-density="station"] .station-review-quote {
+/* Review mode inverts the usual heading/body weight: the captured text is
+   what you already said, the proposed action is the one thing being
+   decided — so the heading here shrinks to lead size and the action
+   quote takes the display size instead, right underneath it. */
+[data-density="station"] .station-pane--review .station-heading {
   font-size: var(--fs-lead);
+  margin-bottom: var(--space-2);
+}
+
+[data-density="station"] .station-review-quote {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-display);
+  font-weight: 700;
+  line-height: var(--lh-tight);
+  margin-bottom: var(--space-3);
   border-left: 2px solid var(--border);
   padding-left: var(--space-3);
 }
+[data-density="station"] .station-review-quote-text { flex: 1; }
+[data-density="station"] .station-speak {
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+[data-density="station"] .station-speak:hover { color: var(--accent); }
 
 [data-density="station"] .station-review-actions {
   display: flex;
@@ -1504,6 +1523,18 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 }
 [data-density="station"] .station-flash-check { font-weight: 700; }
 [data-density="station"] .station-flash-text { flex: 1; }
+[data-density="station"] .station-flash-speak {
+  background: transparent;
+  border: none;
+  color: var(--on-signal);
+  opacity: 0.85;
+  padding: var(--space-1) var(--space-2);
+  flex-shrink: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+[data-density="station"] .station-flash-speak:hover { opacity: 1; }
 [data-density="station"] .station-flash-favourite {
   background: transparent;
   border: none;

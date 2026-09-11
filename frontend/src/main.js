@@ -6,7 +6,8 @@ import { createFavouritesSidebar } from './components/favourites.js'
 import { createLocalActivity } from './components/localActivity.js'
 import { createStationShell } from './components/station.js'
 import { createStationsIndicator, createStationClock } from './components/stations.js'
-import { createThemePicker } from './themes.js'
+import { createThemeToggle } from './themes.js'
+import { createSpeechToggleButton, speakIfEnabled } from './speech.js'
 import { loadConfig } from './config.js'
 import {
   configureApi, postCapture, getItem, getItems, approveItem, vetoItem, getVersion, getSatellites,
@@ -57,10 +58,15 @@ async function init() {
 
   const versionInfo = createVersionInfo()
 
-  // Theme lives in the info panel — a rare, deliberate change, not header
-  // status. The theme itself is already applied (index.html, pre-paint).
-  const themePicker = createThemePicker()
-  versionInfo.panelExtrasEl.append(themePicker.el)
+  // Two controls worth reaching for often — mute before a meeting, flip
+  // to daylight walking into a bright kitchen — so both sit directly in
+  // the header rather than behind the info panel's disclosure, beside
+  // the station status dot on a station, sized a touch bigger there to
+  // match the station's other icons.
+  const speechToggle = createSpeechToggleButton(config.isStation ? 26 : 20)
+  speechToggle.el.classList.add('header-speech-toggle')
+  const themeToggle = createThemeToggle(config.isStation ? 26 : 20)
+  themeToggle.el.classList.add('header-theme-toggle')
 
   const headerBadges = document.createElement('div')
   headerBadges.className = 'header-badges'
@@ -76,9 +82,9 @@ async function init() {
   const stationsIndicator = createStationsIndicator()
   const stationClock = createStationClock()
   if (config.isStation) {
-    headerBadges.append(stationsIndicator.toggleEl, stationClock.el)
+    headerBadges.append(stationsIndicator.toggleEl, speechToggle.el, themeToggle.el, stationClock.el)
   } else {
-    headerBadges.append(versionInfo.pillEl, vpnBadge)
+    headerBadges.append(speechToggle.el, themeToggle.el, versionInfo.pillEl, vpnBadge)
   }
 
   header.append(logo, headerBadges)
@@ -96,12 +102,30 @@ async function init() {
   // leaves this device's copy of that item stale, needing a refetch
   // (onShoppingListUpdated).
   const inbox = createInbox({
-    onApprove: (id, overrides) => handleDecision(id, () => approveItem(id, overrides)),
-    onVeto: (id) => handleDecision(id, () => vetoItem(id)),
+    onApprove: (id, overrides) => handleDecision(id, () => approveAndSpeak(id, overrides)),
+    onVeto: (id) => handleDecision(id, () => vetoAndSpeak(id)),
     onFavourite: (id) => handleFavourite(id),
     onShoppingListChange: (id, text) => handleDecision(id, () => patchItem(id, { text })),
     onShoppingListUpdated: (id) => handleShoppingListUpdated(id),
   })
+
+  // Wraps approve/veto to read the outcome aloud when the global toggle is
+  // on (see speech.js) — shared by the phone/laptop inbox and the station
+  // below so the auto-speak-by-default behaviour is one thing, not two.
+  // Deliberately not folded into handleDecision itself: that's also used
+  // for the shopping list's PATCH, whose "result" is just the list's own
+  // stale action_result — nothing a checkbox tap should trigger a read-out of.
+  async function approveAndSpeak(id, overrides) {
+    const updated = await approveItem(id, overrides)
+    speakIfEnabled(updated.action_result)
+    return updated
+  }
+
+  async function vetoAndSpeak(id) {
+    const updated = await vetoItem(id)
+    speakIfEnabled(updated.action_result)
+    return updated
+  }
 
   async function handleDecision(id, action) {
     if (inFlight.has(id)) return // ignore repeat clicks while a decision is in flight
@@ -182,8 +206,8 @@ async function init() {
     // the same PATCH the inbox's are (see onShoppingListChange above).
     onListTextChange: (id, text) => handleDecision(id, () => patchItem(id, { text })),
     onSubmit: (text, house) => submitCapture(text, house),
-    onApprove: (id, overrides) => handleDecision(id, () => approveItem(id, overrides)),
-    onVeto: (id) => handleDecision(id, () => vetoItem(id)),
+    onApprove: (id, overrides) => handleDecision(id, () => approveAndSpeak(id, overrides)),
+    onVeto: (id) => handleDecision(id, () => vetoAndSpeak(id)),
     onReplay: (id, overrides) => handleFavouriteRun(id, overrides),
     onFavourite: (id) => handleFavourite(id),
   }) : null
@@ -232,6 +256,7 @@ async function init() {
       const item = await runFavourite(favouriteId, overrides)
       inbox.addItem(item) // shows up in the resolved section, same as any other capture
       updateStats()
+      speakIfEnabled(item.action_result)
       if (config.isStation) {
         stationAddItem(item)
         settleStationItem(item)
@@ -349,6 +374,13 @@ async function init() {
         const item = await getItem(id)
         inbox.updateItem(item)
         updateStats()
+        // Fires exactly once per capture: pollForResolution only recurses
+        // while status stays 'pending', so this line runs on the single
+        // poll that finds it otherwise — resolved, awaiting approval,
+        // checklist, whatever. That's the proposal text for an
+        // awaiting_approval item (see claude.js's describe()) or the
+        // final result for anything else.
+        if (item.status !== 'pending') speakIfEnabled(item.action_result)
         if (config.isStation) {
           stationUpdateItem(item, id)
           if (item.status === 'pending') station.setMode('thinking', { item })

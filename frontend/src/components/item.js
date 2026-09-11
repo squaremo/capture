@@ -1,3 +1,5 @@
+import { icon } from './icons.js'
+
 // One map from status to a *role*, not a colour — see theme.css. The
 // role name is the whole point: 'awaiting_approval' is amber because it is
 // waiting on you, not because amber looked right, so a theme change can
@@ -204,6 +206,7 @@ function renderItem(item) {
         ? `<div class="item-result" data-role="${role}">
 
             <span class="item-result-text">${escHtml(item.action_result)}</span>
+            <button class="btn-speak" data-action="speak" title="Read this out" aria-label="Read this out">${icon('volume-2', 16)}</button>
             ${isFavouritable
               ? `<button class="btn-favourite" data-action="favourite" title="Save as favourite" aria-label="Save as favourite">☆</button>`
               : ''}

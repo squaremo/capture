@@ -15,11 +15,6 @@ export function createVersionInfo() {
     footerEl,
     pillEl: pill.el,
 
-    // A persistent slot at the bottom of the panel for things that aren't
-    // version data — the theme picker mounts here (see main.js). Kept out
-    // of render()'s innerHTML reset, same reasoning as satellitesEl.
-    panelExtrasEl: pill.extrasEl,
-
     // data is the GET /api/version response: { backend, config, integrations }
     render(data) {
       footerEl.textContent = versionLine(data)
@@ -64,10 +59,6 @@ function createPill() {
   satellitesEl.className = 'info-satellites'
   satellitesEl.hidden = true
 
-  // Also persistent, and also re-appended by render() below.
-  const extrasEl = document.createElement('div')
-  extrasEl.className = 'info-extras'
-
   el.append(button, panel)
 
   function close() {
@@ -86,7 +77,6 @@ function createPill() {
 
   return {
     el,
-    extrasEl,
     render(data) {
       panel.innerHTML = ''
 
@@ -112,7 +102,6 @@ function createPill() {
       }
       panel.appendChild(integrations)
       panel.appendChild(satellitesEl)
-      panel.appendChild(extrasEl)
     },
 
     // satellites: [{ house, address, reachable, capabilities, houseMismatch }]

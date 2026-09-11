@@ -7,6 +7,7 @@ import {
 import { handleListAction } from './lists.js'
 import { icon } from './icons.js'
 import { createCapabilities } from './capabilities.js'
+import { speak } from '../speech.js'
 
 // The station is a one-thing-at-a-time shell for a wall-mounted panel —
 // see TODO.md / CLAUDE.md's Station flow entry. main.js mounts this
@@ -41,8 +42,10 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
   let flashTimer = null
 
   // ── Top bar: house switcher (left) + set-aside badge (right). The
-  // wordmark/info/vpn badge stay on the shared `header` main.js appends
-  // before this element — this is just the station-specific status row. ──
+  // wordmark/info/vpn badge, and now the read-aloud toggle, stay on the
+  // shared `header` main.js appends before this element — see main.js's
+  // headerBadges (the toggle sits beside the station status dot there) —
+  // this is just the station-specific status row. ──
   const topbar = document.createElement('div')
   topbar.className = 'station-topbar'
 
@@ -89,6 +92,9 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
   const paneReview = document.createElement('div')
   paneReview.className = 'station-pane station-pane--review'
   paneReview.hidden = true
+  paneReview.addEventListener('click', (e) => {
+    if (e.target.closest('[data-action="speak"]')) speak(active?.action_result)
+  })
 
   // A recalled list takes the same slot the capture field and the review
   // pane use — one thing at a time. The rows are the shared .checklist
@@ -359,8 +365,10 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
   // Mirrors item.js's isFavouritable check for the ☆ on a resolved item's
   // result strip — only an 'acted' item with an executed_action has a
   // { tool, input } to freeze into a favourite.
+  let flashItem = null
   function setFlash(item) {
     clearTimeout(flashTimer)
+    flashItem = item
     if (!item) {
       flashEl.hidden = true
       return
@@ -369,6 +377,7 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
     flashEl.innerHTML = `
       <span class="station-flash-check">&#10003;</span>
       <span class="station-flash-text">${escHtml(item.action_result)}</span>
+      <button type="button" class="btn-speak station-flash-speak" data-action="speak" title="Read this out" aria-label="Read this out">${icon('volume-2', 18)}</button>
       ${isFavouritable
         ? `<button type="button" class="btn-favourite station-flash-favourite" data-action="favourite" data-id="${item.id}" title="Save as favourite" aria-label="Save as favourite">☆</button>`
         : ''}
@@ -383,6 +392,10 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
   }
 
   flashEl.addEventListener('click', (e) => {
+    if (e.target.closest('[data-action="speak"]')) {
+      speak(flashItem?.action_result)
+      return
+    }
     const btn = e.target.closest('[data-action="favourite"]')
     if (!btn) return
     onFavourite?.(btn.dataset.id)
@@ -451,12 +464,16 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
         <span class="station-pane-hint">start typing to set aside</span>
       </div>
       <h1 class="station-heading">${escHtml(item?.text ?? '')}</h1>
+      ${item?.action_result
+        ? `<div class="station-review-quote">
+            <span class="station-review-quote-text">${escHtml(item.action_result)}</span>
+            <button type="button" class="btn-speak station-speak" data-action="speak" title="Read this out" aria-label="Read this out">${icon('volume-2', 20)}</button>
+          </div>`
+        : ''}
       ${toolLabel
         ? `<div class="station-review-meta">${escHtml(toolLabel)}${item?.house ? ` &middot; ${escHtml(item.house)}` : ''}</div>`
         : ''}
-      ${fields.length
-        ? renderForm(fields)
-        : item?.action_result ? `<div class="station-review-quote">${escHtml(item.action_result)}</div>` : ''}
+      ${fields.length ? renderForm(fields) : ''}
     `
   }
 
