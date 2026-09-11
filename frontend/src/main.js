@@ -181,6 +181,14 @@ async function init() {
       station.setMode('review', item)
       return
     }
+    // A composition (see compose in claude.js) is the deliverable itself —
+    // same reasoning as item.js's isComposition — so it gets its own
+    // full-pane read rather than being flashed and dismissed like an
+    // ordinary action_result.
+    if (item.status === 'acted' && item.executed_action?.tool === 'compose') {
+      station.setMode('compose', item)
+      return
+    }
     // A capture that made or named a list opens it, rather than flashing a
     // confirmation at an empty field: "what's on the Sainsbury's list" is a
     // recall, and the list itself is the answer. recalled_checklist_id /

@@ -34,7 +34,7 @@ const TOOL_LABELS = {
 
 export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEditFavourite, onFavourite, onListTextChange, defaultHouse, localActivity } = {}) {
   let tab = 'capture'      // 'capture' | 'favourites' | 'earlier'
-  let mode = 'idle'        // 'idle' | 'thinking' | 'review' | 'list'
+  let mode = 'idle'        // 'idle' | 'thinking' | 'review' | 'list' | 'compose'
   let active = null        // the item 'thinking'/'review'/'list' is about
   let items = []           // last known items, for the rail and the open list
   let waiting = []         // set-aside items, FIFO
@@ -170,6 +170,39 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
     input.focus()
   })
 
+  // A composition (see compose in claude.js) is the deliverable itself,
+  // not a status to flash and dismiss — it gets the same full-pane
+  // treatment as review/list, one thing filling the screen while it's
+  // read, rather than being squeezed through the header's flash strip
+  // like every other resolved item's action_result.
+  const paneCompose = document.createElement('div')
+  paneCompose.className = 'station-pane station-pane--compose'
+  paneCompose.hidden = true
+  paneCompose.addEventListener('click', (e) => {
+    if (e.target.closest('[data-action="speak"]')) { speak(active?.action_result); return }
+    const favBtn = e.target.closest('[data-action="favourite"]')
+    if (favBtn) { onFavourite?.(favBtn.dataset.id); return }
+    if (e.target.closest('[data-action="close-compose"]')) setMode('idle')
+  })
+
+  function renderCompose() {
+    if (!active) return
+    const isFavouritable = active.status === 'acted' && Boolean(active.executed_action)
+    paneCompose.innerHTML = `
+      <div class="station-pane-top">
+        <span class="station-pane-label" data-role="done">composed</span>
+        <button type="button" class="station-rail-link" data-action="close-compose">done</button>
+      </div>
+      <p class="station-compose-text">${escHtml(active.action_result)}</p>
+      <div class="station-compose-actions">
+        <button type="button" class="btn-speak station-speak" data-action="speak" title="Read this out" aria-label="Read this out">${icon('volume-2', 20)}</button>
+        ${isFavouritable
+          ? `<button type="button" class="btn-favourite" data-action="favourite" data-id="${active.id}" title="Save as favourite" aria-label="Save as favourite">☆</button>`
+          : ''}
+      </div>
+    `
+  }
+
   const rail = createFavouritesRail({
     onRun: (id, overrides) => onReplay?.(id, overrides),
     onOpenAll: () => setTab('favourites'),
@@ -229,7 +262,7 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
 
   const stationCapture = document.createElement('div')
   stationCapture.className = 'station-capture'
-  stationCapture.append(paneIdle, paneThinking, paneReview, paneList, railColumn)
+  stationCapture.append(paneIdle, paneThinking, paneReview, paneList, paneCompose, railColumn)
 
   const reviewActions = document.createElement('div')
   reviewActions.className = 'station-review-actions'
@@ -364,42 +397,27 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
 
   // Mirrors item.js's isFavouritable check for the ☆ on a resolved item's
   // result strip — only an 'acted' item with an executed_action has a
-  // { tool, input } to freeze into a favourite.
+  // { tool, input } to freeze into a favourite. A composition never reaches
+  // here at all — settleStationItem (main.js) routes it to the 'compose'
+  // pane below instead, the same way it routes an awaiting_approval item
+  // to 'review' rather than a flash.
   let flashItem = null
   function setFlash(item) {
     clearTimeout(flashTimer)
     flashItem = item
     if (!item) {
       flashEl.hidden = true
-      flashEl.classList.remove('station-flash--composition')
       return
     }
     const isFavouritable = item.status === 'acted' && Boolean(item.executed_action)
-    // Mirrors item.js's isComposition check: a composition is the
-    // deliverable itself, so — same as the main inbox — it doesn't belong
-    // squeezed into the thin single-line flash strip every other resolved
-    // item gets. It keeps the flash slot (still the "just resolved" banner
-    // above the tabs) but grows to fit multi-line text instead.
-    const isComposition = item.status === 'acted' && item.executed_action?.tool === 'compose'
-    flashEl.classList.toggle('station-flash--composition', isComposition)
-    flashEl.innerHTML = isComposition
-      ? `
-        <span class="station-flash-text station-flash-text--composition">${escHtml(item.action_result)}</span>
-        <div class="station-flash-composition-actions">
-          <button type="button" class="btn-speak station-flash-speak" data-action="speak" title="Read this out" aria-label="Read this out">${icon('volume-2', 18)}</button>
-          ${isFavouritable
-            ? `<button type="button" class="btn-favourite station-flash-favourite" data-action="favourite" data-id="${item.id}" title="Save as favourite" aria-label="Save as favourite">☆</button>`
-            : ''}
-        </div>
-      `
-      : `
-        <span class="station-flash-check">&#10003;</span>
-        <span class="station-flash-text">${escHtml(item.action_result)}</span>
-        <button type="button" class="btn-speak station-flash-speak" data-action="speak" title="Read this out" aria-label="Read this out">${icon('volume-2', 18)}</button>
-        ${isFavouritable
-          ? `<button type="button" class="btn-favourite station-flash-favourite" data-action="favourite" data-id="${item.id}" title="Save as favourite" aria-label="Save as favourite">☆</button>`
-          : ''}
-      `
+    flashEl.innerHTML = `
+      <span class="station-flash-check">&#10003;</span>
+      <span class="station-flash-text">${escHtml(item.action_result)}</span>
+      <button type="button" class="btn-speak station-flash-speak" data-action="speak" title="Read this out" aria-label="Read this out">${icon('volume-2', 18)}</button>
+      ${isFavouritable
+        ? `<button type="button" class="btn-favourite station-flash-favourite" data-action="favourite" data-id="${item.id}" title="Save as favourite" aria-label="Save as favourite">☆</button>`
+        : ''}
+    `
     flashEl.hidden = false
     // A favouritable flash stays up until starred (or replaced by the next
     // flash/capture) instead of auto-hiding after 3s — tapping a star on a
@@ -419,15 +437,20 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
     onFavourite?.(btn.dataset.id)
   })
 
-  // Called after a successful POST .../favourite — swaps the flash's own
-  // star to a filled, disabled state (same treatment as inbox.js's
-  // markFavourited) and lets the flash auto-hide now that it's done its job.
+  // Called after a successful POST .../favourite — swaps the star to a
+  // filled, disabled state (same treatment as inbox.js's markFavourited),
+  // wherever it's showing: the flash strip for an ordinary resolved item,
+  // or the compose pane for a composition (see setMode's 'compose' case).
+  // The flash also gets to auto-hide now that it's done its job; the
+  // compose pane stays up until "done" is tapped.
   function markFavourited(itemId) {
-    const btn = flashEl.querySelector(`[data-action="favourite"][data-id="${itemId}"]`)
-    if (!btn) return
-    btn.textContent = '★'
-    btn.disabled = true
-    btn.title = 'Saved as favourite'
+    for (const container of [flashEl, paneCompose]) {
+      const btn = container.querySelector(`[data-action="favourite"][data-id="${itemId}"]`)
+      if (!btn) continue
+      btn.textContent = '★'
+      btn.disabled = true
+      btn.title = 'Saved as favourite'
+    }
     flashTimer = setTimeout(() => { flashEl.hidden = true }, 3000)
   }
 
@@ -498,6 +521,7 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
   function setMode(newMode, data) {
     mode = newMode
     paneList.hidden = newMode !== 'list'
+    paneCompose.hidden = newMode !== 'compose'
     if (newMode === 'list') {
       // The rail stays up here, unlike thinking/review: it is how you get
       // from one shop's list to another's without going back to idle.
@@ -528,6 +552,13 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
       paneReview.hidden = false
       railColumn.hidden = true
       renderReview()
+    } else if (newMode === 'compose') {
+      active = data
+      paneIdle.hidden = true
+      paneThinking.hidden = true
+      paneReview.hidden = true
+      railColumn.hidden = true
+      renderCompose()
     }
     syncReviewActionsVisibility()
   }
