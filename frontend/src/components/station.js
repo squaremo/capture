@@ -371,17 +371,35 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
     flashItem = item
     if (!item) {
       flashEl.hidden = true
+      flashEl.classList.remove('station-flash--composition')
       return
     }
     const isFavouritable = item.status === 'acted' && Boolean(item.executed_action)
-    flashEl.innerHTML = `
-      <span class="station-flash-check">&#10003;</span>
-      <span class="station-flash-text">${escHtml(item.action_result)}</span>
-      <button type="button" class="btn-speak station-flash-speak" data-action="speak" title="Read this out" aria-label="Read this out">${icon('volume-2', 18)}</button>
-      ${isFavouritable
-        ? `<button type="button" class="btn-favourite station-flash-favourite" data-action="favourite" data-id="${item.id}" title="Save as favourite" aria-label="Save as favourite">☆</button>`
-        : ''}
-    `
+    // Mirrors item.js's isComposition check: a composition is the
+    // deliverable itself, so — same as the main inbox — it doesn't belong
+    // squeezed into the thin single-line flash strip every other resolved
+    // item gets. It keeps the flash slot (still the "just resolved" banner
+    // above the tabs) but grows to fit multi-line text instead.
+    const isComposition = item.status === 'acted' && item.executed_action?.tool === 'compose'
+    flashEl.classList.toggle('station-flash--composition', isComposition)
+    flashEl.innerHTML = isComposition
+      ? `
+        <span class="station-flash-text station-flash-text--composition">${escHtml(item.action_result)}</span>
+        <div class="station-flash-composition-actions">
+          <button type="button" class="btn-speak station-flash-speak" data-action="speak" title="Read this out" aria-label="Read this out">${icon('volume-2', 18)}</button>
+          ${isFavouritable
+            ? `<button type="button" class="btn-favourite station-flash-favourite" data-action="favourite" data-id="${item.id}" title="Save as favourite" aria-label="Save as favourite">☆</button>`
+            : ''}
+        </div>
+      `
+      : `
+        <span class="station-flash-check">&#10003;</span>
+        <span class="station-flash-text">${escHtml(item.action_result)}</span>
+        <button type="button" class="btn-speak station-flash-speak" data-action="speak" title="Read this out" aria-label="Read this out">${icon('volume-2', 18)}</button>
+        ${isFavouritable
+          ? `<button type="button" class="btn-favourite station-flash-favourite" data-action="favourite" data-id="${item.id}" title="Save as favourite" aria-label="Save as favourite">☆</button>`
+          : ''}
+      `
     flashEl.hidden = false
     // A favouritable flash stays up until starred (or replaced by the next
     // flash/capture) instead of auto-hiding after 3s — tapping a star on a

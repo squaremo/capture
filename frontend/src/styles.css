@@ -1535,6 +1535,28 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 }
 [data-density="station"] .station-flash-check { font-weight: 700; }
 [data-density="station"] .station-flash-text { flex: 1; }
+
+/* A composed piece (see compose in claude.js) is the deliverable itself,
+   not a status message about one, so it gets room to grow instead of
+   being squeezed and truncated in the ordinary single-line flash row —
+   the station equivalent of item.js's isComposition treatment. */
+[data-density="station"] .station-flash--composition {
+  align-items: flex-start;
+  min-height: 0;
+  padding: var(--space-4);
+}
+[data-density="station"] .station-flash-text--composition {
+  white-space: pre-line;
+  font-size: var(--fs-display);
+  line-height: var(--lh-tight);
+  font-weight: 700;
+}
+[data-density="station"] .station-flash-composition-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
 [data-density="station"] .station-flash-speak {
   background: transparent;
   border: none;
