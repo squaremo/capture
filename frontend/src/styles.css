@@ -486,7 +486,7 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 
 .item-result {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
   font-size: var(--fs-body);
@@ -495,7 +495,10 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   padding-left: 8px;
 }
 
-.item-result-text { flex: 1; }
+/* pre-line so a multi-line composition (see compose in claude.js) keeps its
+   line breaks instead of running together — has no effect on the ordinary
+   single-line action_result every other tool produces. */
+.item-result-text { flex: 1; white-space: pre-line; }
 
 .btn-favourite {
   background: transparent;

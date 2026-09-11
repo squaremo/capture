@@ -136,6 +136,17 @@ describe('processCapture', () => {
     expect(getItem(list.id).text).toBe('- [ ] milk\n- [ ] bread')
   })
 
+  it('maps compose → acted, with action_result being the composed piece itself', async () => {
+    respondWithStep('compose', { action_result: 'Horses run,\nManes in the sun,\nGalloping, having fun.', tags: ['fun'] })
+    const result = await processCapture('compose a poem about horses')
+    expect(result.status).toBe('acted')
+    expect(result.action_result).toBe('Horses run,\nManes in the sun,\nGalloping, having fun.')
+    // Frozen as executed_action straight away (no approval step exists for
+    // compose) — that's what makes a freshly-composed item favouritable
+    // immediately, same as an approved acting tool.
+    expect(result.executed_action).toEqual({ tool: 'compose', input: { text: 'Horses run,\nManes in the sun,\nGalloping, having fun.' } })
+  })
+
   it('throws when the plan has no steps', async () => {
     respondWithPlan([])
     await expect(processCapture('random text')).rejects.toThrow('empty plan')
@@ -223,6 +234,25 @@ describe('runProgram with overrides', () => {
     const steps = [{ id: 's1', tool: 'create_reminder', args: { action_result: 'Reminder set.', tags: ['health'] } }]
     const result = await runProgram(steps, {})
     expect(result).toEqual({ status: 'reminder', tags: ['health'], action_result: 'Reminder set.', plan_steps: steps })
+  })
+})
+
+describe('compose favouriting/replay', () => {
+  it('executeAction reads the frozen text back verbatim, with no regeneration', async () => {
+    const { executeAction } = await import('../integrations/claude.js')
+    const result = await executeAction({ tool: 'compose', input: { text: 'Roses are red.' } })
+    expect(result).toEqual({ status: 'acted', action_result: 'Roses are red.' })
+  })
+
+  it('getFavouriteLabel shortens a composition to its first line', async () => {
+    const { getFavouriteLabel } = await import('../integrations/claude.js')
+    const label = getFavouriteLabel('compose', { text: 'Horses run,\nManes in the sun.' }, 'fallback')
+    expect(label).toBe('Horses run,')
+  })
+
+  it('getFavouriteLabel falls back to a generic label for a blank composition', async () => {
+    const { getFavouriteLabel } = await import('../integrations/claude.js')
+    expect(getFavouriteLabel('compose', { text: '' }, 'fallback')).toBe('Composition')
   })
 })
 
