@@ -66,10 +66,10 @@ async function init() {
   // Global read-aloud-by-default toggle (see speech.js) — unlike theme,
   // this is a control worth reaching for often (mute it before a meeting,
   // turn it on walking into the kitchen), so it sits directly in the
-  // header rather than behind the info panel's disclosure — same
-  // reasoning as the station's own topbar icon, and sized the same way:
-  // a big thumb target, not a fiddly badge.
-  const speechToggle = createSpeechToggleButton(20)
+  // header rather than behind the info panel's disclosure — beside the
+  // station status dot on a station (see headerBadges below), sized a
+  // touch bigger there to match the station's other icons.
+  const speechToggle = createSpeechToggleButton(config.isStation ? 26 : 20)
   speechToggle.el.classList.add('header-speech-toggle')
 
   const headerBadges = document.createElement('div')
@@ -86,10 +86,7 @@ async function init() {
   const stationsIndicator = createStationsIndicator()
   const stationClock = createStationClock()
   if (config.isStation) {
-    headerBadges.append(stationsIndicator.toggleEl, stationClock.el)
-    // Station gets its own copy in its topbar (see station.js) — bigger,
-    // and beside the other one-thing-at-a-time controls — so it isn't
-    // duplicated up here too.
+    headerBadges.append(stationsIndicator.toggleEl, speechToggle.el, stationClock.el)
   } else {
     headerBadges.append(speechToggle.el, versionInfo.pillEl, vpnBadge)
   }

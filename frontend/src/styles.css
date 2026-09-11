@@ -1188,15 +1188,6 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   flex-shrink: 0;
 }
 
-/* Base look (colour, layout, disabled/--on state) comes from the shared
-   .speech-toggle-btn class (see styles.css's Speech toggle section) — this
-   just sizes the hit area for a wall panel touched at arm's length. */
-[data-density="station"] .station-speech-toggle {
-  min-width: 44px;
-  min-height: 44px;
-  padding: var(--space-3);
-}
-
 [data-density="station"] .station-waiting-badge {
   background: var(--sig-need);
   color: var(--on-signal);

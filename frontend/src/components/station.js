@@ -7,7 +7,7 @@ import {
 import { handleListAction } from './lists.js'
 import { icon } from './icons.js'
 import { createCapabilities } from './capabilities.js'
-import { speak, createSpeechToggleButton } from '../speech.js'
+import { speak } from '../speech.js'
 
 // The station is a one-thing-at-a-time shell for a wall-mounted panel —
 // see TODO.md / CLAUDE.md's Station flow entry. main.js mounts this
@@ -42,19 +42,12 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
   let flashTimer = null
 
   // ── Top bar: house switcher (left) + set-aside badge (right). The
-  // wordmark/info/vpn badge stay on the shared `header` main.js appends
-  // before this element — this is just the station-specific status row. ──
+  // wordmark/info/vpn badge, and now the read-aloud toggle, stay on the
+  // shared `header` main.js appends before this element — see main.js's
+  // headerBadges (the toggle sits beside the station status dot there) —
+  // this is just the station-specific status row. ──
   const topbar = document.createElement('div')
   topbar.className = 'station-topbar'
-
-  // Global read-aloud-by-default toggle, per device (see speech.js) — a
-  // persistent icon here rather than tucked in Controls, since this is the
-  // one surface voice output actually matters on. Sized as a big thumb
-  // target (station-speech-toggle CSS) — this is a control reached for
-  // often, on a wall panel touched at arm's length, not a fiddly setting.
-  const speechToggle = createSpeechToggleButton(26)
-  speechToggle.el.classList.add('station-speech-toggle')
-  topbar.append(speechToggle.el)
 
   const waitingBadge = document.createElement('button')
   waitingBadge.type = 'button'
