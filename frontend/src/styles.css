@@ -1213,8 +1213,25 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 }
 
 [data-density="station"] .station-pane--thinking,
-[data-density="station"] .station-pane--review {
+[data-density="station"] .station-pane--review,
+[data-density="station"] .station-pane--compose {
   padding: var(--space-4);
+}
+
+/* A composition (see compose in claude.js) is read here at full size,
+   the way review's action-quote or a list's rows get the whole pane —
+   not truncated in the header's flash strip like an ordinary result. */
+[data-density="station"] .station-compose-text {
+  white-space: pre-line;
+  font-size: var(--fs-display);
+  font-weight: 700;
+  line-height: var(--lh-tight);
+  margin: 0 0 var(--space-4);
+}
+[data-density="station"] .station-compose-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
 }
 
 [data-density="station"] .station-pane--idle {
@@ -1401,6 +1418,7 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 }
 [data-density="station"] .station-pane-label[data-role="think"] { color: var(--sig-think); }
 [data-density="station"] .station-pane-label[data-role="need"]  { color: var(--sig-need); }
+[data-density="station"] .station-pane-label[data-role="done"]  { color: var(--sig-done); }
 
 [data-density="station"] .station-pane-hint {
   font-size: var(--fs-label);
