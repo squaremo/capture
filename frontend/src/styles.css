@@ -889,46 +889,10 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   font-size: var(--fs-body);
 }
 
-/* ── Theme picker (inside the info panel) ────────────────── */
-.theme-picker {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: var(--rule) solid var(--border);
-}
-
-.theme-picker-heading {
-  font-size: var(--fs-label);
-  color: var(--text-dim);
-  margin-bottom: 6px;
-}
-
-.theme-picker-row {
-  display: flex;
-  gap: var(--space-1);
-}
-
-/* Each swatch previews its own theme by scoping the theme block to
-   itself — no duplicated hex values in this file. */
-.theme-swatch {
-  width: 26px;
-  height: 20px;
-  padding: 0;
-  border: var(--rule) solid var(--border);
-  border-radius: var(--radius);
-  background: var(--sig-act);
-  cursor: pointer;
-}
-.theme-swatch:hover { border-color: var(--text-dim); }
-.theme-swatch--active { border-color: var(--text); }
-
-.theme-swatch[data-theme="meadow"]   { background: oklch(0.78 0.15 128); }
-.theme-swatch[data-theme="daylight"] { background: oklch(0.52 0.15 128); }
-.theme-swatch[data-theme="ember"]    { background: oklch(0.74 0.15 55); }
-.theme-swatch[data-theme="dusk"]     { background: oklch(0.74 0.14 300); }
-.theme-swatch[data-theme="original"] { background: #c8f060; }
-
-/* ── Speech toggle — shared icon button (speech.js), sized per caller ── */
-.speech-toggle-btn {
+/* ── Header icon toggles — shared look (speech.js's mute, themes.js's
+   light/dark), sized per caller ── */
+.speech-toggle-btn,
+.theme-toggle-btn {
   background: transparent;
   border: none;
   color: var(--text-dim);
@@ -940,10 +904,11 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 .speech-toggle-btn--on { color: var(--accent); }
 .speech-toggle-btn:disabled { opacity: 0.5; cursor: default; }
 
-/* Header (phone/laptop): a control reached for often, so it gets a real
-   thumb-sized hit area (44px+) without visually growing the header row —
-   a negative margin offsets the extra padding. */
-.header-speech-toggle {
+/* Controls reached for often, so they get a real thumb-sized hit area
+   (44px+) without visually growing the header row — a negative margin
+   offsets the extra padding. */
+.header-speech-toggle,
+.header-theme-toggle {
   min-width: 44px;
   min-height: 44px;
   padding: var(--space-3);

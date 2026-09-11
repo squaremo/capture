@@ -6,7 +6,7 @@ import { createFavouritesSidebar } from './components/favourites.js'
 import { createLocalActivity } from './components/localActivity.js'
 import { createStationShell } from './components/station.js'
 import { createStationsIndicator, createStationClock } from './components/stations.js'
-import { createThemePicker } from './themes.js'
+import { createThemeToggle } from './themes.js'
 import { createSpeechToggleButton, speakIfEnabled } from './speech.js'
 import { loadConfig } from './config.js'
 import {
@@ -58,19 +58,15 @@ async function init() {
 
   const versionInfo = createVersionInfo()
 
-  // Theme lives in the info panel — a rare, deliberate change, not header
-  // status. The theme itself is already applied (index.html, pre-paint).
-  const themePicker = createThemePicker()
-  versionInfo.panelExtrasEl.append(themePicker.el)
-
-  // Global read-aloud-by-default toggle (see speech.js) — unlike theme,
-  // this is a control worth reaching for often (mute it before a meeting,
-  // turn it on walking into the kitchen), so it sits directly in the
-  // header rather than behind the info panel's disclosure — beside the
-  // station status dot on a station (see headerBadges below), sized a
-  // touch bigger there to match the station's other icons.
+  // Two controls worth reaching for often — mute before a meeting, flip
+  // to daylight walking into a bright kitchen — so both sit directly in
+  // the header rather than behind the info panel's disclosure, beside
+  // the station status dot on a station, sized a touch bigger there to
+  // match the station's other icons.
   const speechToggle = createSpeechToggleButton(config.isStation ? 26 : 20)
   speechToggle.el.classList.add('header-speech-toggle')
+  const themeToggle = createThemeToggle(config.isStation ? 26 : 20)
+  themeToggle.el.classList.add('header-theme-toggle')
 
   const headerBadges = document.createElement('div')
   headerBadges.className = 'header-badges'
@@ -86,9 +82,9 @@ async function init() {
   const stationsIndicator = createStationsIndicator()
   const stationClock = createStationClock()
   if (config.isStation) {
-    headerBadges.append(stationsIndicator.toggleEl, speechToggle.el, stationClock.el)
+    headerBadges.append(stationsIndicator.toggleEl, speechToggle.el, themeToggle.el, stationClock.el)
   } else {
-    headerBadges.append(speechToggle.el, versionInfo.pillEl, vpnBadge)
+    headerBadges.append(speechToggle.el, themeToggle.el, versionInfo.pillEl, vpnBadge)
   }
 
   header.append(logo, headerBadges)
