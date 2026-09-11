@@ -4,8 +4,10 @@ Status: design only — no hardware ordered, no code written. This covers
 the physical form permanent satellite kit should take (see Running modes
 in `designs/satellites.md`, which leaves "how house-id and local device
 config get onto the box" as an open provisioning question) and the
-voice-input design that goes with it. Captured now so there's a plan to
-build against once hardware arrives.
+voice-input design that goes with it — targeting the Station shell
+(`station.js`, see the Station entry in `CLAUDE.md`), which is what a
+kiosk box actually runs today, not the plain phone/laptop inbox layout.
+Captured now so there's a plan to build against once hardware arrives.
 
 ## Wishlist
 
@@ -98,6 +100,34 @@ so it lives in the GPIO script alongside the recording logic, not in the
 page — the same reasoning that puts recording there: a native process can
 do things a sandboxed kiosk tab can't reliably do to itself.
 
+### Landing a transcript when Station isn't idle
+
+`whisper-stream`'s on-screen button lives inside `paneIdle`'s capture
+field (`createCaptureInput`, embedded by `station.js`), which `setMode()`
+only shows when `mode === 'idle'` — so that mode never has to think about
+Station's other panes; the button simply isn't there otherwise.
+
+`whisper-gpio` doesn't have that luxury: the physical button is live
+regardless of what's on screen, and a press can land while Station is
+`thinking` (a capture already in flight) or `review` (a previous proposal
+waiting on a decision), not just `idle`. Station already solves almost
+this exact problem for a different trigger: typing while in `review` sets
+the current proposal aside (`doSetAside()` — pushes it onto the `waiting`
+FIFO, calls `setMode('idle')`) and starts a fresh capture with that
+keystroke (see the `keydown` handler in `station.js`). A `whisper-gpio`
+transcript arriving during `review` should do exactly that, with the
+whole transcript standing in for the one keystroke, rather than inventing
+a second way to interrupt a review.
+
+`thinking` has no equivalent interrupt today — there's nothing yet to set
+aside, since the in-flight capture hasn't resolved into an item. Safest
+option: queue the transcript (one pending slot is enough — push-to-talk
+is a deliberate one-off action, last one wins) and apply it, via the same
+`review`/`idle` handling above, once `setMode()` next moves off
+`thinking`, rather than clobbering state mid-resolution. `list` mode (a
+recalled checklist/shopping list) has nothing to interrupt into either,
+so it's handled the same way as `thinking` here.
+
 ### Mode selection
 
 Not yet decided in detail, but the natural fit is a runtime config flag
@@ -119,5 +149,10 @@ already used for house identity.
 - Provisioning: how the satellite is told which voice-input mode(s) it
   supports, and how the physical-button GPIO pin assignment and case
   drill template are documented for repeat builds.
+- The `thinking`/`list` queue-and-apply-later behaviour for `whisper-gpio`
+  (see Landing a transcript when Station isn't idle) is a proposal, not
+  yet validated against how often a physical-button press would actually
+  land mid-`thinking` in practice — worth revisiting once there's real
+  usage to observe.
 - No hardware has been ordered yet, so none of the above is verified
   against anything real.
