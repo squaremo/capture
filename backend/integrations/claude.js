@@ -165,6 +165,40 @@ const TOOL_REGISTRY = {
       return { action_result, shopping_list_id: existing.id }
     },
   },
+  // A one-off, non-acting bit of writing ("compose a poem about horses") —
+  // unlike every other terminal tool, action_result here IS the actual
+  // deliverable Claude was asked for, written out in full at plan time,
+  // not a description of what happened (see the system prompt). No
+  // separate generation call: Claude already writes free prose directly
+  // into a step's args for save_to_inbox/create_reminder/etc, so asking
+  // for the composed piece itself the same way keeps this on the same one
+  // round trip as everything else, rather than adding a second LLM call
+  // just for this one tool.
+  //
+  // Still favouritable like any other 'acted' item (see isFavouritable in
+  // item.js) — extra() freezes the composed text as executed_action so the
+  // ☆ button appears, exactly the shape a favourite already expects
+  // ({ tool, input }). But "replaying" a composition should mean reading
+  // the same piece back, not writing a fresh one — so unlike an acting
+  // tool's execute() (which does something new each time), compose's
+  // execute() below just hands the frozen text straight back. That also
+  // means it needs no approval to be replayable: executeAction() only
+  // requires a 'final' tool with an execute() function, not needsApproval
+  // specifically, so a favourited composition can go straight through
+  // POST /api/favourites/:id/run like any other favourite.
+  compose: {
+    kind: 'final',
+    status: 'acted',
+    extra: ({ action_result }) => ({ executed_action: { tool: 'compose', input: { text: action_result } } }),
+    execute: ({ text }) => text,
+    // Favourite buttons show a short label, not a whole poem — the first
+    // non-blank line, trimmed to a sane length.
+    favouriteLabel: ({ text }) => {
+      const firstLine = (text ?? '').split('\n').find(line => line.trim()) ?? ''
+      if (!firstLine) return 'Composition'
+      return firstLine.length > 60 ? `${firstLine.slice(0, 57)}…` : firstLine
+    },
+  },
 }
 
 // A checklist item's text IS a markdown task list (title line, then
@@ -370,6 +404,7 @@ Resolve it by calling propose_plan with an ordered list of steps. Available tool
 - recall_checklist (terminal — resets the existing checklist item in place; no approval needed, it's a local edit like ticking a box): args { item_id, title, tags }. Always follows find_checklist in the same plan when found is true, referencing its whole output rather than re-stating anything: item_id: "\${s1.item.id}", title: "\${s1.item.title}" (using whichever step id you gave find_checklist). Never call recall_checklist without a find_checklist step earlier in the same plan confirming found is true.
 
 For a capture that just names a checklist with no items (recalling one): find_checklist first, then "if" found go to recall_checklist referencing the match, "unless" found go to a terminal step (save_to_inbox) with action_result noting no matching checklist was found, so they know to capture one with items instead.
+- compose (terminal): args { action_result, tags }. Use when the capture is asking you to write a one-off piece of text — e.g. "compose a poem about horses", "write a haiku about the rain", "make up a short story about a dragon". Unlike every other tool here, action_result for compose IS the composed piece itself, written out in full — not a description of it. Keep it short (a handful of lines) and always kid-friendly: nothing frightening, violent, sad, or otherwise unsuitable for a young child to hear. If the capture is asking your own name, or what/who you are ("what's your name?", "who are you?", "say something about yourself"), treat it as a compose request about yourself: you are Capture, a self-hosted quick-capture assistant that helps jot down notes and tasks, remembers checklists and shopping lists, sets reminders, and can play music or control the lights around the house when asked — write a short poem drawing on those facts, rather than reciting them.
 - add_to_shopping_list (terminal): args { items, tags }. Use when the capture adds one or more things to buy later — e.g. "add milk and eggs to the shopping list", "we need bin bags and stamps", "shopping list: bread, butter". items is an array of short strings, one per thing to buy, taken directly from the capture. Unlike save_checklist there is only ever one shopping list: never give it a title, and never route this to save_checklist instead — each add folds into whatever's already on the list rather than starting a new one. A bare mention of the shopping list with nothing to add (e.g. "what's on the shopping list?", "shopping list") isn't this tool either — use save_to_inbox instead, noting that the shopping list is always visible in its own section of the app.${LINEAR_ENABLED ? `
 - search_linear_issues (read-only — runs automatically, no approval needed): args { query }. Searches existing Linear issues for a similar title. Outputs: { duplicate_found: boolean, matching_issue: { title, url } | null }.
 - create_linear_task (acting — only proposes; a human must approve before anything is actually created): args { title, description?, tags }. Real project/engineering work that should be tracked in Linear (e.g. "fix the login bug", "add dark mode").` : ''}${PLAYBACK_ENABLED ? `
@@ -379,7 +414,7 @@ For a capture that just names a checklist with no items (recalling one): find_ch
 - resolve_light (read-only — runs automatically, no approval needed): args { room, action, brightness?, color?, target_house? }. Looks up the actual matching room for a light-control request via the house's Matter hub — never guess a specific room name yourself, this does the matching. room is free text like "living room", passed through as written. action is "on", "off", or "set" (with brightness — 1-100 — and/or color — a 6-digit hex string — whichever the capture actually specifies, never both unless both are actually asked for: "set the living room lights to green" -> action "set", color "#00ff00" (no brightness); "dim the living room to 20%" -> action "set", brightness 20 (no color); "dim the living room to 20% and make it red" -> action "set", brightness 20, color "#ff0000". For color, figure out the hex value yourself from the named colour, same as you would for any other colour question — room matching is the only thing that gets resolved locally). target_house follows the same rule as resolve_playback's. Outputs: { target_house, room: { name, confidence }, action, brightness, color }.
 - control_light (acting — proposes the exact resolved room; a human must approve before anything happens): args { target_house, room, action, brightness, color, tags }. Always follows resolve_light in the same plan, referencing its whole output: target_house: "\${s1.target_house}", room: "\${s1.room}", action: "\${s1.action}", brightness: "\${s1.brightness}", color: "\${s1.color}" (using whichever step id you gave resolve_light). Never call control_light without a resolve_light step earlier in the same plan.` : ''}
 
-action_result is a short natural-language description of what was done, e.g. "Saved to inbox", "Reminder set: 'Call dentist' — Tomorrow, 9:00am", "Flagged as urgent". Not needed for create_linear_task, control_playback, queue_playback, control_light, or add_to_shopping_list — their descriptions are generated automatically. tags is an array of 1–3 lowercase tags.
+action_result is a short natural-language description of what was done, e.g. "Saved to inbox", "Reminder set: 'Call dentist' — Tomorrow, 9:00am", "Flagged as urgent". Not needed for create_linear_task, control_playback, queue_playback, control_light, or add_to_shopping_list — their descriptions are generated automatically. The one exception is compose, where action_result is the composed piece itself, not a description of it. tags is an array of 1–3 lowercase tags.
 
 Steps run in the order given. A read-only step's output is not shown to you before you finish planning — you only see it by referencing it later, so cover both outcomes of a boolean output using "if"/"unless" on separate steps rather than guessing which one will happen.
 
@@ -597,10 +632,15 @@ function fieldType(def, field, value) {
   return 'text'
 }
 
-// Runs a previously-proposed action after the human has approved it.
+// Runs a previously-proposed action after the human has approved it — or,
+// for a tool that doesn't need approval at all (compose), replays a
+// favourite's frozen call directly. Either way the tool must declare an
+// execute(): that's what distinguishes an acting/replayable tool from a
+// plain classification one like save_to_inbox, which has no such thing to
+// run again.
 export async function executeAction({ tool, input }) {
   const def = TOOL_REGISTRY[tool]
-  if (!def || def.kind !== 'final' || !def.needsApproval) throw new Error(`Unknown action tool: ${tool}`)
+  if (!def || def.kind !== 'final' || !def.execute) throw new Error(`Unknown action tool: ${tool}`)
   const action_result = await def.execute(input)
   return { status: 'acted', action_result }
 }

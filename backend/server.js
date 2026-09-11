@@ -57,7 +57,7 @@ app.post('/api/capture', async (req, reply) => {
       updateItem(item.id, { plan_progress: planProgress })
     },
   })
-    .then(({ status, tags, action_result, pending_action, plan_steps, text, recalled_checklist_id, shopping_list_id }) => {
+    .then(({ status, tags, action_result, pending_action, plan_steps, text, recalled_checklist_id, shopping_list_id, executed_action }) => {
       // text is only present for save_checklist/add_to_shopping_list — it
       // rewrites the item's own text into a markdown task list (see
       // buildChecklistText() in claude.js). Every other tool leaves the
@@ -71,11 +71,15 @@ app.post('/api/capture', async (req, reply) => {
       // recalled_checklist_id, that other item's text really did just
       // change server-side, so the frontend re-fetches it instead of only
       // re-rendering local state (see inbox.js's updateItem()).
+      // executed_action is only present for compose — it's what makes a
+      // freshly-composed item favouritable straight away, same field
+      // approve() sets for an acting tool once a human approves it.
       updateItem(item.id, {
         status, tags, action_result, pending_action: pending_action ?? null, plan_steps,
         ...(text !== undefined ? { text } : {}),
         ...(recalled_checklist_id !== undefined ? { recalled_checklist_id } : {}),
         ...(shopping_list_id !== undefined ? { shopping_list_id } : {}),
+        ...(executed_action !== undefined ? { executed_action } : {}),
       })
     })
     .catch(err => {

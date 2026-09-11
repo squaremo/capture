@@ -176,6 +176,15 @@ function renderItem(item) {
   const isAwaitingApproval = item.status === 'awaiting_approval'
   const isChecklist = item.status === 'checklist'
   const isShoppingList = item.status === 'shopping_list'
+  // A composition (see compose in claude.js) is the deliverable itself,
+  // not a note *about* something — like a checklist/shopping list, it
+  // belongs in the main item-body area where the capture text usually
+  // goes, not tucked into the muted one-line result strip below. Detected
+  // via executed_action.tool rather than a dedicated status: compose
+  // resolves to the ordinary 'acted' status (there's no approval step to
+  // give it a status of its own), so this is the only way to tell it apart
+  // from any other acted item at render time.
+  const isComposition = item.status === 'acted' && item.executed_action?.tool === 'compose'
   // Only an item that actually executed an acting-tool call (status
   // 'acted', with executed_action recorded on approval) has a { tool, input }
   // to freeze into a favourite — a terminal item (triaged/reminder/urgent)
@@ -191,6 +200,7 @@ function renderItem(item) {
       <span class="item-text">${escHtml(
         isChecklist ? (checklist.title || 'Checklist')
         : isShoppingList ? (shoppingList.title || 'Shopping list')
+        : isComposition ? item.action_result
         : item.text
       )}</span>
       <span class="item-status" data-role="${role}">${label}</span>
@@ -200,9 +210,14 @@ function renderItem(item) {
       : ''}
     ${isChecklist ? renderChecklist(item.id, checklist) : ''}
     ${isShoppingList ? renderShoppingList(item.id, shoppingList) : ''}
-    ${!isChecklist && !isShoppingList && isPending
+    ${isComposition && isFavouritable
+      ? `<div class="composition-footer">
+          <button class="btn-favourite" data-action="favourite" title="Save as favourite" aria-label="Save as favourite">☆</button>
+        </div>`
+      : ''}
+    ${!isChecklist && !isShoppingList && !isComposition && isPending
       ? `<div class="item-shimmer"></div>`
-      : !isChecklist && !isShoppingList && item.action_result
+      : !isChecklist && !isShoppingList && !isComposition && item.action_result
         ? `<div class="item-result" data-role="${role}">
 
             <span class="item-result-text">${escHtml(item.action_result)}</span>
