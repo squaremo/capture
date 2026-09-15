@@ -137,6 +137,43 @@ itself as `whisper-stream`(+`whisper-gpio`), everything else defaults to
 `webspeech`. Keeps the same build-once/configure-per-deployment split
 already used for house identity.
 
+## OS maintenance: unattended-upgrades
+
+A satellite is headless kit with no one watching for OS security updates,
+so package upgrades should apply themselves rather than depend on someone
+remembering to SSH in and `apt upgrade`. Raspberry Pi OS (Debian-based)
+ships this as `unattended-upgrades`:
+
+```bash
+sudo apt install unattended-upgrades apt-listchanges -y
+sudo dpkg-reconfigure --priority=low unattended-upgrades
+```
+
+Worth setting deliberately in `/etc/apt/apt.conf.d/50unattended-upgrades`
+for a box with no keyboard/monitor attached:
+
+```
+Unattended-Upgrade::Origins-Pattern {
+    "origin=Raspbian,codename=${distro_codename},label=Raspbian";
+    "origin=Raspberry Pi Foundation,codename=${distro_codename},label=Raspberry Pi Foundation";
+};
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-Time "04:00";
+```
+
+`Automatic-Reboot` matters here specifically because kernel/firmware
+updates need a reboot to take effect and there's no one to press a button
+for it. This is OS-package scope only — separate from the app's own
+Docker images (if the whisper.cpp wrapper/kiosk browser end up
+containerised on the box, that's Watchtower's job, same as the Hetzner
+box) and from Tailscale's own self-update mechanism.
+
+Candidate for folding into a cloud-init-style first-boot script for this
+box later (mirroring `infra/cloud-init.yaml.tpl`'s pattern), once the
+provisioning story below is actually written — not done yet, this is
+still a manual post-flash step.
+
 ## Open questions
 
 - Exact shape of the local `whisper.cpp` service — a small wrapper this
