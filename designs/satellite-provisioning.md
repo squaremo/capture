@@ -22,34 +22,34 @@ Raspberry Pi OS's first-boot scripts understand (it writes a
 syntax). Nothing on Raspberry Pi OS actually parses a `cloud-init.yaml`
 file.
 
-## The real option: Ubuntu Server for Raspberry Pi
+## The real option: it's already there, on Raspberry Pi OS itself
 
-Ubuntu's Raspberry Pi images (not Raspberry Pi OS) ship real cloud-init
-with a **NoCloud** datasource: on first boot it looks for `user-data` and
-`meta-data` files sitting in the boot partition itself. Mechanically:
+Corrected from an earlier draft of this file, which assumed Ubuntu Server
+for Raspberry Pi was required: **Raspberry Pi OS has shipped real
+cloud-init since the Bookworm release (Oct 2023)**, using the same
+NoCloud datasource Ubuntu uses. No OS switch needed — stays on the plain
+Raspberry Pi OS Lite pick from `designs/satellite-hardware.md`.
+Mechanically, minimal steps:
 
-1. Flash Ubuntu Server (64-bit) for Raspberry Pi with Raspberry Pi Imager
-   (or `dd`/balenaEtcher) — this is a different OS choice from the
-   Raspberry Pi OS Lite pick mentioned earlier in
-   `designs/satellite-hardware.md`, not an addition to it.
-2. Before first boot, mount the boot partition (it shows up as a normal
-   FAT partition on any machine) and drop/edit `user-data` there — same
-   `#cloud-config` YAML shape as `infra/cloud-init.yaml.tpl`.
-3. Boot the Pi. cloud-init runs on first boot exactly like it does on the
-   Hetzner box: same syntax, same `write_files`/`packages`/`runcmd`
-   structure, just delivered via a file on disk instead of a pasted
-   console field.
+1. Flash Raspberry Pi OS Lite (64-bit) with Raspberry Pi Imager — skip
+   its own advanced-options customisation entirely (hostname/SSH/Wi-Fi
+   toggles). cloud-init below replaces all of that, so there's nothing
+   for Imager's own mechanism to do.
+2. After flashing, mount the boot partition (shows up as `bootfs` on any
+   machine) and drop a `user-data` file there — same `#cloud-config` YAML
+   shape as `infra/cloud-init.yaml.tpl` (users/ssh keys, packages,
+   `write_files`, `runcmd`).
+3. An empty `meta-data` file alongside it — the NoCloud datasource expects
+   one to exist even if blank.
+4. Boot over ethernet (simplest — no Wi-Fi creds needed in the file). If
+   ethernet isn't available at the install site, add a `network-config`
+   file (netplan-style YAML) alongside `user-data` for Wi-Fi instead.
 
-This would let this file's eventual `.yaml.tpl` be a close sibling of
-`infra/cloud-init.yaml.tpl` — same templating approach (values filled in
-before being written to the boot partition instead of pasted into a
-web form) — rather than a from-scratch Pi-specific mechanism.
-
-Ubuntu Server for Pi vs. Raspberry Pi OS is otherwise a wash for this
-project's needs (Docker, Tailscale, and whisper.cpp all run fine on
-either) — cloud-init support is the actual deciding factor if reusing
-the existing template shape matters more than staying on the
-Pi-Foundation-blessed image.
+cloud-init runs on first boot exactly like it does on the Hetzner box —
+same syntax, same `write_files`/`packages`/`runcmd` structure — just
+delivered via files dropped on disk instead of pasted into a console
+field. This lets this file's eventual `.yaml`/`.tpl` be a close sibling of
+`infra/cloud-init.yaml.tpl` rather than a from-scratch mechanism.
 
 ## What would live in it
 
@@ -74,9 +74,6 @@ section:
 
 ## Open questions
 
-- Whether to actually switch off Raspberry Pi OS Lite for this, given
-  `designs/satellite-hardware.md`'s parts list didn't consider it — no
-  hardware conflict either way, it's a pure OS/first-boot-tooling choice.
 - Where the templated `user-data` file would live/get generated from
   (a `.tpl` alongside `infra/cloud-init.yaml.tpl`, with its own fill-in
   mechanism, since there's no Terraform/console step to do the filling
