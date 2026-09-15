@@ -1,6 +1,8 @@
 # Satellite provisioning: cloud-init for a Pi
 
-Status: design only — no file written yet, no hardware provisioned. Picks
+Status: template + write script done (`infra/cloud-init-satellite.yaml.tpl`,
+`infra/provision-satellite-sd.sh`), not yet run against real hardware — no
+Pi has been flashed or booted with this. Picks
 up the "Provisioning story for a new satellite" open question in
 `designs/satellite-hardware.md`, specifically the first-boot config step
 (package installs, `unattended-upgrades`, Tailscale join, ...), mirroring
@@ -51,36 +53,58 @@ delivered via files dropped on disk instead of pasted into a console
 field. This lets this file's eventual `.yaml`/`.tpl` be a close sibling of
 `infra/cloud-init.yaml.tpl` rather than a from-scratch mechanism.
 
-## What would live in it
+## What's in it
 
-Sketch, not yet written — mirrors `infra/cloud-init.yaml.tpl` section for
-section:
+`infra/cloud-init-satellite.yaml.tpl` — mirrors
+`infra/cloud-init.yaml.tpl` section for section:
 
-- `packages` / `package_update` / `package_upgrade` — same idea as the
-  Hetzner template's `runcmd` apt bootstrap, but for whisper.cpp build
-  deps (`build-essential`, `cmake`) and audio tooling (`alsa-utils`) on
-  top of what Hetzner needs.
+- `packages`/`package_update`/`package_upgrade` — `nodejs`/`npm` to run
+  the satellite process, plus `unattended-upgrades`/`apt-listchanges`.
+  whisper.cpp build deps (`build-essential`, `cmake`) and audio tooling
+  (`alsa-utils`) are deliberately **not** in it yet — left out until the
+  whisper.cpp service's own shape is decided (see Open questions in
+  `designs/satellite-hardware.md`), rather than guessed at now.
 - `write_files` — the `unattended-upgrades` config from
   `designs/satellite-hardware.md`'s "OS maintenance" section, written
-  directly instead of run as a manual `dpkg-reconfigure` step.
-- `runcmd` — Tailscale install/join (identical to the Hetzner template's
-  block, same `--snat-subnet-routes=false` reasoning doesn't apply here
-  since a satellite isn't forwarding subnet routes, but plain `tailscale
-  up --authkey=...` still applies), whisper.cpp clone+build, GPIO/button
-  service enablement once that script exists.
-- House-id: per `designs/satellites.md`'s House attribution section, this
-  is where `HOUSE_ID` would get baked in once at provisioning, matching
-  how the satellite process already expects it as an env var.
+  directly instead of the manual `dpkg-reconfigure` step (nobody's at
+  this box to answer the debconf prompt); the satellite's own
+  `/opt/capture-satellite/.env` (`HOUSE_ID`, `BACKEND_URL` — **no**
+  `op://`/1Password anything, since `satellite/` has no `secrets.js`
+  equivalent, only plain env vars per `satellite/.env.example`); a
+  `capture-satellite.service` systemd unit running `npm start` in the
+  cloned repo's `satellite/` directory.
+- `runcmd` — Tailscale install/join (`tailscale up --authkey=...`, no
+  `--snat-subnet-routes=false` here — that flag exists on the Hetzner box
+  specifically to stop it masquerading *forwarded* traffic into a Docker
+  bridge network; a satellite isn't forwarding subnet routes for anyone),
+  clone the repo, `npm install` in `satellite/` and build the frontend,
+  enable the service. whisper.cpp build and the GPIO button service are
+  left as a comment, not yet added, for the same reason as above.
+- Deliberately **not** included: `DIRIGERA_ACCESS_TOKEN`/`DIRIGERA_HOST`
+  — that pairing (`npx dirigera authenticate`) is a one-time manual step
+  done after first boot per `satellite/README.md`, not something to
+  script into first-boot config.
+
+`infra/provision-satellite-sd.sh` renders that template with `envsubst`
+(explicitly scoped to just the template's own variables, so it doesn't
+touch cloud-init/apt's own `${distro_codename}` syntax inside the
+`unattended-upgrades` block) and writes `user-data` + an empty
+`meta-data` onto the boot partition. It accepts either an already-mounted
+directory (the common case — both macOS and most Linux desktops
+auto-mount a card reader's boot partition on insert) or a raw block
+device, which it mounts itself (`diskutil`/`udisksctl`) and unmounts
+after writing. Required inputs: `HOUSE_ID`, `ADMIN_SSH_PUBLIC_KEY`,
+`TAILSCALE_AUTH_KEY`, `BACKEND_URL` — no 1Password token, confirming the
+"just two things" correction above; there simply isn't a third secret to
+provide.
 
 ## Open questions
 
-- Where the templated `user-data` file would live/get generated from
-  (a `.tpl` alongside `infra/cloud-init.yaml.tpl`, with its own fill-in
-  mechanism, since there's no Terraform/console step to do the filling
-  here — unlike Hetzner, nothing runs `envsubst`-equivalent for you).
 - Whether Tailscale's authkey should be one-time/ephemeral per satellite
   (matches "permanent kit, provisioned once" from Running modes in
   `designs/satellites.md`) or reusable — not decided.
-- Nothing here has been tried against real hardware; this is still one
-  step behind `designs/satellite-hardware.md`, which itself has ordered
-  no hardware yet either.
+- Nothing here has been tried against real hardware yet — no card has
+  been written with this or booted; this is still one step behind
+  `designs/satellite-hardware.md`, which itself has ordered no hardware.
+- whisper.cpp and the GPIO button service aren't in the template — once
+  their shape is decided, they get added to `runcmd`/`write_files` here.
