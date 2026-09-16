@@ -30,6 +30,12 @@ packages:
   # service's own shape isn't decided yet (see Open questions in
   # designs/satellite-hardware.md). Add them once that's written, rather
   # than guessing at what it needs now.
+  #
+  # Also missing: the display stack (a compositor + Chromium kiosk +
+  # autologin) that Station actually needs to show anything on the
+  # touchscreen — see "Display stack: minimal, not headless" in
+  # designs/satellite-hardware.md. This template currently provisions
+  # the satellite process only, not what puts it on screen.
 
 package_update: true
 package_upgrade: true

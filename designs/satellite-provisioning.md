@@ -108,3 +108,8 @@ provide.
   `designs/satellite-hardware.md`, which itself has ordered no hardware.
 - whisper.cpp and the GPIO button service aren't in the template — once
   their shape is decided, they get added to `runcmd`/`write_files` here.
+- Nor is the display stack: this template provisions the satellite
+  *process* only. Station needs something on screen, and a Raspberry Pi
+  OS Lite boot has no display server or browser by default — see
+  "Display stack: minimal, not headless" in `designs/satellite-hardware.md`
+  for the compositor/Chromium-kiosk/autologin pieces still to add here.

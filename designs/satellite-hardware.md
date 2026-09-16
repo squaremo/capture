@@ -41,6 +41,36 @@ rather than a second, Android-specific app.
 Rough total: $135–165 per unit, fully repeatable (same SD image, same
 case, same drill template).
 
+## Display stack: minimal, not headless
+
+Correction to earlier guidance in this conversation (and implicitly to
+`designs/satellite-provisioning.md`, which describes the OS pick as
+"headless"): that's right for a voice-only/no-screen satellite (Sonos or
+Dirigera control alone), but this box has a touchscreen specifically so
+the Station shell (`station.js`) can render on it, and Station is a
+browser UI — Raspberry Pi OS **Lite** has no display server or browser at
+all, so nothing paints to the screen as configured so far.
+
+Fix is not switching to the full Desktop image — that pulls in a login
+manager, taskbar, and file manager, none of which a wall-mounted kiosk
+wants — but three minimal pieces layered on top of Lite, the standard
+Raspberry-Pi-documented kiosk pattern:
+
+1. A minimal Wayland compositor — `labwc` is the current
+   Foundation-recommended lightweight pick on Bookworm (no panel, no
+   desktop, just enough to run one fullscreen client).
+2. Chromium, launched `--kiosk --app=http://localhost:<port>/?station`
+   against this same box's own satellite process (see Satellite-served
+   frontend in `designs/satellites.md` — no separate hosting needed,
+   it's already serving the frontend build locally).
+3. Console autologin + autostart, so the compositor + Chromium launch
+   with no keyboard interaction ever needed after boot.
+
+Not yet added to `infra/cloud-init-satellite.yaml.tpl` — that template's
+`packages`/`runcmd` currently provision the satellite process only, with
+no display packages, autologin config, or kiosk-launch unit. Needs doing
+before this box can actually show anything on its screen.
+
 ### Rejected: ReSpeaker 2-Mic Pi HAT
 
 Attractive at first glance — it bundles a mic array, a physical user
