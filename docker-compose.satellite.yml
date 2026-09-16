@@ -1,0 +1,31 @@
+services:
+  satellite:
+    image: ghcr.io/squaremo/capture-satellite:latest
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - /opt/capture-satellite/.env
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  # Reuses the same GHCR image as the hub's own nginx (frontend/Dockerfile)
+  # — only the mounted config differs. See satellite/nginx.conf and
+  # designs/satellite-provisioning.md's "Docker + Watchtower deployment".
+  nginx:
+    image: ghcr.io/squaremo/capture-frontend:latest
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./satellite/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - /etc/tailscale/certs:/etc/nginx/certs:ro
+    depends_on:
+      - satellite
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  watchtower:
+    image: nickfedor/watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --interval 300 --label-enable --cleanup
