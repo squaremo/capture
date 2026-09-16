@@ -1,8 +1,11 @@
 # Satellite provisioning: cloud-init for a Pi
 
 Status: template + write script done (`infra/cloud-init-satellite.yaml.tpl`,
-`infra/provision-satellite-sd.sh`), not yet run against real hardware — no
-Pi has been flashed or booted with this. Picks
+`infra/provision-satellite-sd.sh`), being revised to deploy via Docker +
+Watchtower (see "Docker + Watchtower deployment" below) instead of the
+original direct `npm install`+systemd-unit approach, for the same
+self-updating story the Hetzner box already has. Not yet run against real
+hardware either way — no Pi has been flashed or booted with this. Picks
 up the "Provisioning story for a new satellite" open question in
 `designs/satellite-hardware.md`, specifically the first-boot config step
 (package installs, `unattended-upgrades`, Tailscale join, ...), mirroring
@@ -103,6 +106,59 @@ after writing. Required inputs: `HOUSE_ID`, `ADMIN_SSH_PUBLIC_KEY`,
 `TAILSCALE_AUTH_KEY`, `BACKEND_URL` — no 1Password token, confirming the
 "just two things" correction above; there simply isn't a third secret to
 provide.
+
+## Docker + Watchtower deployment
+
+Decision, following a design discussion: deploy the satellite the same
+way as the Hetzner hub — GHCR images, Watchtower polling and
+auto-restarting on a new image, `capture-sync`-style config reconciliation
+— rather than the original `npm install` + hand-rolled systemd unit this
+file described above. Same self-update story, same operational model,
+one thing not to have to remember differently between the hub and every
+satellite.
+
+**Two containers, not one**, mirroring the hub's own `backend`+`nginx`
+split rather than one process doing everything:
+
+- **`satellite`** — the API/controller only (`satellite/server.js`), no
+  static file serving. Runs with `network_mode: host`, for two
+  independent reasons: SSDP discovery (`sonos-discovery`) is UDP
+  multicast, which doesn't reliably cross Docker's default bridge/NAT —
+  host networking is the standard fix, same reasoning as running
+  Home Assistant with host networking for SSDP/mDNS/UPnP; and the
+  process's own bind-to-Tailscale-interface logic (see Running modes in
+  `designs/satellites.md`) needs to actually see the host's `tailscale0`
+  interface, which a bridge-networked container wouldn't — Tailscale
+  itself runs on the host, not containerized, same as the hub.
+- **`nginx`** — serves the built `frontend/dist`, terminates TLS (same
+  role as the hub's nginx), and reverse-proxies `/api/*` and
+  `/config.json` to the satellite container. `/config.json` can't be a
+  static file either way — it's generated per-request from the
+  satellite's own env vars (`defaultHouse`/`backendUrl`) — so it has to
+  be proxied regardless of whether the split happens. Also on
+  `network_mode: host` (listening on 80/443, `proxy_pass
+  http://127.0.0.1:4000` for the proxied paths) — since the satellite
+  container is host-networked, that's the only way for nginx to reach it
+  without a shared Docker bridge network in between.
+
+Splitting also **removes** the satellite process's own
+`TLS_CERT_PATH`/`TLS_KEY_PATH` env vars (`satellite/README.md`'s HTTPS
+section — its way of terminating HTTPS itself, with no nginx involved):
+redundant once nginx does it, one less cert-renewal thing for the
+satellite process to worry about, and consistent with the hub where
+nginx (not the backend) is the one thing that terminates real TLS.
+
+Considered and rejected: one container doing both (serving the frontend
+build itself via `@fastify/static`, as it already does today outside
+Docker). Simpler to deploy — one image, one Watchtower target — but it
+means the API process's own restart/rebuild cadence is coupled to the
+frontend build's, and it doesn't get the TLS-termination or
+static-serving separation the hub already has. Splitting costs one more
+moving part (the nginx↔satellite proxy wiring, both needing host
+networking to find each other) in exchange for matching the hub's shape
+and decoupling frontend/API update cycles — worth it for consistency
+across the two places this app runs, so this is the chosen shape, not
+just a documented alternative.
 
 ## Open questions
 
