@@ -41,6 +41,42 @@ rather than a second, Android-specific app.
 Rough total: $135–165 per unit, fully repeatable (same SD image, same
 case, same drill template).
 
+## Display stack: minimal, not headless
+
+Correction to earlier guidance in this conversation (and implicitly to
+`designs/satellite-provisioning.md`, which describes the OS pick as
+"headless"): that's right for a voice-only/no-screen satellite (Sonos or
+Dirigera control alone), but this box has a touchscreen specifically so
+the Station shell (`station.js`) can render on it, and Station is a
+browser UI — Raspberry Pi OS **Lite** has no display server or browser at
+all, so nothing paints to the screen as configured so far.
+
+Fix is not switching to the full Desktop image — that pulls in a login
+manager, taskbar, and file manager, none of which a wall-mounted kiosk
+wants — but three minimal pieces layered on top of Lite, the standard
+Raspberry-Pi-documented kiosk pattern:
+
+1. A minimal Wayland compositor — `labwc` is the current
+   Foundation-recommended lightweight pick on Bookworm (no panel, no
+   desktop, just enough to run one fullscreen client).
+2. Chromium, launched `--kiosk --app=http://localhost:<port>/?station`
+   against this same box's own satellite process (see Satellite-served
+   frontend in `designs/satellites.md` — no separate hosting needed,
+   it's already serving the frontend build locally).
+3. Console autologin + autostart, so the compositor + Chromium launch
+   with no keyboard interaction ever needed after boot.
+
+Added to `infra/cloud-init-satellite.yaml.tpl`: `cage`/`seatd`/
+`chromium-browser` packages, a `getty@tty1` autologin drop-in, and a
+`kiosk.sh` (launched from `admin`'s `.bash_profile` on tty1 only) running
+`cage -- chromium-browser --kiosk --app=http://localhost:4000/?station`
+against this same box's own satellite process. Not yet verified against
+real hardware — first things to check if it doesn't come up: whether
+`admin` needs adding to a `seatd`/`seat` group beyond `video`/`render`/
+`input` for cage to get a seat (package/version-dependent, noted inline
+in the template), and whether the Bookworm package is really named
+`chromium-browser` in the repo actually in use.
+
 ### Rejected: ReSpeaker 2-Mic Pi HAT
 
 Attractive at first glance — it bundles a mic array, a physical user
@@ -136,6 +172,43 @@ attribution in `designs/satellites.md`) — a satellite build reports
 itself as `whisper-stream`(+`whisper-gpio`), everything else defaults to
 `webspeech`. Keeps the same build-once/configure-per-deployment split
 already used for house identity.
+
+## OS maintenance: unattended-upgrades
+
+A satellite is headless kit with no one watching for OS security updates,
+so package upgrades should apply themselves rather than depend on someone
+remembering to SSH in and `apt upgrade`. Raspberry Pi OS (Debian-based)
+ships this as `unattended-upgrades`:
+
+```bash
+sudo apt install unattended-upgrades apt-listchanges -y
+sudo dpkg-reconfigure --priority=low unattended-upgrades
+```
+
+Worth setting deliberately in `/etc/apt/apt.conf.d/50unattended-upgrades`
+for a box with no keyboard/monitor attached:
+
+```
+Unattended-Upgrade::Origins-Pattern {
+    "origin=Raspbian,codename=${distro_codename},label=Raspbian";
+    "origin=Raspberry Pi Foundation,codename=${distro_codename},label=Raspberry Pi Foundation";
+};
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-Time "04:00";
+```
+
+`Automatic-Reboot` matters here specifically because kernel/firmware
+updates need a reboot to take effect and there's no one to press a button
+for it. This is OS-package scope only — separate from the app's own
+Docker images (if the whisper.cpp wrapper/kiosk browser end up
+containerised on the box, that's Watchtower's job, same as the Hetzner
+box) and from Tailscale's own self-update mechanism.
+
+Candidate for folding into a cloud-init-style first-boot script for this
+box later (mirroring `infra/cloud-init.yaml.tpl`'s pattern), once the
+provisioning story below is actually written — not done yet, this is
+still a manual post-flash step.
 
 ## Open questions
 
