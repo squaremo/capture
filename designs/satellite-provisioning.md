@@ -1,11 +1,12 @@
 # Satellite provisioning: cloud-init for a Pi
 
 Status: template + write script done (`infra/cloud-init-satellite.yaml.tpl`,
-`infra/provision-satellite-sd.sh`), being revised to deploy via Docker +
-Watchtower (see "Docker + Watchtower deployment" below) instead of the
-original direct `npm install`+systemd-unit approach, for the same
-self-updating story the Hetzner box already has. Not yet run against real
-hardware either way — no Pi has been flashed or booted with this. Picks
+`infra/provision-satellite-sd.sh`), now deploying via Docker + Watchtower
+(see "Docker + Watchtower deployment" below) instead of the original
+direct `npm install`+systemd-unit approach, for the same self-updating
+story the Hetzner box already has. Not yet run against real hardware
+either way — no Pi has been flashed or booted with this, and no image has
+been pushed or pulled yet. Picks
 up the "Provisioning story for a new satellite" open question in
 `designs/satellite-hardware.md`, specifically the first-boot config step
 (package installs, `unattended-upgrades`, Tailscale join, ...), mirroring
@@ -59,30 +60,41 @@ field. This lets this file's eventual `.yaml`/`.tpl` be a close sibling of
 ## What's in it
 
 `infra/cloud-init-satellite.yaml.tpl` — mirrors
-`infra/cloud-init.yaml.tpl` section for section:
+`infra/cloud-init.yaml.tpl` section for section, now including the same
+Docker install block (identical `runcmd` steps: keyring, apt repo,
+`docker-ce`/`docker-compose-plugin`, `systemctl enable --now docker`):
 
-- `packages`/`package_update`/`package_upgrade` — `nodejs`/`npm` to run
-  the satellite process, plus `unattended-upgrades`/`apt-listchanges`.
-  whisper.cpp build deps (`build-essential`, `cmake`) and audio tooling
-  (`alsa-utils`) are deliberately **not** in it yet — left out until the
-  whisper.cpp service's own shape is decided (see Open questions in
+- `packages`/`package_update`/`package_upgrade` — no `nodejs`/`npm`
+  anymore (the satellite process runs from the `capture-satellite` GHCR
+  image now, not a local `npm start`); `unattended-upgrades`/
+  `apt-listchanges`; the display-stack packages below. whisper.cpp build
+  deps (`build-essential`, `cmake`) and audio tooling (`alsa-utils`) are
+  deliberately **not** in it yet — left out until the whisper.cpp
+  service's own shape is decided (see Open questions in
   `designs/satellite-hardware.md`), rather than guessed at now.
 - `write_files` — the `unattended-upgrades` config from
-  `designs/satellite-hardware.md`'s "OS maintenance" section, written
-  directly instead of the manual `dpkg-reconfigure` step (nobody's at
-  this box to answer the debconf prompt); the satellite's own
-  `/opt/capture-satellite/.env` (`HOUSE_ID`, `BACKEND_URL` — **no**
-  `op://`/1Password anything, since `satellite/` has no `secrets.js`
-  equivalent, only plain env vars per `satellite/.env.example`); a
-  `capture-satellite.service` systemd unit running `npm start` in the
-  cloned repo's `satellite/` directory.
-- `runcmd` — Tailscale install/join (`tailscale up --authkey=...`, no
-  `--snat-subnet-routes=false` here — that flag exists on the Hetzner box
+  `designs/satellite-hardware.md`'s "OS maintenance" section; the
+  satellite container's `/opt/capture-satellite/.env` (`HOUSE_ID`,
+  `BACKEND_URL` — **no** `op://`/1Password anything, since `satellite/`
+  has no `secrets.js` equivalent, only plain env vars per
+  `satellite/.env.example`); `capture-satellite.service`
+  (`docker compose -f docker-compose.satellite.yml up`, mirroring the
+  hub's `capture.service`) and `capture-satellite-sync.service`/`.timer`
+  (`git pull` + `docker compose up -d --remove-orphans` every 5 minutes,
+  mirroring the hub's `capture-sync` — catches compose/nginx-config
+  changes Watchtower can't see, since it only reacts to new *images*).
+- `runcmd` — Tailscale install/join (`tailscale up --authkey=...`, still
+  no `--snat-subnet-routes=false`: that flag exists on the Hetzner box
   specifically to stop it masquerading *forwarded* traffic into a Docker
-  bridge network; a satellite isn't forwarding subnet routes for anyone),
-  clone the repo, `npm install` in `satellite/` and build the frontend,
-  enable the service. whisper.cpp build and the GPIO button service are
-  left as a comment, not yet added, for the same reason as above.
+  *bridge* network, and both satellite containers run with
+  `network_mode: host` — there's no bridge for it to matter to); a TLS
+  cert minted via `tailscale cert`, reading this box's own MagicDNS name
+  back from `tailscale status --json` rather than taking it as a separate
+  script input (needs "HTTPS Certificates" enabled in the tailnet's DNS
+  settings, same as the hub); clone the repo and start
+  `capture-satellite.service`/`capture-satellite-sync.timer`. whisper.cpp
+  build and the GPIO button service are left as a comment, not yet added,
+  for the same reason as above.
 - Deliberately **not** included: `DIRIGERA_ACCESS_TOKEN`/`DIRIGERA_HOST`
   — that pairing (`npx dirigera authenticate`) is a one-time manual step
   done after first boot per `satellite/README.md`, not something to
@@ -91,8 +103,12 @@ field. This lets this file's eventual `.yaml`/`.tpl` be a close sibling of
   added to `video`/`render`/`input` groups, a `getty@tty1` autologin
   drop-in, and `/opt/capture-satellite/kiosk.sh` (launched from
   `admin`'s `.bash_profile`, tty1 only) running `cage -- chromium-browser
-  --kiosk --app=http://localhost:4000/?station` — see "Display stack:
-  minimal, not headless" in `designs/satellite-hardware.md`.
+  --kiosk --app=http://localhost/?station` — see "Display stack: minimal,
+  not headless" in `designs/satellite-hardware.md`. Points at nginx's
+  plain-HTTP `localhost` server block (`satellite/nginx.conf`) rather
+  than the satellite container's own port 4000 directly, now that the
+  container split (below) means the satellite process no longer serves
+  the frontend build itself.
 
 `infra/provision-satellite-sd.sh` renders that template with `envsubst`
 (explicitly scoped to just the template's own variables, so it doesn't
@@ -147,6 +163,48 @@ section — its way of terminating HTTPS itself, with no nginx involved):
 redundant once nginx does it, one less cert-renewal thing for the
 satellite process to worry about, and consistent with the hub where
 nginx (not the backend) is the one thing that terminates real TLS.
+
+**Implemented:**
+
+- `satellite/Dockerfile` — API/controller image only, no frontend build
+  baked in.
+- `satellite/nginx.conf` — mounted over the *existing* `capture-frontend`
+  GHCR image's default config (same image the hub already builds via
+  `frontend/Dockerfile`/`build-frontend.yml` — no separate frontend image
+  needed for a satellite, just a different mounted nginx config, same
+  trick the hub's own `docker-compose.yml` already uses for its
+  `nginx.conf`). Proxies `/api/`/`/config.json` to `127.0.0.1:4000`
+  (loopback, not Docker DNS, since both containers are host-networked).
+  Adds a third server block specifically for `Host: localhost` on plain
+  `:80`, so the on-box kiosk (see Display stack, above) never has to
+  contend with the self-signed cert (minted for this box's Tailscale
+  name, not `localhost`) throwing a cert-mismatch interstitial with no
+  one there to click through it — browsers already treat `localhost` as
+  a secure context regardless of TLS, so voice capture is unaffected.
+  Any other `Host:` on `:80` still gets redirected to HTTPS, same as the
+  hub's `nginx.conf`.
+- `docker-compose.satellite.yml` (repo root, alongside the hub's
+  `docker-compose.yml`) — `satellite` + `nginx` (both `network_mode:
+  host`) + `watchtower` (identical config to the hub's).
+- `.github/workflows/build-satellite.yml` — new workflow, pushing
+  `ghcr.io/squaremo/capture-satellite`. Built for `linux/amd64,
+  linux/arm64` (via QEMU + Buildx) — arm64 for the Pi, amd64 kept for the
+  laptop-bootstrap running mode in `designs/satellites.md` so the same
+  tag works either way.
+- `build-frontend.yml` gained the same `linux/amd64,linux/arm64`
+  platforms, since `capture-frontend` is now the image both the hub *and*
+  every satellite's nginx container run.
+- `infra/cloud-init-satellite.yaml.tpl` updated to install Docker
+  (identical block to `infra/cloud-init.yaml.tpl`) instead of
+  `nodejs`/`npm`, and to run `capture-satellite.service`/
+  `capture-satellite-sync.timer` (mirroring the hub's `capture.service`/
+  `capture-sync.timer`) instead of a bare `npm start` unit. Also now
+  mints its own TLS cert via `tailscale cert`, reading this box's MagicDNS
+  name back from `tailscale status --json` rather than needing it as a
+  separate script input.
+
+None of this has been built or run — no image has been pushed, no
+compose stack started, no Pi has pulled any of it yet.
 
 Considered and rejected: one container doing both (serving the frontend
 build itself via `@fastify/static`, as it already does today outside

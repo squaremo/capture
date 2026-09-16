@@ -1,15 +1,15 @@
-name: Build Frontend
+name: Build Satellite
 
 on:
   push:
     branches: [main]
     paths:
-      - "frontend/**"
-      - ".github/workflows/build-frontend.yml"
+      - "satellite/**"
+      - ".github/workflows/build-satellite.yml"
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}-frontend
+  IMAGE_NAME: ${{ github.repository }}-satellite
 
 jobs:
   build-and-push:
@@ -46,15 +46,13 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: ./frontend
-          # arm64 added alongside the existing amd64 (Hetzner) build so
-          # this same image also serves a satellite Pi's nginx container
-          # — see designs/satellite-provisioning.md's "Docker + Watchtower
-          # deployment".
+          context: ./satellite
+          # A Pi 4B is arm64; amd64 is kept too for the laptop-bootstrap
+          # running mode in designs/satellites.md, so the same image tag
+          # works either way.
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: GIT_SHA=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
