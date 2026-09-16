@@ -9,7 +9,10 @@ manage_etc_hosts: true
 # no root password, no root SSH.
 users:
   - name: admin
-    groups: sudo
+    # video/render/input: needed for cage (the kiosk Wayland compositor,
+    # below) to get GPU/input access directly, with no display/login
+    # manager brokering it.
+    groups: sudo,video,render,input
     shell: /bin/bash
     sudo: "ALL=(ALL) NOPASSWD:ALL"
     ssh_authorized_keys:
@@ -25,17 +28,25 @@ packages:
   - npm
   - unattended-upgrades
   - apt-listchanges
+  # Display stack: cage is a Wayland compositor built specifically to run
+  # one fullscreen client and nothing else — no panel, no window
+  # management, no desktop session to configure — the right fit for a
+  # kiosk showing exactly one page. seatd gives it direct seat/GPU access
+  # with no login/display manager needed. See "Display stack: minimal,
+  # not headless" in designs/satellite-hardware.md.
+  - cage
+  - seatd
+  - chromium-browser
+  # NOTE: not yet verified against real hardware — seatd may require
+  # admin to also be in a `seatd`/`seat` group (name varies by package
+  # version) for cage to get a seat, on top of the video/render/input
+  # groups above. First thing to check if cage exits immediately with a
+  # seat-access error.
   # whisper.cpp build deps (build-essential, cmake) and audio tooling
   # (alsa-utils) are deliberately left out here — the whisper.cpp
   # service's own shape isn't decided yet (see Open questions in
   # designs/satellite-hardware.md). Add them once that's written, rather
   # than guessing at what it needs now.
-  #
-  # Also missing: the display stack (a compositor + Chromium kiosk +
-  # autologin) that Station actually needs to show anything on the
-  # touchscreen — see "Display stack: minimal, not headless" in
-  # designs/satellite-hardware.md. This template currently provisions
-  # the satellite process only, not what puts it on screen.
 
 package_update: true
 package_upgrade: true
@@ -90,6 +101,44 @@ write_files:
       [Install]
       WantedBy=multi-user.target
 
+  # Autologin on the console — nobody's ever going to type a login at
+  # this box, it needs to reach the kiosk with zero interaction after
+  # power-on.
+  - path: /etc/systemd/system/getty@tty1.service.d/autologin.conf
+    content: |
+      [Service]
+      ExecStart=
+      ExecStart=-/sbin/agetty --autologin admin --noclear %I $TERM
+
+  # Launched by the profile hook below once admin's shell starts on
+  # tty1. Points at this same box's own satellite process (see
+  # Satellite-served frontend in designs/satellites.md — it already
+  # serves the frontend build locally, no separate hosting needed).
+  # --kiosk fullscreens with no chrome/tabs/address bar; the update
+  # check is disabled since Watchtower-style auto-update doesn't apply
+  # to a browser binary and there's no need for it to ever phone out.
+  - path: /opt/capture-satellite/kiosk.sh
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      exec cage -- chromium-browser \
+        --kiosk \
+        --noerrdialogs \
+        --disable-infobars \
+        --check-for-update-interval=31536000 \
+        --app=http://localhost:4000/?station
+
+  # admin's login shell runs this once, only on the physical console
+  # (not over SSH, and not if a compositor is somehow already running)
+  # — starts the kiosk automatically after the autologin above, with no
+  # display/session manager in between.
+  - path: /home/admin/.bash_profile
+    owner: admin:admin
+    content: |
+      if [ -z "$WAYLAND_DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then
+        exec /opt/capture-satellite/kiosk.sh
+      fi
+
 runcmd:
   # ── Tailscale ────────────────────────────────────────────────────────
   - curl -fsSL https://tailscale.com/install.sh | sh
@@ -102,6 +151,11 @@ runcmd:
   - cd /opt/capture-satellite/app/satellite && npm install
   - cd /opt/capture-satellite/app/frontend && npm install && npm run build
   - systemctl enable --now capture-satellite.service
+
+  # ── Kiosk display ────────────────────────────────────────────────────
+  - systemctl enable --now seatd
+  - systemctl daemon-reload
+  - systemctl restart getty@tty1
 
   # whisper.cpp build/install and the GPIO button service are not added
   # here yet — see Open questions in designs/satellite-hardware.md.

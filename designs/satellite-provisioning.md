@@ -84,6 +84,12 @@ field. This lets this file's eventual `.yaml`/`.tpl` be a close sibling of
   — that pairing (`npx dirigera authenticate`) is a one-time manual step
   done after first boot per `satellite/README.md`, not something to
   script into first-boot config.
+- Display stack: `cage`/`seatd`/`chromium-browser` packages, `admin`
+  added to `video`/`render`/`input` groups, a `getty@tty1` autologin
+  drop-in, and `/opt/capture-satellite/kiosk.sh` (launched from
+  `admin`'s `.bash_profile`, tty1 only) running `cage -- chromium-browser
+  --kiosk --app=http://localhost:4000/?station` — see "Display stack:
+  minimal, not headless" in `designs/satellite-hardware.md`.
 
 `infra/provision-satellite-sd.sh` renders that template with `envsubst`
 (explicitly scoped to just the template's own variables, so it doesn't
@@ -108,8 +114,7 @@ provide.
   `designs/satellite-hardware.md`, which itself has ordered no hardware.
 - whisper.cpp and the GPIO button service aren't in the template — once
   their shape is decided, they get added to `runcmd`/`write_files` here.
-- Nor is the display stack: this template provisions the satellite
-  *process* only. Station needs something on screen, and a Raspberry Pi
-  OS Lite boot has no display server or browser by default — see
-  "Display stack: minimal, not headless" in `designs/satellite-hardware.md`
-  for the compositor/Chromium-kiosk/autologin pieces still to add here.
+- Display stack (cage + chromium-browser + tty1 autologin) is now in the
+  template — see "Display stack: minimal, not headless" in
+  `designs/satellite-hardware.md` — but unverified against real hardware,
+  same caveat as everything else here.

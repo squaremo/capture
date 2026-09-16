@@ -66,10 +66,16 @@ Raspberry-Pi-documented kiosk pattern:
 3. Console autologin + autostart, so the compositor + Chromium launch
    with no keyboard interaction ever needed after boot.
 
-Not yet added to `infra/cloud-init-satellite.yaml.tpl` — that template's
-`packages`/`runcmd` currently provision the satellite process only, with
-no display packages, autologin config, or kiosk-launch unit. Needs doing
-before this box can actually show anything on its screen.
+Added to `infra/cloud-init-satellite.yaml.tpl`: `cage`/`seatd`/
+`chromium-browser` packages, a `getty@tty1` autologin drop-in, and a
+`kiosk.sh` (launched from `admin`'s `.bash_profile` on tty1 only) running
+`cage -- chromium-browser --kiosk --app=http://localhost:4000/?station`
+against this same box's own satellite process. Not yet verified against
+real hardware — first things to check if it doesn't come up: whether
+`admin` needs adding to a `seatd`/`seat` group beyond `video`/`render`/
+`input` for cage to get a seat (package/version-dependent, noted inline
+in the template), and whether the Bookworm package is really named
+`chromium-browser` in the repo actually in use.
 
 ### Rejected: ReSpeaker 2-Mic Pi HAT
 
