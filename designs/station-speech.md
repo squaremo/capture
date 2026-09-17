@@ -1,0 +1,212 @@
+# Station speech: local whisper.cpp + Piper, replacing the browser prototype
+
+Status: not yet implemented — a design, written now that real station
+hardware exists to target. Builds on `designs/satellites.md` — read that
+first, especially Satellite-served frontend & local device controls,
+which this follows exactly (a third local capability alongside Sonos and
+Dirigera). Today's shipped behaviour (browser `SpeechRecognition` for
+capture, browser `SpeechSynthesis` for read-aloud — `frontend/src/
+components/capture.js`, `frontend/src/speech.js`) stays as the fallback
+everywhere this isn't configured: phone, laptop, and any satellite with
+no speech hardware attached. Nothing here changes the capture pipeline,
+approval gating, or hub ↔ satellite dispatch.
+
+## Problem
+
+The prototype (see the read-aloud work in recent history, and
+`capture.js`'s existing mic button) deliberately used the browser's own
+Web Speech API for both directions — zero setup, ships the UI (say-it
+button, mute toggle, push-to-talk capture) before committing to
+hardware. It's the wrong long-term fit for the real station specifically,
+for reasons CLAUDE.md's Voice stack entry already anticipated:
+
+- `SpeechRecognition` in Chrome routes audio through Google's speech
+  service — an acceptable tradeoff for a phone/laptop used out and about
+  ("Acceptable tradeoff for convenience," per CLAUDE.md), but wrong for a
+  fixed home appliance whose whole premise is self-hosted and
+  privacy-first (see CLAUDE.md's "what this is").
+- Both `SpeechRecognition` and `SpeechSynthesis` need the station's
+  browser tab to actually be a browser tab with those APIs available and
+  online — no story for a kiosk with no reliable internet, or for running
+  the model of your choice.
+- `whisper.cpp` (STT) and `Piper` (TTS) were already the named plan for
+  this (CLAUDE.md: "local transcription via whisper.cpp," and the recent
+  TODO.md entry naming Piper as its TTS companion) — both run comfortably
+  on a Pi 4/5, fully offline, no cloud dependency.
+
+## Shape: speech as a third local satellite capability
+
+Same pattern as Sonos and Dirigera: something only reachable — or only
+sensible — on the box physically present at the house. A Matter hub and
+Sonos speakers are local because of the network; a microphone and
+speaker are local because they're bolted to *this* device. Both fit the
+same shape: the satellite exposes narrow, resolved-input/resolved-output
+endpoints; a caller on the same origin uses them directly, no free text,
+no interpretation happening server-side.
+
+Two new endpoints on the satellite controller (`satellite/server.js`),
+backed by a new `satellite/services/speech.js`:
+
+- **`POST /api/transcribe`** — body is recorded audio (raw bytes,
+  `audio/webm` from the browser's `MediaRecorder`); response
+  `{ text }`. Runs `whisper.cpp` locally against it.
+- **`POST /api/speak`** — body `{ text }`; response is synthesized audio
+  (WAV bytes, streamed back) for the caller to play. Runs `Piper`
+  locally against it.
+
+Both are **pure local I/O helpers, not action tools** — no `awaiting_
+approval`, no `TOOL_REGISTRY` entry, nothing added to `claude.js`. They
+never talk to the central backend at all, and the central backend never
+knows they exist. This is a stronger version of the "direct, ungated
+manual control" category `designs/satellites.md` already established for
+the Sonos/light panels — even more clearly so here, since neither
+endpoint changes any device's state. `/api/transcribe`'s only output is
+text that then goes through the *ordinary* `POST /api/capture` flow,
+exactly like text a person typed or the browser's own `SpeechRecognition`
+produced today — same trust level, same downstream approval gating for
+whatever Claude decides to do with it. `/api/speak`'s only input is text
+already decided and already on screen (a proposal's `action_result`, a
+resolved item's result) — it narrates, it doesn't act.
+
+### Frontend integration — same call sites, a different transport underneath
+
+Both existing hooks stay exactly where they are; only what's underneath
+them changes, gated on whether this satellite actually has the hardware:
+
+- **Capture** (`capture.js`'s mic button, and `station.js`'s idle-mode
+  field which reuses it): today, tapping it starts the browser's
+  `SpeechRecognition` and fills the textarea from `e.results[0][0].
+  transcript` on completion. With a speech-capable satellite: tap starts
+  `MediaRecorder` on the mic stream instead; tap again (or, later, a
+  silence timeout — see Open questions) stops it and `POST`s the
+  recorded blob to `/api/transcribe`; the response's `text` fills the
+  textarea exactly the same way — **still lands in the field for a
+  glance/edit before submit, not an auto-send**, matching today's
+  behaviour and the same reasoning: neither engine is perfect, and this
+  app's whole ethos is a human still initiates the capture.
+- **Read-aloud** (`speech.js`'s `speak()`/`speakIfEnabled()`, called from
+  every "say it" button and the auto-speak-on-resolve paths in
+  `main.js`): today, `window.speechSynthesis.speak(new
+  SpeechSynthesisUtterance(text))`. With a speech-capable satellite:
+  `POST /api/speak` with the same text, then play the returned audio via
+  an `<audio>` element (or a reused one, to get `.cancel()`-like
+  interrupt behaviour by just changing `.src`) instead of calling into
+  `speechSynthesis`. Every call site (per-item buttons, the mute toggle,
+  auto-speak) is unchanged — `speech.js` picks the transport once, based
+  on capability, the same way `speak()` already centralizes "how do we
+  actually say this" today.
+
+This keeps the fallback automatic and total: a satellite with no
+`WHISPER_MODEL_PATH`/`PIPER_VOICE_PATH` configured, or any non-satellite
+deployment (phone, laptop, the general frontend with no `/config.json`
+at all), gets exactly today's browser-API behaviour with no code branch
+visible to the user — same principle as `localActivity.js` rendering
+nothing when a satellite has no Sonos/Dirigera to show.
+
+### Capability discovery — `/config.json`, not `/api/status`
+
+`GET /api/status`'s `capabilities` array (already polled every 4s by
+`localActivity.js`) is the wrong home for this: it exists to report
+*live device state* (is a speaker playing, is a light on) that can
+change moment to moment. Whether this satellite has speech hardware
+configured is a **deployment fact**, fixed for the life of the process —
+the same category `defaultHouse`/`backendUrl`/`isStation` already are in
+`/config.json`, fetched once at startup before anything else wires up
+(see `designs/satellites.md`'s House attribution for why that split
+exists). So: `/config.json` gains a `speech: { stt: boolean, tts:
+boolean }` field, computed the same way `dirigera.isConfigured()` already
+is — independently, since a station could have a working microphone but
+no speaker wired up yet, or vice versa. `main.js`/`speech.js` read it
+once at init, same timing as everything else `loadConfig()` already
+decides.
+
+### Where whisper.cpp and Piper actually run
+
+Both as **persistent local server processes**, not spawned fresh per
+request. `whisper.cpp` ships a `server` example that loads the model
+once and answers HTTP requests against it; Piper has an equivalent thin
+HTTP wrapper (or one is trivial to add — it's a single model forward
+pass). Spawning the CLI binary per call would reload a multi-hundred-MB
+model on every single capture/read-aloud, which is both slow (fighting
+the "instant capture" ethos directly) and wasteful on a Pi's limited
+RAM/CPU. `satellite/services/speech.js` becomes a thin proxy — much like
+`dirigera.js` already is a thin wrapper around the `dirigera` npm client
+— forwarding `/api/transcribe`/`/api/speak` to these two local servers
+(`http://127.0.0.1:<port>`) rather than doing inference in the Node
+process itself.
+
+Supervision (keeping the two model servers themselves alive) is a
+provisioning concern, not an app-code one — same territory as the
+still-open "provisioning story for a new satellite" question in
+`designs/satellites.md`. The natural answer once permanent kit exists is
+systemd units alongside whatever runs the satellite process itself
+(cloud-init-style, mirroring the central server's own pattern in `infra/
+cloud-init.yaml.tpl`); not designed further here.
+
+### Config (local, not secret)
+
+New env vars on the satellite, same tier as `HOUSE_ID`/
+`SPOTIFY_ACCOUNT_SN` — local deployment facts, never through
+`secrets.js`'s `op://` machinery:
+
+- `WHISPER_SERVER_URL` (e.g. `http://127.0.0.1:8081`) — unset means
+  `speech.stt` is `false`.
+- `PIPER_SERVER_URL` (e.g. `http://127.0.0.1:8082`) — unset means
+  `speech.tts` is `false`.
+
+Model/voice selection (which `.bin`/`.onnx` file) is config *for those
+processes*, not the satellite — the satellite only needs to know they're
+reachable, not which model they're running.
+
+### One constraint that carries over unchanged
+
+`server.js` already notes that the Web Speech API "requires a secure
+context on a non-localhost origin" and is "silently unavailable, not
+just degraded" without `TLS_CERT_PATH`/`TLS_KEY_PATH` set. `MediaRecorder`
+/`getUserMedia` (what capture switches to) has exactly the same secure-
+context requirement — so a station relying on local STT needs that
+`tailscale cert`-minted TLS already documented for the browser-API case,
+for the identical reason, not a new one.
+
+## What doesn't change
+
+- Hub → satellite dispatch, house attribution, `resolve_*`/`control_*`
+  tool shapes, approval gating — none of it. Speech never crosses into
+  the central backend; only the text it produces does, at the same trust
+  level typed text already has.
+- The browser-API prototype isn't deleted — it's the permanent fallback
+  for every deployment without this hardware, and stays the *only* path
+  for phone/laptop (a Pi's mic/speaker mean nothing to a phone in your
+  pocket).
+- No new `TOOL_REGISTRY` entry, no new item status, no new approval
+  surface.
+
+## Open questions
+
+- **Push-to-talk vs wake-word.** This design keeps push-to-talk (tap the
+  existing mic button to start/stop recording) as the trigger — it's the
+  UX already shipped, and needs nothing new to reason about (no
+  false-positive wake detection, no always-listening privacy question).
+  The original repo-structure sketch in CLAUDE.md names a `station/
+  wakeword.py` for "always-on voice" as a future direction; worth
+  revisiting once push-to-talk is proven, but deliberately out of scope
+  here — a continuously-listening mic is a materially bigger privacy and
+  false-trigger surface than a button.
+- **Auto-stop on silence** for the recording, instead of requiring a
+  second tap — a nice-to-have once push-to-talk is working, not needed
+  to ship it.
+- **Barge-in** — interrupting an in-progress `/api/speak` playback if a
+  new capture starts while the station is still talking. `speak()`
+  already `cancel()`s an in-flight browser utterance on every call
+  (per-item vs auto-speak race); the local-audio equivalent (swap the
+  `<audio>` element's `src`, or an explicit stop call) needs the same
+  treatment, not yet designed in detail.
+- **Model/voice provisioning** — where the `.bin`/`.onnx` files
+  themselves come from and land on a new Pi is the same open question
+  `designs/satellites.md` already has for satellite provisioning
+  generally; not solved specially for speech.
+- **Audio transcode**, if `MediaRecorder`'s default container (`audio/
+  webm`, Opus-encoded) turns out not to be what the chosen `whisper.cpp`
+  server build accepts directly (it typically wants 16kHz mono WAV) —
+  likely a small `ffmpeg`-backed conversion step inside `speech.js`
+  before handing off; not yet confirmed against a real build.
