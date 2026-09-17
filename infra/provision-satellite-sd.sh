@@ -11,7 +11,23 @@ set -euo pipefail
 #   ADMIN_SSH_PUBLIC_KEY="ssh-ed25519 AAAA..." \
 #   TAILSCALE_AUTH_KEY="tskey-auth-..." \
 #   BACKEND_URL="https://capture.<tailnet>.ts.net" \
-#   ./provision-satellite-sd.sh [bootfs-mount-point-or-device]
+#   ./provision-satellite-sd.sh [--force] [bootfs-mount-point-or-device]
+#
+# Raspberry Pi Imager's own "Edit Settings" step, on a cloud-init-capable
+# image, writes its OWN user-data/network-config/meta-data directly
+# (hostname, a default user, timezone/keyboard, Wi-Fi) rather than the
+# older firstrun.sh mechanism — so a user-data may already exist here
+# before this script ever runs. If it does, this script MERGES into it
+# rather than overwriting it: Imager's hostname wins (HOUSE_ID is only
+# needed as a fallback when there's no existing user-data at all), and
+# if Imager already created a default user, this script's own `users:`
+# block is dropped in favour of reusing that account for the kiosk
+# session (ADMIN_SSH_PUBLIC_KEY isn't needed in that case either — the
+# existing user-data already carries a key) — see the note on `users:`
+# in cloud-init-satellite.yaml.tpl. Needs python3 with PyYAML
+# (`pip3 install pyyaml`) to do this merge; --force skips merging
+# entirely and overwrites user-data outright, network-config/meta-data
+# are never touched either way.
 #
 # The target arg can be:
 #   - a directory: an already-mounted boot partition (e.g. auto-mounted
@@ -25,8 +41,6 @@ set -euo pipefail
 # Doesn't format or partition anything — the SD card must already have
 # Raspberry Pi OS (Bookworm or later) flashed onto it.
 
-: "${HOUSE_ID:?set HOUSE_ID (also used as hostname)}"
-: "${ADMIN_SSH_PUBLIC_KEY:?set ADMIN_SSH_PUBLIC_KEY}"
 : "${TAILSCALE_AUTH_KEY:?set TAILSCALE_AUTH_KEY}"
 : "${BACKEND_URL:?set BACKEND_URL}"
 REPO_URL="${REPO_URL:-https://github.com/squaremo/capture.git}"
@@ -66,7 +80,17 @@ unmount_device() {
   fi
 }
 
-TARGET="${1:-}"
+FORCE=""
+ARGS=()
+for arg in "$@"; do
+  if [ "$arg" = "--force" ]; then
+    FORCE=1
+  else
+    ARGS+=("$arg")
+  fi
+done
+
+TARGET="${ARGS[0]:-}"
 MOUNTED_BY_US=""
 BOOT_MOUNT=""
 
@@ -88,13 +112,130 @@ fi
 [ -d "$BOOT_MOUNT" ] || { echo "Not a directory: $BOOT_MOUNT" >&2; exit 1; }
 [ -w "$BOOT_MOUNT" ] || { echo "Not writable: $BOOT_MOUNT (sudo? wrong card?)" >&2; exit 1; }
 
-export HOUSE_ID ADMIN_SSH_PUBLIC_KEY TAILSCALE_AUTH_KEY BACKEND_URL REPO_URL
+EXISTING="$BOOT_MOUNT/user-data"
+MERGE=""
+if [ -s "$EXISTING" ] && [ -z "$FORCE" ]; then
+  MERGE=1
+fi
 
-envsubst '$HOUSE_ID $ADMIN_SSH_PUBLIC_KEY $TAILSCALE_AUTH_KEY $BACKEND_URL $REPO_URL' \
-  < "$TEMPLATE" > "$BOOT_MOUNT/user-data"
-: > "$BOOT_MOUNT/meta-data"
+# HOUSE_ID/ADMIN_USER/ADMIN_SSH_PUBLIC_KEY only matter for the
+# no-existing-user-data (or --force) path — pinned down below once we
+# know whether we're merging.
+EFFECTIVE_HOUSE_ID="${HOUSE_ID:-}"
+EFFECTIVE_ADMIN_USER="${ADMIN_USER:-admin}"
+DROP_USERS_BLOCK=""
 
-echo "Wrote user-data + meta-data to $BOOT_MOUNT"
+if [ -n "$MERGE" ]; then
+  command -v python3 >/dev/null && python3 -c "import yaml" 2>/dev/null || {
+    echo "$EXISTING already has content (probably from Raspberry Pi Imager's" >&2
+    echo "own Edit Settings step) and merging it needs python3 with PyYAML" >&2
+    echo "(pip3 install pyyaml), which isn't available here." >&2
+    echo "Either install that, or re-run with --force to overwrite $EXISTING" >&2
+    echo "outright (discarding whatever's in it):" >&2
+    echo "  $0 --force ${TARGET:-}" >&2
+    exit 1
+  }
+
+  # Peek the existing file for a hostname and a default user, so this
+  # run's HOUSE_ID/ADMIN_USER follow what's already there instead of
+  # fighting it.
+  eval "$(python3 - "$EXISTING" <<'PYEOF'
+import sys, yaml
+with open(sys.argv[1]) as f:
+    text = f.read()
+if text.lstrip().startswith("#cloud-config"):
+    text = text.split("\n", 1)[1] if "\n" in text else ""
+doc = yaml.safe_load(text) or {}
+hostname = doc.get("hostname")
+user_name = None
+if isinstance(doc.get("user"), dict):
+    user_name = doc["user"].get("name")
+elif isinstance(doc.get("users"), list) and doc["users"]:
+    first = doc["users"][0]
+    if isinstance(first, dict):
+        user_name = first.get("name")
+if hostname:
+    print("EFFECTIVE_HOUSE_ID=%r" % hostname)
+if user_name:
+    print("EFFECTIVE_ADMIN_USER=%r" % user_name)
+    print("DROP_USERS_BLOCK=1")
+PYEOF
+)"
+
+  if [ -n "${HOUSE_ID:-}" ] && [ "$HOUSE_ID" != "$EFFECTIVE_HOUSE_ID" ]; then
+    echo "NOTE: existing user-data's hostname ($EFFECTIVE_HOUSE_ID) overrides the HOUSE_ID you passed ($HOUSE_ID)." >&2
+  fi
+fi
+
+: "${EFFECTIVE_HOUSE_ID:?set HOUSE_ID (no existing user-data to read a hostname from)}"
+
+if [ -z "$DROP_USERS_BLOCK" ]; then
+  : "${ADMIN_SSH_PUBLIC_KEY:?set ADMIN_SSH_PUBLIC_KEY}"
+else
+  # Not used by the template in this case (users: block is dropped
+  # before merging) but envsubst still needs *something* bound.
+  ADMIN_SSH_PUBLIC_KEY="${ADMIN_SSH_PUBLIC_KEY:-unused}"
+fi
+
+HOUSE_ID="$EFFECTIVE_HOUSE_ID"
+ADMIN_USER="$EFFECTIVE_ADMIN_USER"
+export HOUSE_ID ADMIN_USER ADMIN_SSH_PUBLIC_KEY TAILSCALE_AUTH_KEY BACKEND_URL REPO_URL
+
+RENDERED="$(mktemp)"
+trap 'rm -f "$RENDERED"' EXIT
+
+envsubst '$HOUSE_ID $ADMIN_USER $ADMIN_SSH_PUBLIC_KEY $TAILSCALE_AUTH_KEY $BACKEND_URL $REPO_URL' \
+  < "$TEMPLATE" > "$RENDERED"
+
+if [ -n "$MERGE" ]; then
+  python3 - "$EXISTING" "$RENDERED" "$DROP_USERS_BLOCK" > "$EXISTING.new" <<'PYEOF'
+import sys, yaml
+
+def load(path):
+    with open(path) as f:
+        text = f.read()
+    if text.lstrip().startswith("#cloud-config"):
+        text = text.split("\n", 1)[1] if "\n" in text else ""
+    return yaml.safe_load(text) or {}
+
+existing_path, rendered_path, drop_users = sys.argv[1], sys.argv[2], sys.argv[3]
+existing = load(existing_path)
+ours = load(rendered_path)
+
+if drop_users:
+    ours.pop("users", None)
+
+merged = dict(existing)
+for key, value in ours.items():
+    if key not in merged:
+        merged[key] = value
+    elif key == "hostname":
+        pass  # existing wins — see the HOUSE_ID note above
+    elif isinstance(merged[key], list) and isinstance(value, list):
+        merged[key] = merged[key] + value
+    elif isinstance(merged[key], dict) and isinstance(value, dict):
+        merged[key] = {**value, **merged[key]}
+    # else: existing scalar wins (e.g. package_update/package_upgrade,
+    # ssh_pwauth) — nothing in `ours` currently collides on a scalar
+    # other than hostname, handled above.
+
+def str_presenter(dumper, data):
+    style = "|" if "\n" in data else None
+    return dumper.represent_scalar("tag:yaml.org,2002:str", data, style=style)
+
+yaml.add_representer(str, str_presenter)
+sys.stdout.write("#cloud-config\n")
+yaml.dump(merged, sys.stdout, default_flow_style=False, sort_keys=False)
+PYEOF
+  mv "$EXISTING.new" "$EXISTING"
+  echo "Merged into existing $EXISTING (kept its hostname/default user, added this project's packages/write_files/runcmd)."
+else
+  mv "$RENDERED" "$EXISTING"
+  trap - EXIT
+  echo "Wrote $EXISTING"
+fi
+
+[ -e "$BOOT_MOUNT/meta-data" ] || : > "$BOOT_MOUNT/meta-data"
 
 if [ -n "$MOUNTED_BY_US" ]; then
   unmount_device "$MOUNTED_BY_US"
