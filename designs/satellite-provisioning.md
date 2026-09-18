@@ -149,10 +149,14 @@ So the script now **merges** rather than overwrites, when a non-empty
 `pip3 install pyyaml` — to actually do the merge; falls back to refusing
 outright and pointing at `--force` if that's missing):
 
-- **Existing hostname wins.** `HOUSE_ID` becomes optional in this case —
-  read back from the existing file instead, so the Linux hostname,
-  Tailscale hostname/`HOUSE_ID` env var, and the eventual MagicDNS name
-  all end up as one consistent value instead of two competing ones.
+- **Existing hostname wins by default, but an explicit `HOUSE_ID`
+  overrides it.** `HOUSE_ID` becomes optional in this case — read back
+  from the existing file instead, so the Linux hostname, Tailscale
+  hostname/`HOUSE_ID` env var, and the eventual MagicDNS name all end up
+  as one consistent value instead of two competing ones. Passing
+  `HOUSE_ID` explicitly anyway forces that value through everywhere
+  instead (a printed `NOTE:` says which way it went), for when Imager's
+  own hostname isn't the one you actually want.
 - **Existing default user wins, this template's own `users:` block is
   dropped.** Running both a `users:` list entry (this template) and a
   singular `user:` block or its own `users:` list (Imager's) for

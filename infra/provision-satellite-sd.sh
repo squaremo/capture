@@ -18,9 +18,11 @@ set -euo pipefail
 # (hostname, a default user, timezone/keyboard, Wi-Fi) rather than the
 # older firstrun.sh mechanism — so a user-data may already exist here
 # before this script ever runs. If it does, this script MERGES into it
-# rather than overwriting it: Imager's hostname wins (HOUSE_ID is only
-# needed as a fallback when there's no existing user-data at all), and
-# if Imager already created a default user, this script's own `users:`
+# rather than overwriting it: Imager's hostname wins by default (HOUSE_ID
+# is only needed as a fallback when there's no existing user-data at
+# all) — but an explicitly-passed HOUSE_ID overrides it, if you want a
+# different hostname than whatever Imager set. And if Imager already
+# created a default user, this script's own `users:`
 # block is dropped in favour of reusing that account for the kiosk
 # session (ADMIN_SSH_PUBLIC_KEY isn't needed in that case either — the
 # existing user-data already carries a key) — see the note on `users:`
@@ -120,10 +122,14 @@ fi
 
 # HOUSE_ID/ADMIN_USER/ADMIN_SSH_PUBLIC_KEY only matter for the
 # no-existing-user-data (or --force) path — pinned down below once we
-# know whether we're merging.
+# know whether we're merging. USER_HOUSE_ID keeps track of whether the
+# caller explicitly asked for a hostname, so that request can still win
+# over whatever's already in an existing user-data (see below).
+USER_HOUSE_ID="${HOUSE_ID:-}"
 EFFECTIVE_HOUSE_ID="${HOUSE_ID:-}"
 EFFECTIVE_ADMIN_USER="${ADMIN_USER:-admin}"
 DROP_USERS_BLOCK=""
+FORCE_HOSTNAME=""
 
 if [ -n "$MERGE" ]; then
   command -v python3 >/dev/null && python3 -c "import yaml" 2>/dev/null || {
@@ -162,8 +168,12 @@ if user_name:
 PYEOF
 )"
 
-  if [ -n "${HOUSE_ID:-}" ] && [ "$HOUSE_ID" != "$EFFECTIVE_HOUSE_ID" ]; then
-    echo "NOTE: existing user-data's hostname ($EFFECTIVE_HOUSE_ID) overrides the HOUSE_ID you passed ($HOUSE_ID)." >&2
+  if [ -n "$USER_HOUSE_ID" ]; then
+    if [ "$USER_HOUSE_ID" != "$EFFECTIVE_HOUSE_ID" ]; then
+      echo "NOTE: overriding existing user-data's hostname ($EFFECTIVE_HOUSE_ID) with the HOUSE_ID you passed ($USER_HOUSE_ID)." >&2
+    fi
+    EFFECTIVE_HOUSE_ID="$USER_HOUSE_ID"
+    FORCE_HOSTNAME=1
   fi
 fi
 
@@ -188,7 +198,7 @@ envsubst '$HOUSE_ID $ADMIN_USER $ADMIN_SSH_PUBLIC_KEY $TAILSCALE_AUTH_KEY $BACKE
   < "$TEMPLATE" > "$RENDERED"
 
 if [ -n "$MERGE" ]; then
-  python3 - "$EXISTING" "$RENDERED" "$DROP_USERS_BLOCK" > "$EXISTING.new" <<'PYEOF'
+  python3 - "$EXISTING" "$RENDERED" "$DROP_USERS_BLOCK" "$FORCE_HOSTNAME" > "$EXISTING.new" <<'PYEOF'
 import sys, yaml
 
 def load(path):
@@ -198,7 +208,7 @@ def load(path):
         text = text.split("\n", 1)[1] if "\n" in text else ""
     return yaml.safe_load(text) or {}
 
-existing_path, rendered_path, drop_users = sys.argv[1], sys.argv[2], sys.argv[3]
+existing_path, rendered_path, drop_users, force_hostname = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 existing = load(existing_path)
 ours = load(rendered_path)
 
@@ -210,7 +220,11 @@ for key, value in ours.items():
     if key not in merged:
         merged[key] = value
     elif key == "hostname":
-        pass  # existing wins — see the HOUSE_ID note above
+        # existing wins by default, UNLESS the caller explicitly asked
+        # for a different HOUSE_ID (see the NOTE printed above) — then
+        # theirs does.
+        if force_hostname:
+            merged[key] = value
     elif isinstance(merged[key], list) and isinstance(value, list):
         merged[key] = merged[key] + value
     elif isinstance(merged[key], dict) and isinstance(value, dict):
