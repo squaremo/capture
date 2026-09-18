@@ -39,6 +39,11 @@ packages:
   - jq
   - unattended-upgrades
   - apt-listchanges
+  # For arecord -l/aplay -l once the WM8960 driver (below) is in —
+  # useful to confirm the card actually shows up before anything tries
+  # to use it. install.sh pulls in the codec's own build deps itself
+  # (dkms/headers/i2c-tools); this is just the diagnostic tools.
+  - alsa-utils
   # Display stack: cage is a Wayland compositor built specifically to run
   # one fullscreen client and nothing else — no panel, no window
   # management, no desktop session to configure — the right fit for a
@@ -230,5 +235,42 @@ runcmd:
   - systemctl daemon-reload
   - systemctl restart getty@tty1
 
+  # ── WM8960 audio HAT driver ──────────────────────────────────────────
+  # Out-of-tree (not in the mainline Pi kernel), so this builds a DKMS
+  # module rather than just setting a dtoverlay — DKMS means it survives
+  # future kernel upgrades from unattended-upgrades, rebuilding itself
+  # automatically rather than breaking on the next one, IF it builds at
+  # all. Non-interactive, installs its own deps (dkms/headers/i2c-tools),
+  # writes dtoverlay=wm8960-soundcard + dtparam=i2c_arm=on into
+  # /boot/firmware/config.txt itself — doesn't reboot itself, hence the
+  # power_state below.
+  #
+  # KNOWN RISK, not just "unverified": this box runs Raspberry Pi OS
+  # Trixie (kernel 6.12 LTS by default), and multiple open, still-
+  # unresolved upstream issues report this exact card failing on 6.12
+  # ("unable to install hw params" — waveshareteam/WM8960-Audio-HAT#68,
+  # #63). This fork targets Bookworm specifically, not Trixie, and no
+  # confirmed-working fork/patch for 6.12 was found as of writing. A
+  # failure here doesn't block anything else in this file (cloud-init's
+  # runcmd keeps going past a failing step, and the reboot below still
+  # happens) — but don't assume this succeeded. Check after boot:
+  #   dkms status               # should list wm8960-soundcard as installed
+  #   aplay -l && arecord -l    # should list the card
+  #   dmesg | grep -i wm8960    # if it didn't load
+  - git clone https://github.com/jozolab/WM8960-Audio-HAT-bookworm /opt/wm8960-audio-hat
+  - bash /opt/wm8960-audio-hat/install.sh
+
   # whisper.cpp build/install and the GPIO button service are not added
-  # here yet — see Open questions in designs/satellite-hardware.md.
+  # here yet — see Open questions in designs/satellite-hardware.md. (The
+  # PTT button's GPIO wiring is unaffected by this HAT — it has a
+  # pass-through header exposing the full 40-pin GPIO.)
+
+# The WM8960 overlay/module need a reboot to actually load — this runs
+# once, after every runcmd step above has finished (never call `reboot`
+# directly inside runcmd: cloud-init would never reach the remaining
+# steps).
+power_state:
+  mode: reboot
+  message: Rebooting to load the WM8960 audio driver
+  timeout: 30
+  condition: true

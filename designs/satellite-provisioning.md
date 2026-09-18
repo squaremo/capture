@@ -40,9 +40,10 @@ handles that.
 Corrected from an earlier draft of this file, which assumed Ubuntu Server
 for Raspberry Pi was required: **Raspberry Pi OS has shipped real
 cloud-init since the Bookworm release (Oct 2023)**, using the same
-NoCloud datasource Ubuntu uses. No OS switch needed — stays on the plain
-Raspberry Pi OS Lite pick from `designs/satellite-hardware.md`.
-Mechanically, minimal steps:
+NoCloud datasource Ubuntu uses, and continues to on Trixie (Debian 13,
+Oct 2025) — which is the actual OS in use for this box, not Bookworm.
+No OS switch needed — stays on the plain Raspberry Pi OS Lite pick from
+`designs/satellite-hardware.md`. Mechanically, minimal steps:
 
 1. Flash Raspberry Pi OS Lite (64-bit) with Raspberry Pi Imager — skip
    its own advanced-options customisation entirely (hostname/SSH/Wi-Fi
