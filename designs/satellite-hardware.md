@@ -332,6 +332,11 @@ investigated:
    `infra/satellite-smoke-test.md` §7 — i.e. an actual "does sound come
    out, does the mic pick anything up" test now that the box is far
    enough along to try it for real, not just confirm the driver loaded.
+4. Enable an on-screen keyboard — a touchscreen kiosk needs one for any
+   text entry (the capture textarea itself) since there's no physical
+   keyboard attached. Not yet looked into; likely a Wayland virtual
+   keyboard protocol implementation (e.g. `wvkbd` or similar) run
+   alongside `cage`/`chromium`, since `cage` itself doesn't provide one.
 
 ## Open questions
 
