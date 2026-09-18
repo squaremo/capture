@@ -103,6 +103,55 @@ at all), gets exactly today's browser-API behaviour with no code branch
 visible to the user — same principle as `localActivity.js` rendering
 nothing when a satellite has no Sonos/Dirigera to show.
 
+### Physical push-to-talk button
+
+A wall-mounted panel wants a real button, not just an on-screen tap
+target. A browser page has no GPIO access, so the button itself can't be
+"wired into the browser" directly — something has to sit between the pin
+and the page. Two shapes were weighed:
+
+1. **The button drives the existing on-screen control.** A small watcher
+   process on the Pi (`gpiozero`/`RPi.GPIO` in Python, or a Node GPIO
+   library) reacts to the pin, and on press/release tells the *frontend*
+   to act as if the mic button had been tapped/released — the page still
+   does the actual `getUserMedia`/`MediaRecorder` capture and `POST`s to
+   `/api/transcribe`, exactly the path above. The button is just a second
+   trigger for one existing gesture.
+2. **The button drives the satellite directly**, bypassing the browser
+   entirely: the watcher records locally itself (`arecord` against the
+   Pi's mic) and hands the WAV straight to the local whisper.cpp server.
+
+**Chosen: 1.** It's strictly less new surface — one recording
+implementation (the browser's), not two kept in sync, and it's the
+smaller change from what tap-to-talk already does. 2 was tempting for
+sidestepping `getUserMedia`'s secure-context requirement and surviving a
+crashed/reloading kiosk tab, but that's real duplicated machinery (a
+second audio-capture path, a second consumer of `/api/transcribe`'s
+underlying whisper.cpp server) for a benefit that doesn't clearly matter
+here — the browser tab *is* the station; if it's down, nothing about the
+UI works regardless of how the mic got captured.
+
+What 1 actually needs, not yet part of this app: a low-latency channel
+from the satellite process (which sees the GPIO event) to the page
+(which owns the mic and the capture textarea) — the existing polling
+(`localActivity.js`'s 4s `/api/status` interval, `pollForResolution`'s
+backoff loop) is far too coarse for "start recording the instant the
+button goes down." A small WebSocket or SSE connection the frontend
+opens to the satellite at station startup, carrying just `ptt-down`/
+`ptt-up` events, is the natural fit — new infrastructure for this app
+(everything else is request/response), scoped narrowly to this one
+signal rather than becoming a general event bus. `station.js`'s mic
+button handler becomes callable from two places (a real click, or this
+socket message) rather than gaining a parallel code path.
+
+One question this reopens rather than answers: does releasing the
+button auto-submit the capture, or still land the transcript in the
+field for a glance before sending (today's tap behaviour, chosen because
+neither engine transcribes perfectly)? A held-button gesture reads as a
+more deliberate "I meant this" than a tap, so auto-submit is defensible
+in a way it wasn't before — but it's a real UX decision, not a default
+to fall into by wiring the button up. Tracked below, not decided here.
+
 ### Capability discovery — `/config.json`, not `/api/status`
 
 `GET /api/status`'s `capabilities` array (already polled every 4s by
@@ -184,14 +233,19 @@ for the identical reason, not a new one.
 ## Open questions
 
 - **Push-to-talk vs wake-word.** This design keeps push-to-talk (tap the
-  existing mic button to start/stop recording) as the trigger — it's the
-  UX already shipped, and needs nothing new to reason about (no
+  on-screen mic button, or a physical one — see Physical push-to-talk
+  button above — to start/stop recording) as the trigger — it's the UX
+  already shipped, and needs nothing new to reason about (no
   false-positive wake detection, no always-listening privacy question).
   The original repo-structure sketch in CLAUDE.md names a `station/
   wakeword.py` for "always-on voice" as a future direction; worth
   revisiting once push-to-talk is proven, but deliberately out of scope
   here — a continuously-listening mic is a materially bigger privacy and
   false-trigger surface than a button.
+- **Auto-submit on physical-button release?** Raised above — a held
+  button is a more deliberate gesture than a tap, so skipping the
+  glance-before-send step is defensible there in a way it isn't for the
+  on-screen button, but not decided here.
 - **Auto-stop on silence** for the recording, instead of requiring a
   second tap — a nice-to-have once push-to-talk is working, not needed
   to ship it.
