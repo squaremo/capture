@@ -371,6 +371,35 @@ and `watchtower` were ever real; `capture-satellite.service` failing to
 pull is what surfaced this, several boots and fixes later than it
 should have been caught.
 
+## Real finding: install.sh's relative path filled the disk
+
+Once the image finally pulled, `capture-satellite.service` failed
+again — this time with a containerd write error. `df -h` showed why:
+the 29G root partition was **100% full, 0 available**. `du` narrowed it
+to one directory: `/usr/src/wm8960-soundcard-1.0` alone was 23G, and
+inside it sat `proc/`, `boot/`, `etc/`, `opt/` — top-level root
+directory names, not driver source.
+
+Cause: the WM8960 install script calls `install_module "./"
+"wm8960-soundcard"`, which does `cp -a $src/* /usr/src/$mod-$ver/` with
+`$src="./"`. That `./` resolves against whatever directory the script
+is *run from*, not the script's own location — and this project's
+`runcmd` ran it as `bash /opt/wm8960-audio-hat/install.sh` with no `cd`
+first. `runcmd` commands execute with cwd `/`, so `./` meant `/`, and
+the script copied the entire root filesystem's top-level contents into
+its own module source directory. Filling the disk took down everything
+downstream of it — Docker pulls, SSH responsiveness, all of it — as a
+single shared symptom that took three separate diagnostic rounds to
+trace back to one cause.
+
+Fixed in `cloud-init-satellite.yaml.tpl`: `cd /opt/wm8960-audio-hat &&
+bash install.sh` as one `runcmd` line, not a bare
+`bash /opt/wm8960-audio-hat/install.sh`. Immediate relief on the
+already-booted box was `rm -rf /usr/src/wm8960-soundcard-1.0` (after
+`dkms remove wm8960-soundcard/1.0 --all` if it had registered) to
+reclaim the space — a reflash would also have picked up the fix, but
+cost far more than deleting one directory and retrying.
+
 ## Open questions
 
 - Whether Tailscale's authkey should be one-time/ephemeral per satellite

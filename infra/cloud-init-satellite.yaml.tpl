@@ -283,8 +283,20 @@ runcmd:
   # A failure here doesn't block anything else in this file (cloud-init's
   # runcmd keeps going past a failing step, and the reboot below still
   # happens).
+  #
+  # MUST cd into the cloned directory first — install.sh calls its own
+  # install_module "./" "wm8960-soundcard", and that "./" resolves
+  # against whatever directory the script is *run from*, not the
+  # script's own location. runcmd commands execute with cwd=/, so
+  # `bash /opt/wm8960-audio-hat/install.sh` on its own made "./" mean
+  # "/" — the script's `cp -a ./* /usr/src/wm8960-soundcard-1.0/` then
+  # copied the entire root filesystem's top-level contents into that
+  # directory. Hit exactly this on real hardware: /usr/src ballooned to
+  # 23G (on a 29G root partition), filling the disk completely and
+  # taking every other service down with it (docker pulls, SSH, all of
+  # it) once there was zero space left. `cd` first, always.
   - git clone https://github.com/waveshareteam/WM8960-Audio-HAT /opt/wm8960-audio-hat
-  - bash /opt/wm8960-audio-hat/install.sh
+  - cd /opt/wm8960-audio-hat && bash install.sh
 
   # whisper.cpp build/install and the GPIO button service are not added
   # here yet — see Open questions in designs/satellite-hardware.md. (The
