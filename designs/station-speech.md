@@ -74,16 +74,29 @@ Both existing hooks stay exactly where they are; only what's underneath
 them changes, gated on whether this satellite actually has the hardware:
 
 - **Capture** (`capture.js`'s mic button, and `station.js`'s idle-mode
-  field which reuses it): today, tapping it starts the browser's
-  `SpeechRecognition` and fills the textarea from `e.results[0][0].
-  transcript` on completion. With a speech-capable satellite: tap starts
-  `MediaRecorder` on the mic stream instead; tap again (or, later, a
-  silence timeout — see Open questions) stops it and `POST`s the
-  recorded blob to `/api/transcribe`; the response's `text` fills the
-  textarea exactly the same way — **still lands in the field for a
-  glance/edit before submit, not an auto-send**, matching today's
-  behaviour and the same reasoning: neither engine is perfect, and this
-  app's whole ethos is a human still initiates the capture.
+  field which reuses it): today this is **click-to-toggle** — one tap
+  starts the browser's `SpeechRecognition`, a second tap (or `onend`)
+  stops it, so the mic is "live" for however long that toggled state
+  lasts. The satellite-backed version is **genuine hold-to-talk**
+  instead, not a straight swap of engine underneath the same gesture: the
+  mic must only be live for as long as the button is actually held,
+  physical or on-screen (see Physical push-to-talk button below) — a
+  deliberate privacy property, not just an interaction preference, so it
+  needs `pointerdown`/`pointerup` (plus `pointerleave`/`pointercancel`,
+  so dragging off the button or a browser interruption can't leave it
+  recording silently) rather than `click`. `pointerdown` starts
+  `MediaRecorder` on the mic stream; `pointerup` (or one of those
+  interruption events) stops it immediately and `POST`s the recorded
+  blob to `/api/transcribe`; the response's `text` fills the textarea the
+  same way `SpeechRecognition`'s result does today — **still lands in the
+  field for a glance/edit before submit, not an auto-send**, matching
+  today's behaviour and the same reasoning: neither engine is perfect,
+  and this app's whole ethos is a human still initiates the capture. This
+  also means the on-screen button's own interaction changes from today's
+  click-toggle to hold — worth doing to the existing `SpeechRecognition`
+  path too, independent of any satellite (see Open questions), since the
+  same live-mic-only-while-held property is worth having before real
+  hardware exists to force the question.
 - **Read-aloud** (`speech.js`'s `speak()`/`speakIfEnabled()`, called from
   every "say it" button and the auto-speak-on-resolve paths in
   `main.js`): today, `window.speechSynthesis.speak(new
@@ -113,17 +126,19 @@ and the page. Two shapes were weighed:
 1. **The button drives the existing on-screen control.** A small watcher
    process on the Pi (`gpiozero`/`RPi.GPIO` in Python, or a Node GPIO
    library) reacts to the pin, and on press/release tells the *frontend*
-   to act as if the mic button had been tapped/released — the page still
-   does the actual `getUserMedia`/`MediaRecorder` capture and `POST`s to
-   `/api/transcribe`, exactly the path above. The button is just a second
-   trigger for one existing gesture.
+   to act as if the mic button had been pressed down/released — the page
+   still does the actual `getUserMedia`/`MediaRecorder` capture and
+   `POST`s to `/api/transcribe`, exactly the hold-to-talk path above,
+   preserving the same "mic live only while held" property for the
+   physical button that the on-screen one now has. The button is just a
+   second trigger for one existing gesture, not a second gesture.
 2. **The button drives the satellite directly**, bypassing the browser
    entirely: the watcher records locally itself (`arecord` against the
    Pi's mic) and hands the WAV straight to the local whisper.cpp server.
 
 **Chosen: 1.** It's strictly less new surface — one recording
 implementation (the browser's), not two kept in sync, and it's the
-smaller change from what tap-to-talk already does. 2 was tempting for
+smaller change from what hold-to-talk already does. 2 was tempting for
 sidestepping `getUserMedia`'s secure-context requirement and surviving a
 crashed/reloading kiosk tab, but that's real duplicated machinery (a
 second audio-capture path, a second consumer of `/api/transcribe`'s
@@ -232,23 +247,30 @@ for the identical reason, not a new one.
 
 ## Open questions
 
-- **Push-to-talk vs wake-word.** This design keeps push-to-talk (tap the
-  on-screen mic button, or a physical one — see Physical push-to-talk
-  button above — to start/stop recording) as the trigger — it's the UX
-  already shipped, and needs nothing new to reason about (no
+- **Push-to-talk vs wake-word.** This design keeps push-to-talk — hold
+  the on-screen mic button or a physical one (see Physical push-to-talk
+  button above) to record, mic live only while held — as the trigger.
+  It's the smallest thing that needs no new judgment calls (no
   false-positive wake detection, no always-listening privacy question).
   The original repo-structure sketch in CLAUDE.md names a `station/
   wakeword.py` for "always-on voice" as a future direction; worth
-  revisiting once push-to-talk is proven, but deliberately out of scope
+  revisiting once hold-to-talk is proven, but deliberately out of scope
   here — a continuously-listening mic is a materially bigger privacy and
-  false-trigger surface than a button.
+  false-trigger surface than a button, and the opposite of the "live only
+  while held" property this design is built around.
+- **Retrofit the on-screen mic button to hold-to-talk now**, ahead of any
+  satellite — the click-toggle → `pointerdown`/`pointerup` change (see
+  Frontend integration above) doesn't depend on `whisper.cpp`/Piper at
+  all, and the "mic live only while held" property is worth having on
+  the existing `SpeechRecognition` path too. Small, independent, not yet
+  done.
 - **Auto-submit on physical-button release?** Raised above — a held
   button is a more deliberate gesture than a tap, so skipping the
   glance-before-send step is defensible there in a way it isn't for the
   on-screen button, but not decided here.
-- **Auto-stop on silence** for the recording, instead of requiring a
-  second tap — a nice-to-have once push-to-talk is working, not needed
-  to ship it.
+- **Auto-stop on silence** while the button is held — a nice-to-have for
+  someone who trails off before releasing, not needed to ship
+  hold-to-talk.
 - **Barge-in** — interrupting an in-progress `/api/speak` playback if a
   new capture starts while the station is still talking. `speak()`
   already `cancel()`s an in-flight browser utterance on every call
