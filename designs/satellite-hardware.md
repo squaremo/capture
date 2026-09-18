@@ -311,6 +311,28 @@ box later (mirroring `infra/cloud-init.yaml.tpl`'s pattern), once the
 provisioning story below is actually written — not done yet, this is
 still a manual post-flash step.
 
+## Live troubleshooting TODOs
+
+Recorded during hands-on debugging of `capture-station-1`, not yet
+investigated:
+
+1. The console/tty text is correctly rotated to landscape (the
+   `panel_orientation` cmdline fix above), but the browser (`cage` +
+   `chromium`) is still rendering portrait — so the DRM-level rotation
+   isn't propagating all the way through to what Chromium actually
+   draws. Needs digging into whether Chromium under Wayland picks up
+   the output transform from the compositor/DRM, or needs its own
+   explicit orientation hint.
+2. Hide the mouse pointer — there's no mouse on a touchscreen kiosk, so
+   a visible cursor sitting on screen is pure visual noise. Likely a
+   Chromium flag (something in the `--kiosk`/cursor-autohide family) or
+   a `cage`/`wlr` idle-inhibit-adjacent setting; not yet looked into.
+3. How to actually check the WM8960 mic works, beyond `dkms
+   status`/`aplay -l`/`arecord -l` already in
+   `infra/satellite-smoke-test.md` §7 — i.e. an actual "does sound come
+   out, does the mic pick anything up" test now that the box is far
+   enough along to try it for real, not just confirm the driver loaded.
+
 ## Open questions
 
 - Exact shape of the local `whisper.cpp` service — a small wrapper this
