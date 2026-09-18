@@ -32,7 +32,7 @@ rather than a second, Android-specific app.
 | Part | Pick | Why |
 |---|---|---|
 | Compute | Raspberry Pi 4 (2GB) | Enough for Chromium kiosk + a small local Whisper model. Pi 5 was considered and rejected specifically for this build — see the audio jack note below. |
-| Screen | Official Raspberry Pi Touch Display 2, 5" (DSI) | Clean cabling, long-term official driver support. A budget HDMI touchscreen (e.g. SunFounder 5" 800×480) is a cheaper fallback with bulkier cabling. |
+| Screen | Official Raspberry Pi Touch Display 2, **7"** (DSI, portrait-native 720×1280) | Clean cabling, long-term official driver support. A budget HDMI touchscreen (e.g. SunFounder 5" 800×480) is a cheaper fallback with bulkier cabling. Corrected from an earlier "5"" here — the unit actually in hand is the 7" model; see "Touch Display 2 setup" below for what it took to get both video and touch working. |
 | Mic/Speaker | ~~Plain USB microphone capsule~~ / ~~Pi 4's 3.5mm jack~~ — **superseded**: a WM8960-codec audio HAT (Waveshare), now actually in hand | Combines mic array + speaker output on one board via I2S, driven by an out-of-tree DKMS module (see "WM8960 audio HAT" below) rather than USB/analog-jack. This specific board has a pass-through header exposing the full 40-pin GPIO, unlike the generic WM8960 boards a first search turned up — confirmed by hand, not assumed — so it doesn't reopen the ReSpeaker rejection's GPIO-header problem below after all. |
 | Physical PTT button | Standalone arcade/momentary push-button, wired to a free GPIO pin + GND, panel-mounted through the case | Still viable via the WM8960 HAT's pass-through header, above. |
 | Case | SmartiPi Touch 2 | Purpose-built for a Pi + official touch display. Panel-mounting the button means drilling one hole per unit — needs a repeatable jig/template if this gets built more than once. |
@@ -93,6 +93,46 @@ full 40-pin GPIO (confirmed by hand, not assumed from a generic WM8960
 HAT search, which turned up boards without one) — so unlike the
 ReSpeaker rejection below, it doesn't block the physical PTT button's
 GPIO wiring.
+
+## Touch Display 2 setup
+
+Confirmed working on real hardware after three separate, independent
+issues — video, then touch detection, then a boot-timing race — each
+needing its own fix, wired into `infra/cloud-init-satellite.yaml.tpl`'s
+"Touch Display 2 (7")" `runcmd` section and `fix-goodix-touch.service`:
+
+1. **Video worked out of the box** (the default `vc4-kms-v3d` overlay's
+   generic DSI panel probing was enough for the `ili9881c-dsi` panel
+   driver to bind), but **touch did nothing at all** — no touch device
+   anywhere in `/proc/bus/input/devices`. Needed an explicit
+   `dtoverlay=vc4-kms-dsi-ili9881-7inch` in `/boot/firmware/config.txt`
+   — the specific panel overlay, not just the generic KMS one, is what
+   actually instantiates the bundled Goodix touch controller in the
+   device tree at all.
+2. Even with that overlay, touch device registration was still flaky
+   depending on when in the boot sequence it was checked. Root cause
+   found in `dmesg`: `Goodix-TS 10-005d: I2C communication failure: -5`
+   — the kernel's `goodix_ts` driver probes before the chip is actually
+   ready to answer on I2C after a *software* reboot specifically (not a
+   full power cycle), fails once, and never retries on its own. This is
+   a documented issue against this exact display, not something
+   specific to this project. Fix: `fix-goodix-touch.service`, a oneshot
+   unit that does `rmmod goodix_ts` (`-` prefixed so a failure there —
+   e.g. the module never loaded — doesn't block what follows) then
+   `modprobe goodix_ts`, forcing a fresh probe once the system's further
+   along and the chip has settled. Confirmed on real hardware: the
+   device (`10-005d Goodix Capacitive TouchScreen`) registers cleanly
+   after this reload, having failed silently before it.
+3. **The panel is portrait-native** (720×1280) — landscape needed a
+   `panel_orientation` value on the `video=` kernel cmdline parameter in
+   `/boot/firmware/cmdline.txt`, Bookworm/Trixie's Wayland-era
+   replacement for the old `display_rotate=` setting. Specifically a
+   DRM-level property, which matters here: `cage` is a KMS/DRM-native
+   Wayland compositor, so it respects this correctly, unlike legacy
+   console-only rotation tricks that don't affect apps drawing straight
+   to DRM. `left_side_up` vs. `right_side_up` depends on which way the
+   panel is physically mounted — confirmed correct for this build, but
+   worth flipping on a second unit if it comes up rotated the wrong way.
 
 ## Display stack: minimal, not headless
 

@@ -252,6 +252,33 @@ write_files:
         exec /opt/capture-satellite/kiosk.sh
       fi
 
+  # Touch Display 2's Goodix touch controller has a well-documented
+  # boot-timing race (reported against this exact display elsewhere,
+  # not specific to this project): on a software reboot, the kernel's
+  # goodix_ts driver probes before the chip is actually ready to
+  # respond on I2C, fails once with "I2C communication failure: -5",
+  # and never retries on its own — confirmed on real hardware
+  # (dmesg: `Goodix-TS 10-005d: I2C communication failure: -5`, no
+  # touch input device at all until the module is reloaded). Fix is a
+  # plain rmmod+modprobe cycle, which forces a fresh probe attempt
+  # once the system's further along in boot and the chip has had time
+  # to settle — `-` on the rmmod line means a failure there (e.g. the
+  # module never loaded in the first place) doesn't stop the modprobe
+  # that follows.
+  - path: /etc/systemd/system/fix-goodix-touch.service
+    content: |
+      [Unit]
+      Description=Reload Goodix touchscreen driver (works around an I2C probe race on boot)
+      After=multi-user.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=-/sbin/rmmod goodix_ts
+      ExecStart=/sbin/modprobe goodix_ts
+
+      [Install]
+      WantedBy=multi-user.target
+
 runcmd:
   - chown ${KIOSK_USER}:${KIOSK_USER} /home/${KIOSK_USER}/.bash_profile
 
@@ -302,6 +329,29 @@ runcmd:
   - systemctl enable --now seatd
   - systemctl daemon-reload
   - systemctl restart getty@tty1
+  - systemctl enable --now fix-goodix-touch.service
+
+  # ── Touch Display 2 (7") ─────────────────────────────────────────────
+  # dtoverlay=vc4-kms-v3d (Raspberry Pi OS's default) drives video on
+  # its own, but doesn't know this specific panel — without this line
+  # video works (confirmed: the ili9881c-dsi panel driver bound fine
+  # regardless) but the bundled Goodix touch controller never gets
+  # instantiated at all. Confirmed on real hardware: this line is what
+  # actually gets the "Goodix-TS 10-005d" device to exist in the
+  # device tree in the first place (before fix-goodix-touch.service,
+  # above, ever gets a chance to matter).
+  #
+  # Panel is portrait-native (720x1280) — panel_orientation on the
+  # video= cmdline parameter is Bookworm/Trixie's Wayland-era
+  # replacement for the old display_rotate= setting, and specifically
+  # a DRM-level property that cage (a KMS/DRM-native compositor)
+  # respects correctly, unlike legacy console-only rotation tricks
+  # that don't affect apps drawing straight to DRM. left_side_up vs.
+  # right_side_up depends on which way the panel is physically
+  # mounted — confirmed correct for this build, but flip it if a
+  # second unit comes up rotated the wrong way.
+  - grep -q "^dtoverlay=vc4-kms-dsi-ili9881-7inch" /boot/firmware/config.txt || echo "dtoverlay=vc4-kms-dsi-ili9881-7inch" >> /boot/firmware/config.txt
+  - sed -i 's/$/ video=DSI-1:720x1280M@60D,panel_orientation=left_side_up/' /boot/firmware/cmdline.txt
 
   # ── WM8960 audio HAT driver ──────────────────────────────────────────
   # Out-of-tree (not in the mainline Pi kernel), so this builds a DKMS
