@@ -149,14 +149,22 @@ So the script now **merges** rather than overwrites, when a non-empty
 `pip3 install pyyaml` — to actually do the merge; falls back to refusing
 outright and pointing at `--force` if that's missing):
 
-- **Existing hostname wins by default, but an explicit `HOUSE_ID`
-  overrides it.** `HOUSE_ID` becomes optional in this case — read back
-  from the existing file instead, so the Linux hostname, Tailscale
-  hostname/`HOUSE_ID` env var, and the eventual MagicDNS name all end up
-  as one consistent value instead of two competing ones. Passing
-  `HOUSE_ID` explicitly anyway forces that value through everywhere
-  instead (a printed `NOTE:` says which way it went), for when Imager's
-  own hostname isn't the one you actually want.
+- **Existing hostname wins by default, but an explicit `MACHINE_HOSTNAME`
+  overrides it — and `HOUSE_ID` is a separate thing entirely.** Both
+  become optional here — read back from the existing file instead, so
+  the Linux hostname, Tailscale hostname, and the eventual MagicDNS name
+  all end up as one consistent value instead of two competing ones. But
+  `MACHINE_HOSTNAME`/`HOUSE_ID` aren't actually the same variable, even
+  though they default to the same value: `MACHINE_HOSTNAME` is the
+  Linux/Tailscale hostname (`cloud-init-satellite.yaml.tpl`'s `hostname:`
+  and `tailscale up --hostname=`); `HOUSE_ID` is only the satellite
+  process's own house identity (`/opt/capture-satellite/.env`'s
+  `HOUSE_ID=` — what the frontend's house chooser and `GET /api/status`
+  show, per House attribution in `designs/satellites.md`). Passing
+  `HOUSE_ID` alone renames the satellite's app-level identity without
+  touching its actual machine/Tailscale hostname (a printed `NOTE:` says
+  when `MACHINE_HOSTNAME` overrode Imager's, which only happens if you
+  explicitly set that one too).
 - **Existing default user wins, this template's own `users:` block is
   dropped.** Running both a `users:` list entry (this template) and a
   singular `user:` block or its own `users:` list (Imager's) for
