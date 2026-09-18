@@ -21,21 +21,29 @@ There's no equivalent console for a Pi — you write an SD card yourself,
 there's no provider dashboard in the loop.
 
 Raspberry Pi Imager's own advanced options (⚙️, or Ctrl+Shift+X) look
-similar — hostname, SSH key, username/password, Wi-Fi — but they are
-**not** cloud-init. They're a Pi-Imager-specific mechanism that only
-Raspberry Pi OS's first-boot scripts understand (it writes a
-`userconf.txt`/`firstrun.sh` under the hood, unrelated to `#cloud-config`
-syntax). Nothing on Raspberry Pi OS actually parses a `cloud-init.yaml`
-file.
+similar — hostname, SSH key, username/password, Wi-Fi. Older guidance
+here said these were a separate, non-cloud-init `firstrun.sh` mechanism —
+**that's only true on pre-cloud-init images.** On an actual cloud-init-
+capable Raspberry Pi OS build, current Imager versions write Imager's
+own settings *as real cloud-init files* — `user-data` (hostname, a
+default user, timezone/keyboard) and a separate `network-config` (Wi-Fi)
+— straight onto the boot partition, not `firstrun.sh` at all. Found by
+running into it directly: a card someone had already run Edit Settings
+on turned up with `user-data`/`meta-data`/`network-config` already
+present, no `firstrun.sh`, no `systemd.run=` in `cmdline.txt`. So a
+`user-data` may already exist here before this script ever runs — see
+"Merging into Imager's own user-data" below for how the write script
+handles that.
 
 ## The real option: it's already there, on Raspberry Pi OS itself
 
 Corrected from an earlier draft of this file, which assumed Ubuntu Server
 for Raspberry Pi was required: **Raspberry Pi OS has shipped real
 cloud-init since the Bookworm release (Oct 2023)**, using the same
-NoCloud datasource Ubuntu uses. No OS switch needed — stays on the plain
-Raspberry Pi OS Lite pick from `designs/satellite-hardware.md`.
-Mechanically, minimal steps:
+NoCloud datasource Ubuntu uses, and continues to on Trixie (Debian 13,
+Oct 2025) — which is the actual OS in use for this box, not Bookworm.
+No OS switch needed — stays on the plain Raspberry Pi OS Lite pick from
+`designs/satellite-hardware.md`. Mechanically, minimal steps:
 
 1. Flash Raspberry Pi OS Lite (64-bit) with Raspberry Pi Imager — skip
    its own advanced-options customisation entirely (hostname/SSH/Wi-Fi
@@ -118,10 +126,64 @@ touch cloud-init/apt's own `${distro_codename}` syntax inside the
 directory (the common case — both macOS and most Linux desktops
 auto-mount a card reader's boot partition on insert) or a raw block
 device, which it mounts itself (`diskutil`/`udisksctl`) and unmounts
-after writing. Required inputs: `HOUSE_ID`, `ADMIN_SSH_PUBLIC_KEY`,
-`TAILSCALE_AUTH_KEY`, `BACKEND_URL` — no 1Password token, confirming the
-"just two things" correction above; there simply isn't a third secret to
-provide.
+after writing. `network-config` and any existing `meta-data` are never
+touched. `TAILSCALE_AUTH_KEY`/`BACKEND_URL` are always required; whether
+`HOUSE_ID`/`ADMIN_SSH_PUBLIC_KEY` are needed depends on whether it's
+merging (see below) — no 1Password token either way, confirming the
+"just two things" correction above.
+
+## Merging into Imager's own user-data
+
+Discovered while actually provisioning a card: a `user-data` written by
+Raspberry Pi Imager's Edit Settings (see the correction above) may
+already be sitting on the boot partition before this script ever runs —
+and it carries real content worth keeping (a default user with an SSH
+key, `timezone`/`keyboard`, `avahi-daemon`, an `Acquire::Check-Date
+"false"` apt workaround for a Pi's often-wrong first-boot clock,
+`systemctl enable --now ssh`). Blindly overwriting it, which is what an
+earlier version of this script did unconditionally, would silently
+discard all of that.
+
+So the script now **merges** rather than overwrites, when a non-empty
+`user-data` already exists (needs `python3` with PyYAML —
+`pip3 install pyyaml` — to actually do the merge; falls back to refusing
+outright and pointing at `--force` if that's missing):
+
+- **Existing hostname wins.** `HOUSE_ID` becomes optional in this case —
+  read back from the existing file instead, so the Linux hostname,
+  Tailscale hostname/`HOUSE_ID` env var, and the eventual MagicDNS name
+  all end up as one consistent value instead of two competing ones.
+- **Existing default user wins, this template's own `users:` block is
+  dropped.** Running both a `users:` list entry (this template) and a
+  singular `user:` block or its own `users:` list (Imager's) for
+  possibly-conflicting attributes of the same, or a different, account
+  is genuinely ambiguous in cloud-init — so rather than try to reconcile
+  field-by-field, the merge just picks the existing account and skips
+  creating a second one. `ADMIN_SSH_PUBLIC_KEY` becomes optional in this
+  case too, for the same reason.
+  `cloud-init-satellite.yaml.tpl` had to be changed to make this
+  possible: the account name used throughout (autologin, the kiosk
+  `.bash_profile`, `usermod -aG video,render,input`) is now `${ADMIN_USER}`
+  rather than a hardcoded `admin`, defaulting to `admin` when there's no
+  existing user to reuse, or set to the discovered name when there is.
+- **Everything else concatenates or shallow-merges**: `packages`,
+  `write_files`, and `runcmd` are list-appended (existing's entries
+  first, then this template's); dict-valued keys like `apt` merge
+  key-by-key with the existing side winning on overlap. Nothing in this
+  template currently collides with Imager's file on a plain scalar other
+  than `hostname`, already handled above.
+- `--force` skips merging entirely and overwrites `user-data` outright
+  (the old unconditional behaviour) — for when there's deliberately
+  nothing in the existing file worth keeping.
+
+Verified locally against a fixture shaped like a real Imager-written
+file (hostname/default-user/timezone/keyboard/apt/ssh-enable, as pasted
+during this same conversation) — merge, fresh-provision, and `--force`
+paths all produce the expected `user-data`, including a round-trip check
+that YAML's line-folding on long `runcmd` strings (e.g. the Docker apt
+repo line) reparses back to the exact original single-line command. Not
+yet verified against an actual card/real boot, same caveat as everything
+else here.
 
 ## Docker + Watchtower deployment
 

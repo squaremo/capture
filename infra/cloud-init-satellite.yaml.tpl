@@ -11,9 +11,17 @@ hostname: ${HOUSE_ID}
 manage_etc_hosts: true
 
 # Same reasoning as infra/cloud-init.yaml.tpl: key-based admin access only,
-# no root password, no root SSH.
+# no root password, no root SSH. This `users:` block is dropped entirely
+# by provision-satellite-sd.sh's merge step when a user-data already
+# defines a default user (e.g. via Raspberry Pi Imager's own "Edit
+# Settings") — running both would mean two different mechanisms defining
+# possibly-conflicting attributes for the same or a different account.
+# ADMIN_USER names whichever account actually ends up owning the kiosk
+# session either way (see the other ${ADMIN_USER} references below) —
+# "admin" when this block runs for real, or Imager's existing username
+# when it's dropped in favour of reusing that account.
 users:
-  - name: admin
+  - name: ${ADMIN_USER}
     # video/render/input: needed for cage (the kiosk Wayland compositor,
     # below) to get GPU/input access directly, with no display/login
     # manager brokering it.
@@ -31,6 +39,11 @@ packages:
   - jq
   - unattended-upgrades
   - apt-listchanges
+  # For arecord -l/aplay -l once the WM8960 driver (below) is in —
+  # useful to confirm the card actually shows up before anything tries
+  # to use it. install.sh pulls in the codec's own build deps itself
+  # (dkms/headers/i2c-tools); this is just the diagnostic tools.
+  - alsa-utils
   # Display stack: cage is a Wayland compositor built specifically to run
   # one fullscreen client and nothing else — no panel, no window
   # management, no desktop session to configure — the right fit for a
@@ -141,7 +154,7 @@ write_files:
     content: |
       [Service]
       ExecStart=
-      ExecStart=-/sbin/agetty --autologin admin --noclear %I $TERM
+      ExecStart=-/sbin/agetty --autologin ${ADMIN_USER} --noclear %I $TERM
 
   # Launched by the profile hook below once admin's shell starts on
   # tty1. Points at nginx's plain-HTTP :80/localhost server block
@@ -164,23 +177,32 @@ write_files:
         --check-for-update-interval=31536000 \
         --app=http://localhost/?station
 
-  # admin's login shell runs this once, only on the physical console
-  # (not over SSH, and not if a compositor is somehow already running)
-  # — starts the kiosk automatically after the autologin above, with no
-  # display/session manager in between.
-  - path: /home/admin/.bash_profile
-    owner: admin:admin
+  # ${ADMIN_USER}'s login shell runs this once, only on the physical
+  # console (not over SSH, and not if a compositor is somehow already
+  # running) — starts the kiosk automatically after the autologin above,
+  # with no display/session manager in between.
+  - path: /home/${ADMIN_USER}/.bash_profile
+    owner: ${ADMIN_USER}:${ADMIN_USER}
     content: |
       if [ -z "$WAYLAND_DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then
         exec /opt/capture-satellite/kiosk.sh
       fi
 
 runcmd:
+  # Belt-and-suspenders: the users: block above already sets these
+  # groups when it runs for real, but this also covers the merged case
+  # where that block was dropped in favour of an account Imager already
+  # created, which won't have them otherwise.
+  - usermod -aG video,render,input ${ADMIN_USER}
+
   # ── Docker ───────────────────────────────────────────────────────────
+  # linux/debian, not linux/ubuntu: Raspberry Pi OS is Debian-based. This
+  # copied infra/cloud-init.yaml.tpl's (Ubuntu, Hetzner) URL by mistake —
+  # the wrong repo would 404 and Docker would never install.
   - install -m 0755 -d /etc/apt/keyrings
-  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  - curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
   - chmod a+r /etc/apt/keyrings/docker.asc
-  - echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" > /etc/apt/sources.list.d/docker.list
+  - echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $(. /etc/os-release && echo $VERSION_CODENAME) stable" > /etc/apt/sources.list.d/docker.list
   - apt-get update -qq
   - apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
   - systemctl enable --now docker
@@ -213,5 +235,49 @@ runcmd:
   - systemctl daemon-reload
   - systemctl restart getty@tty1
 
+  # ── WM8960 audio HAT driver ──────────────────────────────────────────
+  # Out-of-tree (not in the mainline Pi kernel), so this builds a DKMS
+  # module rather than just setting a dtoverlay — DKMS means it survives
+  # future kernel upgrades from unattended-upgrades, rebuilding itself
+  # automatically rather than breaking on the next one, IF it builds at
+  # all. Non-interactive, installs its own deps (raspberrypi-kernel-
+  # headers/dkms/i2c-tools/libasound2-plugins — raspberrypi-kernel-
+  # headers specifically because it tracks whatever kernel is actually
+  # running, which is what lets DKMS's own auto-rebuild-on-upgrade
+  # keep working later too), writes dtparam=i2c_arm=on/i2s=on +
+  # dtoverlay=i2s-mmap/wm8960-soundcard into /boot/firmware/config.txt
+  # itself — doesn't reboot itself, hence the power_state below.
+  #
+  # Uses the official waveshareteam/WM8960-Audio-HAT repo, NOT the
+  # jozolab "-bookworm" fork an earlier version of this pointed at —
+  # that fork was stale relative to upstream, which has since actually
+  # fixed the kernel-6.12 build failure multiple open issues reported
+  # (waveshareteam/WM8960-Audio-HAT#68, #63): "Modified the install
+  # script to support new 6.12 kernel" (PR #79, merged 2025-08-18), with
+  # 6.18.x support following (#84, 2026-06-30) — so this should actually
+  # work on Trixie's 6.12 LTS kernel now, unlike when this was first
+  # written. Still genuinely unverified against this exact board by this
+  # project, though — check after boot rather than assuming:
+  #   dkms status               # should list wm8960-soundcard as installed
+  #   aplay -l && arecord -l    # should list the card
+  #   dmesg | grep -i wm8960    # if it didn't load
+  # A failure here doesn't block anything else in this file (cloud-init's
+  # runcmd keeps going past a failing step, and the reboot below still
+  # happens).
+  - git clone https://github.com/waveshareteam/WM8960-Audio-HAT /opt/wm8960-audio-hat
+  - bash /opt/wm8960-audio-hat/install.sh
+
   # whisper.cpp build/install and the GPIO button service are not added
-  # here yet — see Open questions in designs/satellite-hardware.md.
+  # here yet — see Open questions in designs/satellite-hardware.md. (The
+  # PTT button's GPIO wiring is unaffected by this HAT — it has a
+  # pass-through header exposing the full 40-pin GPIO.)
+
+# The WM8960 overlay/module need a reboot to actually load — this runs
+# once, after every runcmd step above has finished (never call `reboot`
+# directly inside runcmd: cloud-init would never reach the remaining
+# steps).
+power_state:
+  mode: reboot
+  message: Rebooting to load the WM8960 audio driver
+  timeout: 30
+  condition: true

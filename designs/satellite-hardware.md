@@ -1,6 +1,7 @@
 # Satellite hardware: kiosk box and voice capture
 
-Status: design only — no hardware ordered, no code written. This covers
+Status: hardware in hand (a Pi 4B, a WM8960 audio HAT — see the Parts
+list correction below), not yet booted. This covers
 the physical form permanent satellite kit should take (see Running modes
 in `designs/satellites.md`, which leaves "how house-id and local device
 config get onto the box" as an open provisioning question) and the
@@ -32,14 +33,66 @@ rather than a second, Android-specific app.
 |---|---|---|
 | Compute | Raspberry Pi 4 (2GB) | Enough for Chromium kiosk + a small local Whisper model. Pi 5 was considered and rejected specifically for this build — see the audio jack note below. |
 | Screen | Official Raspberry Pi Touch Display 2, 5" (DSI) | Clean cabling, long-term official driver support. A budget HDMI touchscreen (e.g. SunFounder 5" 800×480) is a cheaper fallback with bulkier cabling. |
-| Mic | Plain USB microphone capsule | Plug-and-play; see the ReSpeaker rejection below for why this isn't a mic HAT. |
-| Speaker | Small USB- or battery-powered speaker into the Pi 4's 3.5mm jack | Pi 4 has an analog audio jack; **Pi 5 dropped it entirely** (no 3.5mm jack, no composite), so this pick is what pins the compute choice to Pi 4 rather than 5. |
-| Physical PTT button | Standalone arcade/momentary push-button, wired to a free GPIO pin + GND, panel-mounted through the case | See below — deliberately not the HAT's onboard button. |
+| Mic/Speaker | ~~Plain USB microphone capsule~~ / ~~Pi 4's 3.5mm jack~~ — **superseded**: a WM8960-codec audio HAT (Waveshare), now actually in hand | Combines mic array + speaker output on one board via I2S, driven by an out-of-tree DKMS module (see "WM8960 audio HAT" below) rather than USB/analog-jack. This specific board has a pass-through header exposing the full 40-pin GPIO, unlike the generic WM8960 boards a first search turned up — confirmed by hand, not assumed — so it doesn't reopen the ReSpeaker rejection's GPIO-header problem below after all. |
+| Physical PTT button | Standalone arcade/momentary push-button, wired to a free GPIO pin + GND, panel-mounted through the case | Still viable via the WM8960 HAT's pass-through header, above. |
 | Case | SmartiPi Touch 2 | Purpose-built for a Pi + official touch display. Panel-mounting the button means drilling one hole per unit — needs a repeatable jig/template if this gets built more than once. |
 | microSD | 32GB | |
 
 Rough total: $135–165 per unit, fully repeatable (same SD image, same
 case, same drill template).
+
+## WM8960 audio HAT
+
+The WM8960 codec isn't in the mainline Pi kernel, so getting it working
+means a DKMS-built out-of-tree kernel module rather than just a
+`dtoverlay` line — DKMS specifically so it survives future kernel
+upgrades from `unattended-upgrades` (see "OS maintenance" below),
+rebuilding itself automatically rather than breaking on the next one.
+Wired into `infra/cloud-init-satellite.yaml.tpl`: clone the **official**
+[`waveshareteam/WM8960-Audio-HAT`](https://github.com/waveshareteam/WM8960-Audio-HAT)
+repo and run its `install.sh` — confirmed non-interactive, doesn't
+reboot itself (a `power_state: {mode: reboot}` at the end of the
+cloud-config handles that instead — never call `reboot` directly inside
+`runcmd`, cloud-init would never reach the remaining steps), installs
+its own build deps (`raspberrypi-kernel-headers`/`dkms`/`i2c-tools`/
+`libasound2-plugins` — the headers package specifically because it
+tracks whatever kernel is actually running, which is what lets DKMS's
+own auto-rebuild-on-upgrade keep working later too), and writes
+`dtparam=i2c_arm=on`/`i2s=on` + `dtoverlay=i2s-mmap`/`wm8960-soundcard`
+into `/boot/firmware/config.txt` itself (the correct path on Trixie's
+boot layout).
+
+**Corrected from an earlier version of this doc, which pointed at a
+stale `jozolab/WM8960-Audio-HAT-bookworm` fork and called this a known,
+unresolved kernel-6.12 risk** — that was true of the fork, and of the
+open upstream issues it was based on
+([waveshareteam/WM8960-Audio-HAT#68](https://github.com/waveshareteam/WM8960-Audio-HAT/issues/68),
+[#63](https://github.com/waveshareteam/WM8960-Audio-HAT/issues/63)), but
+**the official repo has since actually fixed it**: "Modified the
+install script to support new 6.12 kernel" (PR #79, merged 2025-08-18),
+with 6.18.x support following (#84, 2026-06-30) — well past Trixie's
+6.12 LTS. Should work now, but this project hasn't run it against real
+hardware yet, so verify after boot rather than assume:
+
+```
+dkms status               # should list wm8960-soundcard as installed
+aplay -l && arecord -l    # should list the card
+dmesg | grep -i wm8960    # if it didn't load
+```
+
+A build failure here doesn't block anything else in the cloud-config (a
+failing `runcmd` step doesn't stop the ones after it, and the reboot
+still happens). If it still doesn't build, the fallback is the
+originally-planned plain USB mic + the Pi 4's 3.5mm jack from the
+superseded Parts list row above — worth keeping in mind rather than
+sinking more time into a kernel
+incompatibility this project doesn't control.
+
+This specific board **does** have a pass-through header exposing the
+full 40-pin GPIO (confirmed by hand, not assumed from a generic WM8960
+HAT search, which turned up boards without one) — so unlike the
+ReSpeaker rejection below, it doesn't block the physical PTT button's
+GPIO wiring.
 
 ## Display stack: minimal, not headless
 
@@ -57,8 +110,11 @@ wants — but three minimal pieces layered on top of Lite, the standard
 Raspberry-Pi-documented kiosk pattern:
 
 1. A minimal Wayland compositor — `labwc` is the current
-   Foundation-recommended lightweight pick on Bookworm (no panel, no
-   desktop, just enough to run one fullscreen client).
+   Foundation-recommended lightweight pick (no panel, no desktop, just
+   enough to run one fullscreen client) — the actual OS in use is
+   Raspberry Pi OS **Trixie** (Debian 13, released Oct 2025), not
+   Bookworm as earlier drafts of this doc assumed; `labwc` is current on
+   both.
 2. Chromium, launched `--kiosk --app=http://localhost:<port>/?station`
    against this same box's own satellite process (see Satellite-served
    frontend in `designs/satellites.md` — no separate hosting needed,
@@ -68,14 +124,16 @@ Raspberry-Pi-documented kiosk pattern:
 
 Added to `infra/cloud-init-satellite.yaml.tpl`: `cage`/`seatd`/
 `chromium-browser` packages, a `getty@tty1` autologin drop-in, and a
-`kiosk.sh` (launched from `admin`'s `.bash_profile` on tty1 only) running
-`cage -- chromium-browser --kiosk --app=http://localhost:4000/?station`
+`kiosk.sh` (launched from the account's `.bash_profile` on tty1 only)
+running `cage -- chromium-browser --kiosk --app=http://localhost/?station`
 against this same box's own satellite process. Not yet verified against
-real hardware — first things to check if it doesn't come up: whether
-`admin` needs adding to a `seatd`/`seat` group beyond `video`/`render`/
+real hardware — first thing to check if it doesn't come up: whether the
+account needs adding to a `seatd`/`seat` group beyond `video`/`render`/
 `input` for cage to get a seat (package/version-dependent, noted inline
-in the template), and whether the Bookworm package is really named
-`chromium-browser` in the repo actually in use.
+in the template). The `chromium-browser` package name is confirmed to
+still exist on Trixie (Raspberry Pi's own RPi-optimised build, alongside
+plain Debian `chromium`) — that part of the earlier uncertainty is
+resolved.
 
 ### Rejected: ReSpeaker 2-Mic Pi HAT
 
@@ -227,5 +285,11 @@ still a manual post-flash step.
   yet validated against how often a physical-button press would actually
   land mid-`thinking` in practice — worth revisiting once there's real
   usage to observe.
-- No hardware has been ordered yet, so none of the above is verified
-  against anything real.
+- Whether the WM8960 driver actually builds on this box's kernel (6.12,
+  via Trixie) — see "WM8960 audio HAT" above. Upstream has since fixed
+  the specific 6.12 build failure this project first ran into, but it's
+  still unverified by this project against real hardware; check `dkms
+  status` after first boot rather than assuming it worked.
+- Hardware is now in hand (Pi 4B, WM8960 HAT) but not yet booted, so
+  most of the above — this driver included — is still unverified against
+  anything real.
