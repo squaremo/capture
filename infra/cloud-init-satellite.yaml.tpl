@@ -7,7 +7,7 @@
 # hub (infra/cloud-init.yaml.tpl) — see "Docker + Watchtower deployment"
 # in designs/satellite-provisioning.md for why this replaced an earlier
 # direct npm-install-and-run-as-a-systemd-unit version of this file.
-hostname: ${HOUSE_ID}
+hostname: ${MACHINE_HOSTNAME}
 manage_etc_hosts: true
 
 # Same reasoning as infra/cloud-init.yaml.tpl: key-based admin access only,
@@ -209,7 +209,7 @@ runcmd:
 
   # ── Tailscale ────────────────────────────────────────────────────────
   - curl -fsSL https://tailscale.com/install.sh | sh
-  - tailscale up --authkey="${TAILSCALE_AUTH_KEY}" --hostname="${HOUSE_ID}"
+  - tailscale up --authkey="${TAILSCALE_AUTH_KEY}" --hostname="${MACHINE_HOSTNAME}"
   - until tailscale status --json | jq -e '.Self.Online == true' > /dev/null 2>&1; do sleep 2; done
 
   # ── TLS certificate via Tailscale ───────────────────────────────────

@@ -13,14 +13,27 @@ set -euo pipefail
 #   BACKEND_URL="https://capture.<tailnet>.ts.net" \
 #   ./provision-satellite-sd.sh [--force] [bootfs-mount-point-or-device]
 #
+# HOUSE_ID and MACHINE_HOSTNAME are two different things that default to
+# the same value: MACHINE_HOSTNAME is the Linux hostname and Tailscale
+# device name; HOUSE_ID is the satellite process's own house identity
+# (what shows up in the frontend's house chooser/`GET /api/status` — see
+# House attribution in designs/satellites.md). Set only HOUSE_ID to
+# rename a satellite's app-level identity without touching its actual
+# machine/Tailscale hostname; set MACHINE_HOSTNAME too (or instead) to
+# change that as well.
+#
 # Raspberry Pi Imager's own "Edit Settings" step, on a cloud-init-capable
 # image, writes its OWN user-data/network-config/meta-data directly
 # (hostname, a default user, timezone/keyboard, Wi-Fi) rather than the
 # older firstrun.sh mechanism — so a user-data may already exist here
 # before this script ever runs. If it does, this script MERGES into it
-# rather than overwriting it: Imager's hostname wins (HOUSE_ID is only
-# needed as a fallback when there's no existing user-data at all), and
-# if Imager already created a default user, this script's own `users:`
+# rather than overwriting it: Imager's hostname wins by default
+# (MACHINE_HOSTNAME is only needed as a fallback when there's no
+# existing user-data at all — HOUSE_ID alone still works as a fallback
+# too, for the common case of not caring to set both) — but an
+# explicitly-passed MACHINE_HOSTNAME overrides it, if you want a
+# different machine hostname than whatever Imager set. And if Imager
+# already created a default user, this script's own `users:`
 # block is dropped in favour of reusing that account for the kiosk
 # session (ADMIN_SSH_PUBLIC_KEY isn't needed in that case either — the
 # existing user-data already carries a key) — see the note on `users:`
@@ -118,12 +131,21 @@ if [ -s "$EXISTING" ] && [ -z "$FORCE" ]; then
   MERGE=1
 fi
 
-# HOUSE_ID/ADMIN_USER/ADMIN_SSH_PUBLIC_KEY only matter for the
-# no-existing-user-data (or --force) path — pinned down below once we
+# Two independent things share the same value by default, but don't
+# have to: MACHINE_HOSTNAME (the Linux hostname and the Tailscale
+# device name) vs. HOUSE_ID (the satellite process's own house
+# identity — what shows up in the frontend's house chooser/`GET
+# /api/status`, per House attribution in designs/satellites.md). Most
+# of the time they're the same thing and you only need to think about
+# one; MACHINE_HOSTNAME/ADMIN_USER only matter for the no-existing-
+# user-data (or --force) path otherwise — pinned down below once we
 # know whether we're merging.
-EFFECTIVE_HOUSE_ID="${HOUSE_ID:-}"
+USER_HOUSE_ID="${HOUSE_ID:-}"
+USER_MACHINE_HOSTNAME="${MACHINE_HOSTNAME:-}"
+EFFECTIVE_MACHINE_HOSTNAME="$USER_MACHINE_HOSTNAME"
 EFFECTIVE_ADMIN_USER="${ADMIN_USER:-admin}"
 DROP_USERS_BLOCK=""
+FORCE_HOSTNAME=""
 
 if [ -n "$MERGE" ]; then
   command -v python3 >/dev/null && python3 -c "import yaml" 2>/dev/null || {
@@ -137,8 +159,8 @@ if [ -n "$MERGE" ]; then
   }
 
   # Peek the existing file for a hostname and a default user, so this
-  # run's HOUSE_ID/ADMIN_USER follow what's already there instead of
-  # fighting it.
+  # run's MACHINE_HOSTNAME/ADMIN_USER follow what's already there
+  # instead of fighting it.
   eval "$(python3 - "$EXISTING" <<'PYEOF'
 import sys, yaml
 with open(sys.argv[1]) as f:
@@ -155,19 +177,36 @@ elif isinstance(doc.get("users"), list) and doc["users"]:
     if isinstance(first, dict):
         user_name = first.get("name")
 if hostname:
-    print("EFFECTIVE_HOUSE_ID=%r" % hostname)
+    print("EXISTING_HOSTNAME=%r" % hostname)
 if user_name:
     print("EFFECTIVE_ADMIN_USER=%r" % user_name)
     print("DROP_USERS_BLOCK=1")
 PYEOF
 )"
 
-  if [ -n "${HOUSE_ID:-}" ] && [ "$HOUSE_ID" != "$EFFECTIVE_HOUSE_ID" ]; then
-    echo "NOTE: existing user-data's hostname ($EFFECTIVE_HOUSE_ID) overrides the HOUSE_ID you passed ($HOUSE_ID)." >&2
+  if [ -n "$USER_MACHINE_HOSTNAME" ]; then
+    if [ -n "${EXISTING_HOSTNAME:-}" ] && [ "$USER_MACHINE_HOSTNAME" != "$EXISTING_HOSTNAME" ]; then
+      echo "NOTE: overriding existing user-data's hostname ($EXISTING_HOSTNAME) with the MACHINE_HOSTNAME you passed ($USER_MACHINE_HOSTNAME)." >&2
+    fi
+    FORCE_HOSTNAME=1
+  else
+    EFFECTIVE_MACHINE_HOSTNAME="${EXISTING_HOSTNAME:-}"
   fi
 fi
 
-: "${EFFECTIVE_HOUSE_ID:?set HOUSE_ID (no existing user-data to read a hostname from)}"
+# No existing hostname to fall back to (either not merging, or merging
+# into a user-data that happened not to set one) — HOUSE_ID doubles as
+# the machine hostname too, the common "just one name" case.
+EFFECTIVE_MACHINE_HOSTNAME="${EFFECTIVE_MACHINE_HOSTNAME:-$USER_HOUSE_ID}"
+
+: "${EFFECTIVE_MACHINE_HOSTNAME:?set MACHINE_HOSTNAME (or HOUSE_ID, used as a fallback) — no existing user-data to read a hostname from}"
+
+# HOUSE_ID defaults to whatever the machine hostname ends up being —
+# the common case, one name for everything — but an explicit HOUSE_ID
+# only changes the app's own identity, leaving the Linux/Tailscale
+# hostname alone (e.g. to rename a satellite's display name without
+# re-provisioning its actual hostname/Tailscale device).
+EFFECTIVE_HOUSE_ID="${USER_HOUSE_ID:-$EFFECTIVE_MACHINE_HOSTNAME}"
 
 if [ -z "$DROP_USERS_BLOCK" ]; then
   : "${ADMIN_SSH_PUBLIC_KEY:?set ADMIN_SSH_PUBLIC_KEY}"
@@ -178,17 +217,18 @@ else
 fi
 
 HOUSE_ID="$EFFECTIVE_HOUSE_ID"
+MACHINE_HOSTNAME="$EFFECTIVE_MACHINE_HOSTNAME"
 ADMIN_USER="$EFFECTIVE_ADMIN_USER"
-export HOUSE_ID ADMIN_USER ADMIN_SSH_PUBLIC_KEY TAILSCALE_AUTH_KEY BACKEND_URL REPO_URL
+export HOUSE_ID MACHINE_HOSTNAME ADMIN_USER ADMIN_SSH_PUBLIC_KEY TAILSCALE_AUTH_KEY BACKEND_URL REPO_URL
 
 RENDERED="$(mktemp)"
 trap 'rm -f "$RENDERED"' EXIT
 
-envsubst '$HOUSE_ID $ADMIN_USER $ADMIN_SSH_PUBLIC_KEY $TAILSCALE_AUTH_KEY $BACKEND_URL $REPO_URL' \
+envsubst '$HOUSE_ID $MACHINE_HOSTNAME $ADMIN_USER $ADMIN_SSH_PUBLIC_KEY $TAILSCALE_AUTH_KEY $BACKEND_URL $REPO_URL' \
   < "$TEMPLATE" > "$RENDERED"
 
 if [ -n "$MERGE" ]; then
-  python3 - "$EXISTING" "$RENDERED" "$DROP_USERS_BLOCK" > "$EXISTING.new" <<'PYEOF'
+  python3 - "$EXISTING" "$RENDERED" "$DROP_USERS_BLOCK" "$FORCE_HOSTNAME" > "$EXISTING.new" <<'PYEOF'
 import sys, yaml
 
 def load(path):
@@ -198,7 +238,7 @@ def load(path):
         text = text.split("\n", 1)[1] if "\n" in text else ""
     return yaml.safe_load(text) or {}
 
-existing_path, rendered_path, drop_users = sys.argv[1], sys.argv[2], sys.argv[3]
+existing_path, rendered_path, drop_users, force_hostname = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 existing = load(existing_path)
 ours = load(rendered_path)
 
@@ -210,7 +250,11 @@ for key, value in ours.items():
     if key not in merged:
         merged[key] = value
     elif key == "hostname":
-        pass  # existing wins — see the HOUSE_ID note above
+        # existing wins by default, UNLESS the caller explicitly asked
+        # for a different HOUSE_ID (see the NOTE printed above) — then
+        # theirs does.
+        if force_hostname:
+            merged[key] = value
     elif isinstance(merged[key], list) and isinstance(value, list):
         merged[key] = merged[key] + value
     elif isinstance(merged[key], dict) and isinstance(value, dict):
