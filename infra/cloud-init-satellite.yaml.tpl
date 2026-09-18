@@ -66,7 +66,13 @@ packages:
   # not headless" in designs/satellite-hardware.md.
   - cage
   - seatd
-  - chromium-browser
+  # `chromium` here, not `chromium-browser` — confirmed on real
+  # hardware that `chromium-browser` is a transitional/dependency-only
+  # package on this repo that doesn't provide its own binary of that
+  # name; the real binary installs as plain `chromium`. Hit this as
+  # `cage`'s "Failed to spawn client: No such file or directory" once
+  # everything else (XDG_RUNTIME_DIR, seat access) was already working.
+  - chromium
   # NOTE: not yet verified against real hardware — seatd may require
   # ${KIOSK_USER} to also be in a `seatd`/`seat` group (name varies by
   # package version) for cage to get a seat, on top of the
@@ -199,11 +205,27 @@ write_files:
   # chrome/tabs/address bar; the update check is disabled since
   # Watchtower-style auto-update doesn't apply to a browser binary and
   # there's no need for it to ever phone out.
+  # XDG_RUNTIME_DIR: cage needs it set, and a bare console
+  # `agetty --autologin` doesn't reliably get pam_systemd/logind to set
+  # it up the way a full graphical/systemd-managed login session would
+  # — hit exactly this on real hardware (`cage.c: XDG_RUNTIME_DIR is
+  # not set in the environment`, cage exiting immediately, which then
+  # ended the whole login session and made getty@tty1 restart-loop fast
+  # enough to trip systemd's start-limit and give up entirely). Only
+  # exports the variable here, doesn't try to create the directory
+  # itself — /run/user is root-owned (0755), so ${KIOSK_USER} can't
+  # mkdir under it (hit this too: "Permission denied", then cage
+  # failing again with "Unable to open Wayland socket" against a
+  # directory that was never actually created). `loginctl enable-linger
+  # ${KIOSK_USER}` in runcmd below is what actually gets logind to
+  # create and maintain this directory, with no active session needed
+  # to trigger it.
   - path: /opt/capture-satellite/kiosk.sh
     permissions: "0755"
     content: |
       #!/bin/sh
-      exec cage -- chromium-browser \
+      export XDG_RUNTIME_DIR=/run/user/$(id -u)
+      exec cage -- chromium \
         --kiosk \
         --noerrdialogs \
         --disable-infobars \
@@ -232,6 +254,14 @@ write_files:
 
 runcmd:
   - chown ${KIOSK_USER}:${KIOSK_USER} /home/${KIOSK_USER}/.bash_profile
+
+  # Gets logind to create and maintain /run/user/<uid> for the kiosk
+  # account persistently, with no active login session needed to
+  # trigger it — takes effect immediately, not just on next boot. See
+  # the XDG_RUNTIME_DIR note on kiosk.sh above for why this is needed
+  # at all: a bare console autologin doesn't reliably set this up on
+  # its own the way a full session would.
+  - loginctl enable-linger ${KIOSK_USER}
 
   # ── Docker ───────────────────────────────────────────────────────────
   # linux/debian, not linux/ubuntu: Raspberry Pi OS is Debian-based. This

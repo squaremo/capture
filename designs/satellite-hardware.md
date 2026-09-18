@@ -123,17 +123,20 @@ Raspberry-Pi-documented kiosk pattern:
    with no keyboard interaction ever needed after boot.
 
 Added to `infra/cloud-init-satellite.yaml.tpl`: `cage`/`seatd`/
-`chromium-browser` packages, a `getty@tty1` autologin drop-in, and a
-`kiosk.sh` (launched from the account's `.bash_profile` on tty1 only)
-running `cage -- chromium-browser --kiosk --app=http://localhost/?station`
-against this same box's own satellite process. Not yet verified against
-real hardware — first thing to check if it doesn't come up: whether the
-account needs adding to a `seatd`/`seat` group beyond `video`/`render`/
-`input` for cage to get a seat (package/version-dependent, noted inline
-in the template). The `chromium-browser` package name is confirmed to
-still exist on Trixie (Raspberry Pi's own RPi-optimised build, alongside
-plain Debian `chromium`) — that part of the earlier uncertainty is
-resolved.
+`chromium` packages, a `getty@tty1` autologin drop-in, and a `kiosk.sh`
+(launched from the kiosk account's `.bash_profile` on tty1 only)
+running `cage -- chromium --kiosk --app=http://localhost/?station`
+against this same box's own satellite process.
+
+**Corrected against real hardware**: earlier guidance here said
+`chromium-browser` was confirmed to exist on Trixie — true as a package
+name, but wrong in the way that mattered. It installs as a
+transitional/dependency-only package on this repo that doesn't provide
+its own binary of that name; `cage`'s actual client is the plain
+`chromium` binary. Surfaced as `cage`'s "Failed to spawn client: No
+such file or directory" once everything else (XDG_RUNTIME_DIR, seat
+access) was already working — a reminder that "the package exists"
+isn't the same claim as "the binary you're about to exec exists."
 
 ### Rejected: ReSpeaker 2-Mic Pi HAT
 
