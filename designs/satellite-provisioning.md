@@ -292,6 +292,47 @@ and decoupling frontend/API update cycles — worth it for consistency
 across the two places this app runs, so this is the chosen shape, not
 just a documented alternative.
 
+## Real-boot finding: concurrent docker compose invocations
+
+First real boot surfaced a genuine bug: SSH sessions became "terribly
+slow" — `top` showed 60%+ iowait and a load average over 7 on a 4-core
+box, with a `cp` process stuck in `D` state (blocked on disk). `ps aux`
+showed the actual cause: **two `docker compose up` processes running
+against the same project at once** — `capture-satellite.service`'s own
+long-lived foreground `up`, and `capture-satellite-sync.service`'s
+`up -d --remove-orphans` (its `OnBootSec=5min` timer landing right in
+the middle of the first one still pulling/starting containers). Both
+doing pull/extract/start work simultaneously on the same SD card is
+exactly what hammers it into unusability.
+
+Same pattern exists in the Hetzner hub's own `infra/cloud-init.yaml.tpl`
+(`capture.service` + `capture-sync.timer`, identical shape) — this
+project mirrored it deliberately. It likely races there too; it just
+doesn't visibly hurt on the hub's real disk the way it does on a Pi's
+SD card, so it never surfaced as a problem worth noticing.
+
+Fixed two ways for the satellite, not just one:
+
+1. **`capture-satellite.service` no longer needs to run in the
+   foreground at all.** Every service in `docker-compose.satellite.yml`
+   already has `restart: unless-stopped` — Docker itself handles
+   crash-restart with no systemd supervision needed. Changed to
+   `Type=oneshot`/`RemainAfterExit=yes`/`up -d` (brings the stack up
+   once, exits, no permanent process to race against) instead of
+   `Type=simple`/a foreground `up` kept alive by `Restart=on-failure`.
+2. **`flock` around both services' compose invocations**, against a
+   shared `/var/lock/capture-satellite-compose.lock` — belt-and-
+   suspenders on top of (1): the oneshot fix narrows the race window to
+   "however long the first `up -d` takes," but doesn't structurally
+   rule it out if a pull genuinely takes longer than 5 minutes. `flock`
+   makes concurrent invocations impossible regardless of timing, rather
+   than just less likely.
+
+Not backported to the hub's `capture.service`/`capture-sync.timer` —
+out of scope for this satellite-focused work, and the hub hasn't
+actually shown symptoms — but worth doing at some point for the same
+reason, on general principle rather than an observed failure there.
+
 ## Open questions
 
 - Whether Tailscale's authkey should be one-time/ephemeral per satellite

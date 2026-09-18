@@ -60,6 +60,17 @@ further — nothing past this point works without it:
 docker compose -f docker-compose.satellite.yml logs satellite --tail 50
 ```
 
+If the whole box feels sluggish over SSH around this point — high
+iowait in `top`, a load average well above the core count — check for
+two `docker compose` invocations running at once
+(`ps aux | grep 'docker compose'`): `capture-satellite.service`'s own
+startup and `capture-satellite-sync.service`'s first `OnBootSec=5min`
+firing can land on top of each other. Should self-resolve once both
+finish (each is `flock`-protected against the other now, so it's a
+brief overlap at worst, not a standing race) — see "Real-boot finding:
+concurrent docker compose invocations" in
+`designs/satellite-provisioning.md`.
+
 ## 4. TLS cert was minted
 
 ```bash

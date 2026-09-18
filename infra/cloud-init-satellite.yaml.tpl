@@ -100,6 +100,17 @@ write_files:
       HOUSE_ID=${HOUSE_ID}
       BACKEND_URL=${BACKEND_URL}
 
+  # Type=oneshot + up -d, not Type=simple + a foreground `up` (what an
+  # earlier version of this did) — that kept a permanent `docker
+  # compose up` process alive for systemd to supervise, which then
+  # raced the capture-satellite-sync.timer's own `up -d` firing 5
+  # minutes later (OnBootSec=5min lands right in the middle of first
+  # boot's initial pull/start). Two concurrent Compose invocations both
+  # pulling/extracting on the same project hammered a real Pi's SD card
+  # hard enough to make SSH itself unusable (60%+ iowait observed).
+  # Doesn't need the foreground process anyway — every service in
+  # docker-compose.satellite.yml already has restart: unless-stopped,
+  # so Docker itself handles crash-restart with no systemd involvement.
   - path: /etc/systemd/system/capture-satellite.service
     content: |
       [Unit]
@@ -109,12 +120,11 @@ write_files:
       Requires=docker.service
 
       [Service]
-      Type=simple
+      Type=oneshot
+      RemainAfterExit=yes
       WorkingDirectory=/opt/capture-satellite/app
-      ExecStart=/usr/bin/docker compose -f docker-compose.satellite.yml up
-      ExecStop=/usr/bin/docker compose -f docker-compose.satellite.yml down
-      Restart=on-failure
-      RestartSec=10
+      ExecStart=/usr/bin/flock /var/lock/capture-satellite-compose.lock /usr/bin/docker compose -f docker-compose.satellite.yml up -d
+      ExecStop=/usr/bin/flock /var/lock/capture-satellite-compose.lock /usr/bin/docker compose -f docker-compose.satellite.yml down
 
       [Install]
       WantedBy=multi-user.target
@@ -122,6 +132,15 @@ write_files:
   # Same role as capture-sync.timer on the Hetzner box: catches
   # docker-compose.satellite.yml/nginx.conf changes that Watchtower can't
   # see (it only reacts to new *images*, not compose/config edits).
+  #
+  # flock around the compose invocation (here and in
+  # capture-satellite.service, above) rather than relying on timing —
+  # OnBootSec=5min mostly keeps this clear of that service's own first
+  # `up -d`, but "mostly" isn't good enough after two concurrent Compose
+  # invocations pulling/extracting on the same project were caught
+  # hammering a real Pi's SD card into 60%+ iowait. flock makes it
+  # structurally impossible regardless of how long a pull takes,
+  # rather than just narrowing the window.
   - path: /etc/systemd/system/capture-satellite-sync.service
     content: |
       [Unit]
@@ -133,7 +152,7 @@ write_files:
       Type=oneshot
       WorkingDirectory=/opt/capture-satellite/app
       ExecStart=/usr/bin/git pull --ff-only
-      ExecStart=/usr/bin/docker compose -f docker-compose.satellite.yml up -d --remove-orphans
+      ExecStart=/usr/bin/flock /var/lock/capture-satellite-compose.lock /usr/bin/docker compose -f docker-compose.satellite.yml up -d --remove-orphans
 
   - path: /etc/systemd/system/capture-satellite-sync.timer
     content: |
