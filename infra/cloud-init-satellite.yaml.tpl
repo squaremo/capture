@@ -199,10 +199,22 @@ write_files:
   # chrome/tabs/address bar; the update check is disabled since
   # Watchtower-style auto-update doesn't apply to a browser binary and
   # there's no need for it to ever phone out.
+  # XDG_RUNTIME_DIR: cage needs it set, and a bare console
+  # `agetty --autologin` doesn't reliably get pam_systemd/logind to set
+  # it up the way a full graphical/systemd-managed login session would
+  # — hit exactly this on real hardware (`cage.c: XDG_RUNTIME_DIR is
+  # not set in the environment`, cage exiting immediately, which then
+  # ended the whole login session and made getty@tty1 restart-loop fast
+  # enough to trip systemd's start-limit and give up entirely). Setting
+  # and creating it explicitly here means this doesn't depend on
+  # session-manager plumbing working correctly at all.
   - path: /opt/capture-satellite/kiosk.sh
     permissions: "0755"
     content: |
       #!/bin/sh
+      export XDG_RUNTIME_DIR=/run/user/$(id -u)
+      mkdir -p "$XDG_RUNTIME_DIR"
+      chmod 700 "$XDG_RUNTIME_DIR"
       exec cage -- chromium-browser \
         --kiosk \
         --noerrdialogs \

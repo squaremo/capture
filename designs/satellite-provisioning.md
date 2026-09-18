@@ -472,6 +472,31 @@ already-booted box was `rm -rf /usr/src/wm8960-soundcard-1.0` (after
 reclaim the space — a reflash would also have picked up the fix, but
 cost far more than deleting one directory and retrying.
 
+## Real finding: cage needs XDG_RUNTIME_DIR set explicitly
+
+Once the disk was cleared and the kiosk account existed, `getty@tty1`
+was still failing — `systemctl status` showed `start-limit-hit`,
+`agetty` exiting almost instantly and repeatedly, fast enough to trip
+systemd's restart rate limit. Running `kiosk.sh` by hand as the kiosk
+user (`sudo -u kiosk /opt/capture-satellite/kiosk.sh`) surfaced the
+actual error immediately instead of it vanishing into an unwatched
+console: `cage.c: XDG_RUNTIME_DIR is not set in the environment`.
+
+Cause: `cage` requires `XDG_RUNTIME_DIR`, normally set up by
+`pam_systemd`/`logind` as part of establishing a full login session —
+but a bare console `agetty --autologin` doesn't reliably trigger that
+the way a graphical or systemd-managed session would. Without it,
+`cage` exits immediately, which ends the whole login session, which
+makes `agetty` exit too, which systemd immediately restarts — looping
+fast enough to hit `start-limit-hit` and give up entirely, rather than
+sitting at a visibly broken kiosk.
+
+Fixed in `kiosk.sh` itself rather than relying on session-manager
+plumbing: exports `XDG_RUNTIME_DIR=/run/user/$(id -u)` and creates that
+directory (`mkdir -p`, `chmod 700`) before `exec`ing into `cage` — the
+standard fix for `cage` on exactly this kind of minimal console-login
+setup, not something specific to this project's template.
+
 ## Open questions
 
 - Whether Tailscale's authkey should be one-time/ephemeral per satellite
