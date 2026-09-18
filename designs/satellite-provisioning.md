@@ -4,9 +4,9 @@ Status: template + write script done (`infra/cloud-init-satellite.yaml.tpl`,
 `infra/provision-satellite-sd.sh`), now deploying via Docker + Watchtower
 (see "Docker + Watchtower deployment" below) instead of the original
 direct `npm install`+systemd-unit approach, for the same self-updating
-story the Hetzner box already has. Not yet run against real hardware
-either way — no Pi has been flashed or booted with this, and no image has
-been pushed or pulled yet. Picks
+story the Hetzner box already has. First real boot attempted — caught
+and fixed a real bug (see "Real-boot finding: write_files ordering"
+below); otherwise still unconfirmed end to end. Picks
 up the "Provisioning story for a new satellite" open question in
 `designs/satellite-hardware.md`, specifically the first-boot config step
 (package installs, `unattended-upgrades`, Tailscale join, ...), mirroring
@@ -291,6 +291,36 @@ networking to find each other) in exchange for matching the hub's shape
 and decoupling frontend/API update cycles — worth it for consistency
 across the two places this app runs, so this is the chosen shape, not
 just a documented alternative.
+
+## Real-boot finding: write_files ordering
+
+First real boot (against the actual `capture-station-1` card) surfaced
+a genuine bug, not a hardware-specific quirk: `cloud-init status --long`
+reported `write_files` failing four times with `OSError('Unknown user
+or group: "getpwnam(): name not found: \'mikeb\'"')`.
+
+Cause: cloud-init's default module order runs `write_files` **before**
+the `users`/`user` module — so the `.bash_profile` entry's
+`owner: ${ADMIN_USER}:${ADMIN_USER}` tried to `chown` to an account that
+didn't exist yet at that point in the boot sequence. This wasn't
+specific to reusing Imager's `mikeb` — it would have failed exactly the
+same way creating a fresh `admin` account too; merging just happened to
+be what actually got booted first.
+
+Not as bad as it sounds, and worth understanding why: cloud-init catches
+each module's failure independently and keeps going to the next one
+(confirmed by SSH access working at all — `users-groups` ran fine
+afterward, later in the sequence), and `write_files` sets a file's
+*content* before it applies ownership, so the file itself almost
+certainly landed — just `root`-owned instead of `${ADMIN_USER}`-owned,
+which doesn't actually block it being sourced (only read access
+matters for a `.bash_profile`, not ownership).
+
+Fixed in `cloud-init-satellite.yaml.tpl`: that entry now writes
+`root:root` (no `owner:` at all) and a new first `runcmd` line
+(`chown ${ADMIN_USER}:${ADMIN_USER} /home/${ADMIN_USER}/.bash_profile`)
+fixes the ownership afterward, once the account genuinely exists —
+`runcmd` runs safely after `users-groups` in cloud-init's module order.
 
 ## Open questions
 

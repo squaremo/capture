@@ -180,15 +180,25 @@ write_files:
   # ${ADMIN_USER}'s login shell runs this once, only on the physical
   # console (not over SSH, and not if a compositor is somehow already
   # running) — starts the kiosk automatically after the autologin above,
-  # with no display/session manager in between.
+  # with no display/session manager in between. Written root:root (not
+  # owner: ${ADMIN_USER}:${ADMIN_USER}) deliberately — write_files runs
+  # BEFORE the users/user module in cloud-init's default module order,
+  # so an owner naming an account that doesn't exist yet fails outright
+  # (hit exactly this: "Unknown user or group" on first real boot). The
+  # content still gets written either way — write_files sets content
+  # before ownership — and root:root, world-readable is fine for a
+  # .bash_profile since only read access matters to source it; chown'd
+  # to the real account below in runcmd, which runs safely after users
+  # exist.
   - path: /home/${ADMIN_USER}/.bash_profile
-    owner: ${ADMIN_USER}:${ADMIN_USER}
     content: |
       if [ -z "$WAYLAND_DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then
         exec /opt/capture-satellite/kiosk.sh
       fi
 
 runcmd:
+  - chown ${ADMIN_USER}:${ADMIN_USER} /home/${ADMIN_USER}/.bash_profile
+
   # Belt-and-suspenders: the users: block above already sets these
   # groups when it runs for real, but this also covers the merged case
   # where that block was dropped in favour of an account Imager already
