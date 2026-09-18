@@ -47,30 +47,32 @@ The WM8960 codec isn't in the mainline Pi kernel, so getting it working
 means a DKMS-built out-of-tree kernel module rather than just a
 `dtoverlay` line — DKMS specifically so it survives future kernel
 upgrades from `unattended-upgrades` (see "OS maintenance" below),
-rebuilding itself automatically rather than breaking on the next one,
-*if* it builds at all (see the risk below). Wired into
-`infra/cloud-init-satellite.yaml.tpl`: clone
-[`jozolab/WM8960-Audio-HAT-bookworm`](https://github.com/jozolab/WM8960-Audio-HAT-bookworm)
-and run its `install.sh` — confirmed non-interactive, doesn't reboot
-itself (a `power_state: {mode: reboot}` at the end of the cloud-config
-handles that instead — never call `reboot` directly inside `runcmd`,
-cloud-init would never reach the remaining steps), installs its own
-build deps (`dkms`, kernel headers, `i2c-tools`), and writes
-`dtoverlay=wm8960-soundcard` + `dtparam=i2c_arm=on` into
-`/boot/firmware/config.txt` itself (the correct path on Trixie's boot
-layout).
+rebuilding itself automatically rather than breaking on the next one.
+Wired into `infra/cloud-init-satellite.yaml.tpl`: clone the **official**
+[`waveshareteam/WM8960-Audio-HAT`](https://github.com/waveshareteam/WM8960-Audio-HAT)
+repo and run its `install.sh` — confirmed non-interactive, doesn't
+reboot itself (a `power_state: {mode: reboot}` at the end of the
+cloud-config handles that instead — never call `reboot` directly inside
+`runcmd`, cloud-init would never reach the remaining steps), installs
+its own build deps (`raspberrypi-kernel-headers`/`dkms`/`i2c-tools`/
+`libasound2-plugins` — the headers package specifically because it
+tracks whatever kernel is actually running, which is what lets DKMS's
+own auto-rebuild-on-upgrade keep working later too), and writes
+`dtparam=i2c_arm=on`/`i2s=on` + `dtoverlay=i2s-mmap`/`wm8960-soundcard`
+into `/boot/firmware/config.txt` itself (the correct path on Trixie's
+boot layout).
 
-**Known risk, not just "unverified": this may not work at all on this
-box's actual kernel.** Raspberry Pi OS Trixie ships kernel 6.12 LTS by
-default. Multiple open, still-unresolved upstream issues
+**Corrected from an earlier version of this doc, which pointed at a
+stale `jozolab/WM8960-Audio-HAT-bookworm` fork and called this a known,
+unresolved kernel-6.12 risk** — that was true of the fork, and of the
+open upstream issues it was based on
 ([waveshareteam/WM8960-Audio-HAT#68](https://github.com/waveshareteam/WM8960-Audio-HAT/issues/68),
-[#63](https://github.com/waveshareteam/WM8960-Audio-HAT/issues/63))
-report this exact card failing on 6.12 ("unable to install hw params"),
-and the fork wired into the template targets Bookworm specifically, not
-Trixie — no confirmed-working fork or patch for 6.12 was found. A build
-failure here doesn't block anything else in the cloud-config (a failing
-`runcmd` step doesn't stop the ones after it, and the reboot still
-happens) — but don't assume success. Check after boot:
+[#63](https://github.com/waveshareteam/WM8960-Audio-HAT/issues/63)), but
+**the official repo has since actually fixed it**: "Modified the
+install script to support new 6.12 kernel" (PR #79, merged 2025-08-18),
+with 6.18.x support following (#84, 2026-06-30) — well past Trixie's
+6.12 LTS. Should work now, but this project hasn't run it against real
+hardware yet, so verify after boot rather than assume:
 
 ```
 dkms status               # should list wm8960-soundcard as installed
@@ -78,9 +80,12 @@ aplay -l && arecord -l    # should list the card
 dmesg | grep -i wm8960    # if it didn't load
 ```
 
-If it doesn't build, the fallback is the originally-planned plain USB
-mic + the Pi 4's 3.5mm jack from the superseded Parts list row above —
-worth keeping in mind rather than sinking more time into a kernel
+A build failure here doesn't block anything else in the cloud-config (a
+failing `runcmd` step doesn't stop the ones after it, and the reboot
+still happens). If it still doesn't build, the fallback is the
+originally-planned plain USB mic + the Pi 4's 3.5mm jack from the
+superseded Parts list row above — worth keeping in mind rather than
+sinking more time into a kernel
 incompatibility this project doesn't control.
 
 This specific board **does** have a pass-through header exposing the
@@ -280,10 +285,11 @@ still a manual post-flash step.
   yet validated against how often a physical-button press would actually
   land mid-`thinking` in practice — worth revisiting once there's real
   usage to observe.
-- **New, real risk**: whether the WM8960 driver builds at all on this
-  box's kernel (6.12, via Trixie) — see "WM8960 audio HAT" above.
-  Unresolved upstream, no confirmed fix found; check `dkms status` after
-  first boot rather than assuming it worked.
+- Whether the WM8960 driver actually builds on this box's kernel (6.12,
+  via Trixie) — see "WM8960 audio HAT" above. Upstream has since fixed
+  the specific 6.12 build failure this project first ran into, but it's
+  still unverified by this project against real hardware; check `dkms
+  status` after first boot rather than assuming it worked.
 - Hardware is now in hand (Pi 4B, WM8960 HAT) but not yet booted, so
   most of the above — this driver included — is still unverified against
   anything real.

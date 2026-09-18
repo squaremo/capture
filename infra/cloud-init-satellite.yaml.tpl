@@ -240,24 +240,31 @@ runcmd:
   # module rather than just setting a dtoverlay — DKMS means it survives
   # future kernel upgrades from unattended-upgrades, rebuilding itself
   # automatically rather than breaking on the next one, IF it builds at
-  # all. Non-interactive, installs its own deps (dkms/headers/i2c-tools),
-  # writes dtoverlay=wm8960-soundcard + dtparam=i2c_arm=on into
-  # /boot/firmware/config.txt itself — doesn't reboot itself, hence the
-  # power_state below.
+  # all. Non-interactive, installs its own deps (raspberrypi-kernel-
+  # headers/dkms/i2c-tools/libasound2-plugins — raspberrypi-kernel-
+  # headers specifically because it tracks whatever kernel is actually
+  # running, which is what lets DKMS's own auto-rebuild-on-upgrade
+  # keep working later too), writes dtparam=i2c_arm=on/i2s=on +
+  # dtoverlay=i2s-mmap/wm8960-soundcard into /boot/firmware/config.txt
+  # itself — doesn't reboot itself, hence the power_state below.
   #
-  # KNOWN RISK, not just "unverified": this box runs Raspberry Pi OS
-  # Trixie (kernel 6.12 LTS by default), and multiple open, still-
-  # unresolved upstream issues report this exact card failing on 6.12
-  # ("unable to install hw params" — waveshareteam/WM8960-Audio-HAT#68,
-  # #63). This fork targets Bookworm specifically, not Trixie, and no
-  # confirmed-working fork/patch for 6.12 was found as of writing. A
-  # failure here doesn't block anything else in this file (cloud-init's
-  # runcmd keeps going past a failing step, and the reboot below still
-  # happens) — but don't assume this succeeded. Check after boot:
+  # Uses the official waveshareteam/WM8960-Audio-HAT repo, NOT the
+  # jozolab "-bookworm" fork an earlier version of this pointed at —
+  # that fork was stale relative to upstream, which has since actually
+  # fixed the kernel-6.12 build failure multiple open issues reported
+  # (waveshareteam/WM8960-Audio-HAT#68, #63): "Modified the install
+  # script to support new 6.12 kernel" (PR #79, merged 2025-08-18), with
+  # 6.18.x support following (#84, 2026-06-30) — so this should actually
+  # work on Trixie's 6.12 LTS kernel now, unlike when this was first
+  # written. Still genuinely unverified against this exact board by this
+  # project, though — check after boot rather than assuming:
   #   dkms status               # should list wm8960-soundcard as installed
   #   aplay -l && arecord -l    # should list the card
   #   dmesg | grep -i wm8960    # if it didn't load
-  - git clone https://github.com/jozolab/WM8960-Audio-HAT-bookworm /opt/wm8960-audio-hat
+  # A failure here doesn't block anything else in this file (cloud-init's
+  # runcmd keeps going past a failing step, and the reboot below still
+  # happens).
+  - git clone https://github.com/waveshareteam/WM8960-Audio-HAT /opt/wm8960-audio-hat
   - bash /opt/wm8960-audio-hat/install.sh
 
   # whisper.cpp build/install and the GPIO button service are not added
