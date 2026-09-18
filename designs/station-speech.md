@@ -16,9 +16,10 @@ approval gating, or hub ↔ satellite dispatch.
 The prototype (see the read-aloud work in recent history, and
 `capture.js`'s existing mic button) deliberately used the browser's own
 Web Speech API for both directions — zero setup, ships the UI (say-it
-button, mute toggle, toggle-to-talk capture) before committing to
-hardware. It's the wrong long-term fit for the real station specifically,
-for reasons CLAUDE.md's Voice stack entry already anticipated:
+button, mute toggle, click-to-toggle mic capture, reused as-is on the
+station) before committing to hardware. It's the wrong long-term fit
+for the real station specifically, for reasons CLAUDE.md's Voice stack
+entry already anticipated:
 
 - `SpeechRecognition` in Chrome routes audio through Google's speech
   service — an acceptable tradeoff for a phone/laptop used out and about
@@ -74,24 +75,34 @@ Both existing hooks stay exactly where they are; only what's underneath
 them changes, gated on whether this satellite actually has the hardware:
 
 - **Capture** (`capture.js`'s mic button, and `station.js`'s idle-mode
-  field which reuses it): the gesture stays **click-to-toggle**, same as
-  today — one tap starts recording, a second tap stops it. The actual
-  requirement isn't hold-vs-toggle (either satisfies it); it's that the
-  mic is live *only* between those two taps, never before or after — no
-  drift, no leaving it running in the background. Today's
-  `SpeechRecognition` version already has this property (`recognition.
-  start()`/`.stop()` bound tightly to the toggle, and `onend` — which
-  also fires if the engine itself stops the mic, e.g. after a silence
-  timeout — clears the same UI state a manual second tap would), so
-  there's nothing to fix there. The satellite-backed version keeps the
-  same shape with `MediaRecorder` swapped in for the engine: first tap
-  starts recording on the mic stream, second tap stops it and `POST`s the
-  recorded blob to `/api/transcribe`; the response's `text` fills the
-  textarea the same way `SpeechRecognition`'s result does today — **still
-  lands in the field for a glance/edit before submit, not an auto-send**,
-  matching today's behaviour and the same reasoning: neither engine is
-  perfect, and this app's whole ethos is a human still initiates the
-  capture.
+  field which reuses it): the general (phone/laptop) mic button keeps
+  today's **click-to-toggle** exactly as-is — one tap starts recording, a
+  second tap stops it, mic live only in between. That's an established
+  web-app pattern (a hand holding a phone doesn't want to hold a button
+  down too) and there's no reason to disturb it. The **station** is
+  different on purpose: it's getting a real push-to-talk button, and a
+  physical PTT switch is inherently a *held* control — the pin reads
+  high for exactly as long as a finger is on it, not a single press
+  event — so the station's own capture (on-screen button and physical
+  button alike, see below) uses **genuine hold-to-talk**:
+  `pointerdown`/`pointerup` (plus `pointerleave`/`pointercancel`, so
+  dragging off the button or a browser interruption can't leave it
+  recording silently) instead of `click`, starting/stopping
+  `MediaRecorder` on the mic stream exactly as the button goes down/up.
+  Either gesture satisfies the same underlying requirement — mic live
+  only between an explicit start and stop signal, never before or after
+  — so this is an interaction choice, not a privacy one; `capture.js`
+  just needs to support both, not pick one. Concretely: `createCaptureInput()`
+  gains a `micMode: 'toggle' | 'hold'` option, same shape as the existing
+  `hideHouseChooser` flag it already takes for the station's instance —
+  `main.js`'s call site (phone/laptop) omits it and keeps toggle;
+  `station.js`'s call site passes `micMode: 'hold'`. Whichever mode is
+  active, a completed recording `POST`s to `/api/transcribe` and the
+  response's `text` fills the textarea the same way `SpeechRecognition`'s
+  result does today — **still lands in the field for a glance/edit before
+  submit, not an auto-send**, matching today's behaviour and the same
+  reasoning: neither engine is perfect, and this app's whole ethos is a
+  human still initiates the capture.
 - **Read-aloud** (`speech.js`'s `speak()`/`speakIfEnabled()`, called from
   every "say it" button and the auto-speak-on-resolve paths in
   `main.js`): today, `window.speechSynthesis.speak(new
@@ -120,44 +131,49 @@ and the page. Two shapes were weighed:
 
 1. **The button drives the existing on-screen control.** A small watcher
    process on the Pi (`gpiozero`/`RPi.GPIO` in Python, or a Node GPIO
-   library) reacts to the pin and tells the *frontend* to act as if the
-   mic button had been tapped — the page still does the actual
-   `getUserMedia`/`MediaRecorder` capture and `POST`s to
-   `/api/transcribe`, exactly the toggle path above. A momentary physical
-   button (press and release, the common/cheap kind) maps onto one toggle
-   flip per press, same as one click — there's no "held" duration to
-   track on either side, physical or on-screen. The button is just a
-   second trigger for one existing gesture, not a second gesture.
+   library) watches the pin's level and tells the *frontend* when it goes
+   high/low — the page still does the actual `getUserMedia`/
+   `MediaRecorder` capture and `POST`s to `/api/transcribe`, exactly the
+   station's hold-to-talk path above. This is a natural fit specifically
+   *because* the station uses hold, not toggle: a real PTT switch reports
+   held-down/released, which maps directly onto `pointerdown`/`pointerup`
+   with nothing to translate — pressed means recording, released means
+   not, for as long as each lasts. (A toggle-mode button, if the station
+   ever used one, would need the watcher to turn a momentary press into a
+   flip; hold sidesteps that entirely.) The button is a second trigger
+   for one existing gesture, not a second gesture.
 2. **The button drives the satellite directly**, bypassing the browser
    entirely: the watcher records locally itself (`arecord` against the
    Pi's mic) and hands the WAV straight to the local whisper.cpp server.
 
 **Chosen: 1.** It's strictly less new surface — one recording
 implementation (the browser's), not two kept in sync, and it's the
-smaller change from what toggle-to-talk already does. 2 was tempting for
-sidestepping `getUserMedia`'s secure-context requirement and surviving a
-crashed/reloading kiosk tab, but that's real duplicated machinery (a
-second audio-capture path, a second consumer of `/api/transcribe`'s
-underlying whisper.cpp server) for a benefit that doesn't clearly matter
-here — the browser tab *is* the station; if it's down, nothing about the
-UI works regardless of how the mic got captured.
+smaller change from what the station's own on-screen hold-to-talk
+already does. 2 was tempting for sidestepping `getUserMedia`'s
+secure-context requirement and surviving a crashed/reloading kiosk tab,
+but that's real duplicated machinery (a second audio-capture path, a
+second consumer of `/api/transcribe`'s underlying whisper.cpp server)
+for a benefit that doesn't clearly matter here — the browser tab *is*
+the station; if it's down, nothing about the UI works regardless of how
+the mic got captured.
 
 What 1 actually needs, not yet part of this app: a low-latency channel
-from the satellite process (which sees the GPIO event) to the page
+from the satellite process (which sees the GPIO level) to the page
 (which owns the mic and the capture textarea) — the existing polling
 (`localActivity.js`'s 4s `/api/status` interval, `pollForResolution`'s
 backoff loop) is far too coarse for "start recording the instant the
-button's pressed." A small WebSocket or SSE connection the frontend
-opens to the satellite at station startup, carrying just one `ptt-press`
-event per physical press, is the natural fit — new infrastructure for
-this app (everything else is request/response), scoped narrowly to this
-one signal rather than becoming a general event bus. `station.js`'s mic
-button handler becomes callable from two places (a real click, or this
-socket message) rather than gaining a parallel code path. Worth a note
-for whoever wires the GPIO side: debounce the physical press in the
-watcher (a cheap button can bounce several transitions per press) so one
-press reliably produces exactly one toggle flip, not an unpredictable
-number of them.
+button goes down." A small WebSocket or SSE connection the frontend
+opens to the satellite at station startup, carrying `ptt-down`/`ptt-up`
+events as the pin's level changes, is the natural fit — new
+infrastructure for this app (everything else is request/response),
+scoped narrowly to this one signal rather than becoming a general event
+bus. `station.js`'s mic button handler (in `hold` mode) becomes
+callable from two places — a real `pointerdown`/`pointerup`, or this
+socket message — rather than gaining a parallel code path. Worth a note
+for whoever wires the GPIO side: debounce the pin read in the watcher (a
+cheap switch's contacts can chatter right at the transition) so a single
+physical press/release produces exactly one clean `ptt-down`/`ptt-up`
+pair, not a burst of spurious ones.
 
 ### Capability discovery — `/config.json`, not `/api/status`
 
@@ -239,26 +255,28 @@ for the identical reason, not a new one.
 
 ## Open questions
 
-- **Push-to-talk vs wake-word.** This design keeps toggle-to-talk — tap
-  the on-screen mic button or press a physical one (see Physical
-  push-to-talk button above) to start, tap/press again to stop, mic live
-  only between the two — as the trigger. It's the smallest thing that
-  needs no new judgment calls (no false-positive wake detection, no
-  always-listening privacy question). The original repo-structure sketch
-  in CLAUDE.md names a `station/wakeword.py` for "always-on voice" as a
-  future direction; worth revisiting once toggle-to-talk is proven, but
-  deliberately out of scope here — a continuously-listening mic is a
-  materially bigger privacy and false-trigger surface than a button, and
-  the opposite of the "live only between explicit on and off" property
-  this design is built around.
-- **Auto-submit on the physical button's second press (toggle-off)?**
-  Raised above — not decided here. Today's on-screen button lands the
-  transcript in the field for a glance/edit rather than auto-sending;
-  nothing about a physical button obviously argues for changing that,
-  but worth deciding deliberately rather than assuming either way.
-- **Auto-stop on silence**, ending the recording (and flipping the
-  toggle back) on its own after a pause, rather than waiting for the
-  explicit second tap/press — a nice-to-have, not needed to ship.
+- **Push-to-talk vs wake-word.** This design keeps push-to-talk (hold to
+  record, on the station; toggle on the general frontend — see Capture
+  above) rather than an always-listening mic as the trigger everywhere.
+  It's the smallest thing that needs no new judgment calls (no
+  false-positive wake detection, no always-listening privacy question).
+  The original repo-structure sketch in CLAUDE.md names a `station/
+  wakeword.py` for "always-on voice" as a future direction; worth
+  revisiting once push-to-talk is proven, but deliberately out of scope
+  here — a continuously-listening mic is a materially bigger privacy and
+  false-trigger surface than a button, and the opposite of the "live
+  only between explicit on and off" property this design is built
+  around, whichever gesture provides that on/off.
+- **Auto-submit on release?** Raised above — not decided here. Today's
+  on-screen (toggle) button lands the transcript in the field for a
+  glance/edit rather than auto-sending; a held physical button reads as
+  a more deliberate "I meant this" than a tap, so auto-submit is at least
+  defensible for the station in a way it isn't for a tap — but that's a
+  real UX call to make deliberately, not a default to fall into just
+  because hold-to-talk was wired up.
+- **Auto-stop on silence** while the station's button is held, ending the
+  recording on its own if someone trails off before releasing — a
+  nice-to-have, not needed to ship hold-to-talk.
 - **Barge-in** — interrupting an in-progress `/api/speak` playback if a
   new capture starts while the station is still talking. `speak()`
   already `cancel()`s an in-flight browser utterance on every call
