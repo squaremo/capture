@@ -491,11 +491,24 @@ makes `agetty` exit too, which systemd immediately restarts — looping
 fast enough to hit `start-limit-hit` and give up entirely, rather than
 sitting at a visibly broken kiosk.
 
-Fixed in `kiosk.sh` itself rather than relying on session-manager
-plumbing: exports `XDG_RUNTIME_DIR=/run/user/$(id -u)` and creates that
-directory (`mkdir -p`, `chmod 700`) before `exec`ing into `cage` — the
-standard fix for `cage` on exactly this kind of minimal console-login
-setup, not something specific to this project's template.
+First fix attempt was wrong in a way that only showed up on the real
+box: `kiosk.sh` exported `XDG_RUNTIME_DIR=/run/user/$(id -u)` and tried
+to `mkdir -p`/`chmod 700` that directory itself before `exec`ing into
+`cage` — but `/run/user` is root-owned (`0755`), so the unprivileged
+`kiosk` account can't create a directory under it at all
+(`mkdir: cannot create directory '/run/user/1001': Permission denied`),
+and `cage` then failed differently (`Unable to open Wayland socket:
+Invalid argument`) against a directory that never actually existed.
+
+Real fix: `loginctl enable-linger ${KIOSK_USER}` in `runcmd`, once,
+during provisioning. That tells `systemd-logind` to create and
+persistently maintain `/run/user/<uid>` for that account with no
+active login session needed to trigger it — and it takes effect
+immediately when run, not just on the next boot, which is what let
+this be confirmed live rather than only by reasoning about it.
+`kiosk.sh` now only exports the variable; creating the directory is
+`logind`'s job, not a script running as the very user that directory
+needs to already exist for.
 
 ## Open questions
 

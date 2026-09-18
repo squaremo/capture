@@ -205,16 +205,20 @@ write_files:
   # — hit exactly this on real hardware (`cage.c: XDG_RUNTIME_DIR is
   # not set in the environment`, cage exiting immediately, which then
   # ended the whole login session and made getty@tty1 restart-loop fast
-  # enough to trip systemd's start-limit and give up entirely). Setting
-  # and creating it explicitly here means this doesn't depend on
-  # session-manager plumbing working correctly at all.
+  # enough to trip systemd's start-limit and give up entirely). Only
+  # exports the variable here, doesn't try to create the directory
+  # itself — /run/user is root-owned (0755), so ${KIOSK_USER} can't
+  # mkdir under it (hit this too: "Permission denied", then cage
+  # failing again with "Unable to open Wayland socket" against a
+  # directory that was never actually created). `loginctl enable-linger
+  # ${KIOSK_USER}` in runcmd below is what actually gets logind to
+  # create and maintain this directory, with no active session needed
+  # to trigger it.
   - path: /opt/capture-satellite/kiosk.sh
     permissions: "0755"
     content: |
       #!/bin/sh
       export XDG_RUNTIME_DIR=/run/user/$(id -u)
-      mkdir -p "$XDG_RUNTIME_DIR"
-      chmod 700 "$XDG_RUNTIME_DIR"
       exec cage -- chromium-browser \
         --kiosk \
         --noerrdialogs \
@@ -244,6 +248,14 @@ write_files:
 
 runcmd:
   - chown ${KIOSK_USER}:${KIOSK_USER} /home/${KIOSK_USER}/.bash_profile
+
+  # Gets logind to create and maintain /run/user/<uid> for the kiosk
+  # account persistently, with no active login session needed to
+  # trigger it — takes effect immediately, not just on next boot. See
+  # the XDG_RUNTIME_DIR note on kiosk.sh above for why this is needed
+  # at all: a bare console autologin doesn't reliably set this up on
+  # its own the way a full session would.
+  - loginctl enable-linger ${KIOSK_USER}
 
   # ── Docker ───────────────────────────────────────────────────────────
   # linux/debian, not linux/ubuntu: Raspberry Pi OS is Debian-based. This
