@@ -155,12 +155,14 @@ Check for the seat-access failure flagged in `cloud-init-satellite.yaml.tpl`:
 journalctl -u getty@tty1 --no-pager | tail -40
 ```
 
-If it's a seat-access error, the account may need adding to a
-`seatd`/`seat` group beyond `video`/`render`/`input` (name varies by
-package version):
+If it's a seat-access error, the `kiosk` account (not the one you're
+SSH'd in as — it has no SSH key at all, deliberately, see
+`designs/satellite-provisioning.md`'s account-separation note) may need
+adding to a `seatd`/`seat` group beyond `video`/`render`/`input` (name
+varies by package version):
 
 ```bash
-groups $(whoami)          # while SSH'd in as the kiosk account
+groups kiosk
 getent group | grep -i seat
 ```
 

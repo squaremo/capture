@@ -33,11 +33,14 @@ set -euo pipefail
 # too, for the common case of not caring to set both) — but an
 # explicitly-passed MACHINE_HOSTNAME overrides it, if you want a
 # different machine hostname than whatever Imager set. And if Imager
-# already created a default user, this script's own `users:`
-# block is dropped in favour of reusing that account for the kiosk
-# session (ADMIN_SSH_PUBLIC_KEY isn't needed in that case either — the
-# existing user-data already carries a key) — see the note on `users:`
-# in cloud-init-satellite.yaml.tpl. Needs python3 with PyYAML
+# already created a default user, this script's own admin `users:`
+# entry is dropped in favour of reusing that account for SSH/admin
+# access (ADMIN_SSH_PUBLIC_KEY isn't needed in that case either — the
+# existing user-data already carries a key). The separate KIOSK_USER
+# entry (a dedicated, unprivileged account that runs the unattended
+# tty1 kiosk session — never the same account as SSH/admin) is always
+# kept regardless — see the note on `users:` in
+# cloud-init-satellite.yaml.tpl. Needs python3 with PyYAML
 # (`pip3 install pyyaml`) to do this merge; --force skips merging
 # entirely and overwrites user-data outright, network-config/meta-data
 # are never touched either way.
@@ -144,7 +147,12 @@ USER_HOUSE_ID="${HOUSE_ID:-}"
 USER_MACHINE_HOSTNAME="${MACHINE_HOSTNAME:-}"
 EFFECTIVE_MACHINE_HOSTNAME="$USER_MACHINE_HOSTNAME"
 EFFECTIVE_ADMIN_USER="${ADMIN_USER:-admin}"
-DROP_USERS_BLOCK=""
+# KIOSK_USER doesn't need any merge-discovery logic — it's always a
+# fresh, dedicated account, never something Imager could already have
+# created (that account is for SSH/admin, a different concern — see
+# cloud-init-satellite.yaml.tpl).
+KIOSK_USER="${KIOSK_USER:-kiosk}"
+DROP_ADMIN_USER=""
 FORCE_HOSTNAME=""
 
 if [ -n "$MERGE" ]; then
@@ -180,7 +188,7 @@ if hostname:
     print("EXISTING_HOSTNAME=%r" % hostname)
 if user_name:
     print("EFFECTIVE_ADMIN_USER=%r" % user_name)
-    print("DROP_USERS_BLOCK=1")
+    print("DROP_ADMIN_USER=1")
 PYEOF
 )"
 
@@ -208,27 +216,27 @@ EFFECTIVE_MACHINE_HOSTNAME="${EFFECTIVE_MACHINE_HOSTNAME:-$USER_HOUSE_ID}"
 # re-provisioning its actual hostname/Tailscale device).
 EFFECTIVE_HOUSE_ID="${USER_HOUSE_ID:-$EFFECTIVE_MACHINE_HOSTNAME}"
 
-if [ -z "$DROP_USERS_BLOCK" ]; then
+if [ -z "$DROP_ADMIN_USER" ]; then
   : "${ADMIN_SSH_PUBLIC_KEY:?set ADMIN_SSH_PUBLIC_KEY}"
 else
-  # Not used by the template in this case (users: block is dropped
-  # before merging) but envsubst still needs *something* bound.
+  # Not used by the template in this case (the admin users: entry is
+  # dropped before merging) but envsubst still needs *something* bound.
   ADMIN_SSH_PUBLIC_KEY="${ADMIN_SSH_PUBLIC_KEY:-unused}"
 fi
 
 HOUSE_ID="$EFFECTIVE_HOUSE_ID"
 MACHINE_HOSTNAME="$EFFECTIVE_MACHINE_HOSTNAME"
 ADMIN_USER="$EFFECTIVE_ADMIN_USER"
-export HOUSE_ID MACHINE_HOSTNAME ADMIN_USER ADMIN_SSH_PUBLIC_KEY TAILSCALE_AUTH_KEY BACKEND_URL REPO_URL
+export HOUSE_ID MACHINE_HOSTNAME ADMIN_USER KIOSK_USER ADMIN_SSH_PUBLIC_KEY TAILSCALE_AUTH_KEY BACKEND_URL REPO_URL
 
 RENDERED="$(mktemp)"
 trap 'rm -f "$RENDERED"' EXIT
 
-envsubst '$HOUSE_ID $MACHINE_HOSTNAME $ADMIN_USER $ADMIN_SSH_PUBLIC_KEY $TAILSCALE_AUTH_KEY $BACKEND_URL $REPO_URL' \
+envsubst '$HOUSE_ID $MACHINE_HOSTNAME $ADMIN_USER $KIOSK_USER $ADMIN_SSH_PUBLIC_KEY $TAILSCALE_AUTH_KEY $BACKEND_URL $REPO_URL' \
   < "$TEMPLATE" > "$RENDERED"
 
 if [ -n "$MERGE" ]; then
-  python3 - "$EXISTING" "$RENDERED" "$DROP_USERS_BLOCK" "$FORCE_HOSTNAME" > "$EXISTING.new" <<'PYEOF'
+  python3 - "$EXISTING" "$RENDERED" "$DROP_ADMIN_USER" "$FORCE_HOSTNAME" "$EFFECTIVE_ADMIN_USER" > "$EXISTING.new" <<'PYEOF'
 import sys, yaml
 
 def load(path):
@@ -238,12 +246,18 @@ def load(path):
         text = text.split("\n", 1)[1] if "\n" in text else ""
     return yaml.safe_load(text) or {}
 
-existing_path, rendered_path, drop_users, force_hostname = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+existing_path, rendered_path, drop_admin_user, force_hostname, admin_user_name = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
 existing = load(existing_path)
 ours = load(rendered_path)
 
-if drop_users:
-    ours.pop("users", None)
+if drop_admin_user:
+    # Only drop the admin entry — the separate kiosk entry in the same
+    # list always stays, regardless of merging (see the note on
+    # `users:` in cloud-init-satellite.yaml.tpl).
+    ours["users"] = [
+        u for u in ours.get("users", [])
+        if not (isinstance(u, dict) and u.get("name") == admin_user_name)
+    ]
 
 merged = dict(existing)
 for key, value in ours.items():
