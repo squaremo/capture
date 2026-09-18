@@ -10,26 +10,40 @@
 hostname: ${MACHINE_HOSTNAME}
 manage_etc_hosts: true
 
-# Same reasoning as infra/cloud-init.yaml.tpl: key-based admin access only,
-# no root password, no root SSH. This `users:` block is dropped entirely
-# by provision-satellite-sd.sh's merge step when a user-data already
-# defines a default user (e.g. via Raspberry Pi Imager's own "Edit
-# Settings") — running both would mean two different mechanisms defining
-# possibly-conflicting attributes for the same or a different account.
-# ADMIN_USER names whichever account actually ends up owning the kiosk
-# session either way (see the other ${ADMIN_USER} references below) —
-# "admin" when this block runs for real, or Imager's existing username
-# when it's dropped in favour of reusing that account.
+# Two separate accounts, deliberately not shared:
+#
+# ${ADMIN_USER} — key-based SSH/admin access only, same reasoning as
+# infra/cloud-init.yaml.tpl (no root password, no root SSH). This entry
+# is dropped by provision-satellite-sd.sh's merge step when a user-data
+# already defines a default user (e.g. via Raspberry Pi Imager's own
+# "Edit Settings") — running both would mean two different mechanisms
+# defining possibly-conflicting attributes for the same or a different
+# account — reusing that existing account for SSH/admin instead.
+#
+# ${KIOSK_USER} — runs the unattended tty1 kiosk session only (see
+# `write_files`/`runcmd` below), always created fresh regardless of
+# merging: no sudo, no SSH key, password locked, so it has no path to
+# admin access even if the browser it runs were ever compromised. Kept
+# separate from whichever account handles SSH/admin above so that
+# account's own shell config (~/.bash_profile etc.) never mixes with
+# the kiosk-launch logic — bash sources ~/.bash_profile on every
+# interactive SSH login too, not just a physical console login, so
+# sharing one account here would mean editing your own dotfiles risks
+# breaking the kiosk, and vice versa.
 users:
   - name: ${ADMIN_USER}
-    # video/render/input: needed for cage (the kiosk Wayland compositor,
-    # below) to get GPU/input access directly, with no display/login
-    # manager brokering it.
-    groups: sudo,video,render,input
+    groups: sudo
     shell: /bin/bash
     sudo: "ALL=(ALL) NOPASSWD:ALL"
     ssh_authorized_keys:
       - ${ADMIN_SSH_PUBLIC_KEY}
+  - name: ${KIOSK_USER}
+    # video/render/input: needed for cage (the kiosk Wayland compositor,
+    # below) to get GPU/input access directly, with no display/login
+    # manager brokering it.
+    groups: video,render,input
+    shell: /bin/bash
+    lock_passwd: true
 
 packages:
   - ca-certificates
@@ -54,10 +68,10 @@ packages:
   - seatd
   - chromium-browser
   # NOTE: not yet verified against real hardware — seatd may require
-  # admin to also be in a `seatd`/`seat` group (name varies by package
-  # version) for cage to get a seat, on top of the video/render/input
-  # groups above. First thing to check if cage exits immediately with a
-  # seat-access error.
+  # ${KIOSK_USER} to also be in a `seatd`/`seat` group (name varies by
+  # package version) for cage to get a seat, on top of the
+  # video/render/input groups above. First thing to check if cage exits
+  # immediately with a seat-access error.
   # whisper.cpp build deps (build-essential, cmake) and audio tooling
   # (alsa-utils) are deliberately left out here — the whisper.cpp
   # service's own shape isn't decided yet (see Open questions in
@@ -173,10 +187,10 @@ write_files:
     content: |
       [Service]
       ExecStart=
-      ExecStart=-/sbin/agetty --autologin ${ADMIN_USER} --noclear %I $TERM
+      ExecStart=-/sbin/agetty --autologin ${KIOSK_USER} --noclear %I $TERM
 
-  # Launched by the profile hook below once admin's shell starts on
-  # tty1. Points at nginx's plain-HTTP :80/localhost server block
+  # Launched by the profile hook below once ${KIOSK_USER}'s shell starts
+  # on tty1. Points at nginx's plain-HTTP :80/localhost server block
   # (satellite/nginx.conf) — not directly at the satellite container's
   # own port 4000, since in the split-container deployment the satellite
   # container no longer serves the frontend build itself, only the API
@@ -196,23 +210,28 @@ write_files:
         --check-for-update-interval=31536000 \
         --app=http://localhost/?station
 
-  # ${ADMIN_USER}'s login shell runs this once, only on the physical
-  # console (not over SSH, and not if a compositor is somehow already
-  # running) — starts the kiosk automatically after the autologin above,
-  # with no display/session manager in between.
-  - path: /home/${ADMIN_USER}/.bash_profile
-    owner: ${ADMIN_USER}:${ADMIN_USER}
+  # ${KIOSK_USER}'s login shell runs this once, on tty1 only (not over
+  # SSH — this account has no SSH key at all — and not if a compositor
+  # is somehow already running) — starts the kiosk automatically after
+  # the autologin above, with no display/session manager in between.
+  # Written root:root (not owner: ${KIOSK_USER}:${KIOSK_USER})
+  # deliberately — write_files runs BEFORE the users/user module in
+  # cloud-init's default module order, so an owner naming an account
+  # that doesn't exist yet fails the write outright (hit exactly this
+  # on the first real boot: "Unknown user or group", and the file
+  # never landed at all — turns out write_files validates the owner
+  # before writing content, not after). root:root, world-readable is
+  # fine for a .bash_profile anyway since only read access matters to
+  # source it; chown'd to the real account below in runcmd, which runs
+  # safely after users exist.
+  - path: /home/${KIOSK_USER}/.bash_profile
     content: |
       if [ -z "$WAYLAND_DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then
         exec /opt/capture-satellite/kiosk.sh
       fi
 
 runcmd:
-  # Belt-and-suspenders: the users: block above already sets these
-  # groups when it runs for real, but this also covers the merged case
-  # where that block was dropped in favour of an account Imager already
-  # created, which won't have them otherwise.
-  - usermod -aG video,render,input ${ADMIN_USER}
+  - chown ${KIOSK_USER}:${KIOSK_USER} /home/${KIOSK_USER}/.bash_profile
 
   # ── Docker ───────────────────────────────────────────────────────────
   # linux/debian, not linux/ubuntu: Raspberry Pi OS is Debian-based. This

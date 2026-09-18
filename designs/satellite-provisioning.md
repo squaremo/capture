@@ -4,9 +4,9 @@ Status: template + write script done (`infra/cloud-init-satellite.yaml.tpl`,
 `infra/provision-satellite-sd.sh`), now deploying via Docker + Watchtower
 (see "Docker + Watchtower deployment" below) instead of the original
 direct `npm install`+systemd-unit approach, for the same self-updating
-story the Hetzner box already has. Not yet run against real hardware
-either way — no Pi has been flashed or booted with this, and no image has
-been pushed or pulled yet. Picks
+story the Hetzner box already has. First real boot attempted — caught
+and fixed a real bug (see "Real-boot finding: write_files ordering"
+below); otherwise still unconfirmed end to end. Picks
 up the "Provisioning story for a new satellite" open question in
 `designs/satellite-hardware.md`, specifically the first-boot config step
 (package installs, `unattended-upgrades`, Tailscale join, ...), mirroring
@@ -291,6 +291,78 @@ networking to find each other) in exchange for matching the hub's shape
 and decoupling frontend/API update cycles — worth it for consistency
 across the two places this app runs, so this is the chosen shape, not
 just a documented alternative.
+
+## Real-boot finding: write_files ordering
+
+First real boot (against the actual `capture-station-1` card) surfaced
+a genuine bug, not a hardware-specific quirk: `cloud-init status --long`
+reported `write_files` failing four times with `OSError('Unknown user
+or group: "getpwnam(): name not found: \'mikeb\'"')`.
+
+Cause: cloud-init's default module order runs `write_files` **before**
+the `users`/`user` module — so the `.bash_profile` entry's
+`owner: ${ADMIN_USER}:${ADMIN_USER}` tried to `chown` to an account that
+didn't exist yet at that point in the boot sequence. This wasn't
+specific to reusing Imager's `mikeb` — it would have failed exactly the
+same way creating a fresh `admin` account too; merging just happened to
+be what actually got booted first.
+
+Not as bad as it sounds, and worth understanding why: cloud-init catches
+each module's failure independently and keeps going to the next one
+(confirmed by SSH access working at all — `users-groups` ran fine
+afterward, later in the sequence). **Corrected against what was checked
+on the real box, though**: this doc first guessed that `write_files`
+sets a file's content before applying ownership, so the file would
+still land, just `root`-owned — checking on the actual booted box
+showed the file didn't exist at all. So this Pi OS/cloud-init version
+validates the `owner:` field *before* writing anything, meaning the
+whole write aborted, not just the ownership step — a real distinction
+worth having gotten right the first time rather than assumed.
+
+Fixed in `cloud-init-satellite.yaml.tpl`: that entry now writes
+`root:root` (no `owner:` at all) and a new first `runcmd` line chowns
+it afterward, once the account genuinely exists — `runcmd` runs safely
+after `users-groups` in cloud-init's module order. (Superseded slightly
+by the next section below — it's `${KIOSK_USER}` that owns this file
+now, not `${ADMIN_USER}`.)
+
+## Real design fix: a dedicated kiosk account, not the SSH login
+
+Prompted by a direct question while debugging the above: why should the
+account that auto-launches an unattended browser on the physical
+console be the *same* account used for personal SSH/admin access?
+It shouldn't, for reasons that go beyond the write_files bug above:
+
+- bash sources `~/.bash_profile` on every interactive SSH login too,
+  not just a physical console login — sharing one account here means
+  editing your own dotfiles risks breaking the kiosk launch, and vice
+  versa, two unrelated concerns tangled in one file.
+- The kiosk session had no reason to inherit sudo or SSH-key access —
+  a dedicated, unprivileged account is strictly less to worry about if
+  the browser it runs were ever compromised.
+
+So `cloud-init-satellite.yaml.tpl`'s `users:` list now has two entries
+instead of one:
+
+- `${ADMIN_USER}` — SSH/admin only (`sudo`, the SSH key), exactly as
+  before, still dropped by the merge script in favour of reusing an
+  existing default user (Imager's `mikeb`, say) when there is one.
+- `${KIOSK_USER}` (default `kiosk`) — the tty1 autologin account, with
+  the group memberships `cage` needs (`video`/`render`/`input`), no
+  sudo, no SSH key, `lock_passwd: true`. **Always created fresh**, whether
+  merging or not — unlike the admin entry, there's no existing account
+  to reuse here, since Imager has no concept of "the kiosk account."
+
+That last point needed a real fix in `provision-satellite-sd.sh`'s
+merge step, not just the template: it used to drop the *entire*
+`users:` key when reusing an existing default user, which would have
+thrown away the newly-added kiosk entry too. It now filters the
+rendered `users:` list by name, removing only the admin entry
+(`DROP_ADMIN_USER`, renamed from `DROP_USERS_BLOCK`) and always keeping
+the kiosk one — verified locally: merging into a fixture shaped like
+the real `mikeb` file produces a `user:` block unchanged and a
+`users:` list containing only `kiosk`, while the fresh-provision path
+produces both `admin` and `kiosk` together.
 
 ## Real-boot finding: concurrent docker compose invocations
 
