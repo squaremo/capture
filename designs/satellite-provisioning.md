@@ -1,12 +1,15 @@
 # Satellite provisioning: cloud-init for a Pi
 
 Status: template + write script done (`infra/cloud-init-satellite.yaml.tpl`,
-`infra/provision-satellite-sd.sh`), now deploying via Docker + Watchtower
+`infra/provision-satellite-sd.sh`), deploying via Docker + Watchtower
 (see "Docker + Watchtower deployment" below) instead of the original
 direct `npm install`+systemd-unit approach, for the same self-updating
-story the Hetzner box already has. First real boot attempted — caught
-and fixed a real bug (see "Real-boot finding: write_files ordering"
-below); otherwise still unconfirmed end to end. Picks
+story the Hetzner box already has. **The kiosk display is confirmed
+working end to end on real hardware** — `capture-station-1` — after a
+string of real-boot findings below (`write_files` ordering, a dedicated
+kiosk account, a concurrent-Docker-Compose race, the satellite image
+never having built, `install.sh` filling the disk, and `cage` needing
+`XDG_RUNTIME_DIR`). Picks
 up the "Provisioning story for a new satellite" open question in
 `designs/satellite-hardware.md`, specifically the first-boot config step
 (package installs, `unattended-upgrades`, Tailscale join, ...), mirroring
@@ -107,16 +110,19 @@ Docker install block (identical `runcmd` steps: keyring, apt repo,
   — that pairing (`npx dirigera authenticate`) is a one-time manual step
   done after first boot per `satellite/README.md`, not something to
   script into first-boot config.
-- Display stack: `cage`/`seatd`/`chromium-browser` packages, `admin`
-  added to `video`/`render`/`input` groups, a `getty@tty1` autologin
-  drop-in, and `/opt/capture-satellite/kiosk.sh` (launched from
-  `admin`'s `.bash_profile`, tty1 only) running `cage -- chromium-browser
-  --kiosk --app=http://localhost/?station` — see "Display stack: minimal,
-  not headless" in `designs/satellite-hardware.md`. Points at nginx's
-  plain-HTTP `localhost` server block (`satellite/nginx.conf`) rather
-  than the satellite container's own port 4000 directly, now that the
-  container split (below) means the satellite process no longer serves
-  the frontend build itself.
+- Display stack: `cage`/`seatd`/`chromium` packages, a dedicated
+  `${KIOSK_USER}` account (see "Real design fix: a dedicated kiosk
+  account" below) in `video`/`render`/`input` groups plus
+  `loginctl enable-linger` for `XDG_RUNTIME_DIR`, a `getty@tty1`
+  autologin drop-in, and `/opt/capture-satellite/kiosk.sh` (launched
+  from that account's `.bash_profile`, tty1 only) running
+  `cage -- chromium --kiosk --app=http://localhost/?station` — see
+  "Display stack: minimal, not headless" in
+  `designs/satellite-hardware.md`. Points at nginx's plain-HTTP
+  `localhost` server block (`satellite/nginx.conf`) rather than the
+  satellite container's own port 4000 directly, now that the container
+  split (below) means the satellite process no longer serves the
+  frontend build itself.
 
 `infra/provision-satellite-sd.sh` renders that template with `envsubst`
 (explicitly scoped to just the template's own variables, so it doesn't
@@ -515,12 +521,12 @@ needs to already exist for.
 - Whether Tailscale's authkey should be one-time/ephemeral per satellite
   (matches "permanent kit, provisioned once" from Running modes in
   `designs/satellites.md`) or reusable — not decided.
-- Nothing here has been tried against real hardware yet — no card has
-  been written with this or booted; this is still one step behind
-  `designs/satellite-hardware.md`, which itself has ordered no hardware.
 - whisper.cpp and the GPIO button service aren't in the template — once
   their shape is decided, they get added to `runcmd`/`write_files` here.
-- Display stack (cage + chromium-browser + tty1 autologin) is now in the
-  template — see "Display stack: minimal, not headless" in
-  `designs/satellite-hardware.md` — but unverified against real hardware,
-  same caveat as everything else here.
+- **Confirmed working on real hardware**: the kiosk display comes up
+  end to end — autologin → `.bash_profile` → `XDG_RUNTIME_DIR` (via
+  `loginctl enable-linger`) → `cage` → `chromium` — after the string of
+  real-boot findings above. Still to verify: the WM8960 audio driver
+  itself (separate from the display stack that's now confirmed), and
+  the Docker/Watchtower self-update story running unattended over time
+  rather than just through this one debugging session's manual restarts.

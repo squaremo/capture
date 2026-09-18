@@ -66,7 +66,13 @@ packages:
   # not headless" in designs/satellite-hardware.md.
   - cage
   - seatd
-  - chromium-browser
+  # `chromium` here, not `chromium-browser` — confirmed on real
+  # hardware that `chromium-browser` is a transitional/dependency-only
+  # package on this repo that doesn't provide its own binary of that
+  # name; the real binary installs as plain `chromium`. Hit this as
+  # `cage`'s "Failed to spawn client: No such file or directory" once
+  # everything else (XDG_RUNTIME_DIR, seat access) was already working.
+  - chromium
   # NOTE: not yet verified against real hardware — seatd may require
   # ${KIOSK_USER} to also be in a `seatd`/`seat` group (name varies by
   # package version) for cage to get a seat, on top of the
@@ -219,7 +225,7 @@ write_files:
     content: |
       #!/bin/sh
       export XDG_RUNTIME_DIR=/run/user/$(id -u)
-      exec cage -- chromium-browser \
+      exec cage -- chromium \
         --kiosk \
         --noerrdialogs \
         --disable-infobars \
