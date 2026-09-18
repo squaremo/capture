@@ -333,6 +333,44 @@ out of scope for this satellite-focused work, and the hub hasn't
 actually shown symptoms — but worth doing at some point for the same
 reason, on general principle rather than an observed failure there.
 
+## Real finding: the satellite image has never actually built
+
+Tracked down while debugging why `capture-satellite.service` failed
+outright with `denied`/`No such image` pulling
+`ghcr.io/squaremo/capture-satellite` — first guessed as a GHCR
+visibility setting (new packages pushed via a workflow's
+`GITHUB_TOKEN` default to private), confirmed *wrong* by actually
+checking: `ghcr.io/token` anonymous-pull requests succeeded for
+`capture-frontend` but were denied for `capture-satellite` — consistent
+with either "private" or "doesn't exist." Checking the actual
+`build-satellite.yml` run history settled it: **it has failed on every
+run since it was created — one run total, and that one failed** — the
+image was never pushed at all, denied or not.
+
+Real cause, from the build log: `npm install --omit=dev` fails inside
+`satellite/Dockerfile`'s `node:22-alpine` with `npm error syscall spawn
+git` / `ENOENT`. `satellite/package.json`'s `sonos-discovery` dependency
+is GitHub-sourced (`github:jishi/node-sonos-discovery#v1.8.0` — see
+`satellite/README.md` for why: the npm-published version predates a
+Node 20 compatibility fix only ever tagged on GitHub), so npm needs
+`git` on the image to fetch it at install time — and `node:22-alpine`
+doesn't ship `git`. Fixed with one line in `satellite/Dockerfile`
+(`RUN apk add --no-cache git`, before `npm install`). Neither
+`frontend/Dockerfile` nor `backend/Dockerfile` have any git-sourced
+dependency, so this was specific to the satellite image, not a class of
+bug across all three.
+
+Worth being honest about the sequence here: this bug predates, and is
+unrelated to, both the write_files/module-ordering fix and the compose
+race fix above — it means every "should be running now" assumption made
+about the satellite container in this whole design doc, from the very
+first Docker-deployment commit onward, was never actually true. The
+box's Sonos/Dirigera capability and the frontend it's meant to serve
+have not been running at all — only `nginx` (an existing, working image)
+and `watchtower` were ever real; `capture-satellite.service` failing to
+pull is what surfaced this, several boots and fixes later than it
+should have been caught.
+
 ## Open questions
 
 - Whether Tailscale's authkey should be one-time/ephemeral per satellite
