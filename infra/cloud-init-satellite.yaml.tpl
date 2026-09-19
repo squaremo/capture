@@ -363,7 +363,7 @@ write_files:
         done
       ) &
 
-      # Low-power sleep: after 5 minutes with no input at all (touch,
+      # Low-power sleep: after 30 seconds with no input at all (touch,
       # mouse, keyboard), power the panel's backlight off and drop every
       # CPU core to its lowest-power governor; undo both the moment any
       # input arrives. swayidle watches labwc's own idle-notify support
@@ -382,7 +382,7 @@ write_files:
       # so a plain `;`-joined string is enough — no need to nest a
       # second `sh -c` inside it.
       swayidle -w \
-        timeout 300 '/opt/capture-satellite/backlight.sh off; /opt/capture-satellite/cpu-power.sh low' \
+        timeout 30 '/opt/capture-satellite/backlight.sh off; /opt/capture-satellite/cpu-power.sh low' \
         resume '/opt/capture-satellite/backlight.sh on; /opt/capture-satellite/cpu-power.sh normal' &
 
   # ${KIOSK_USER}'s login shell runs this once, on tty1 only (not over

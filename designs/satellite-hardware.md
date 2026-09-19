@@ -236,7 +236,7 @@ one browser tab sitting on the same box.
 The physical button is also expected to wake the display if it's been
 blanked to save the screen. Low-power display sleep now exists
 (`infra/cloud-init-satellite.yaml.tpl`'s `swayidle` + `backlight.sh`):
-after 5 minutes with no input, the panel's backlight powers off via the
+after 30 seconds with no input, the panel's backlight powers off via the
 standard `bl_power` sysfs knob, and any touch/mouse/keyboard activity —
 picked up through labwc's own idle-notify support — powers it back on
 automatically, with no in-page code involved. **Confirmed on real
