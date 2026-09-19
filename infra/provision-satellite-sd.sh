@@ -56,10 +56,24 @@ set -euo pipefail
 #
 # Doesn't format or partition anything — the SD card must already have
 # Raspberry Pi OS (Bookworm or later) flashed onto it.
+#
+# DISABLE_BLUETOOTH / DISABLE_HDMI: power-saving overrides, both "1"
+# (off) by default — the one kiosk build this project actually runs
+# (Touch Display 2 over DSI, no Bluetooth peripheral) has no use for
+# either radio/output, so provisioning turns them off unless told
+# otherwise. A satellite with different hardware — an HDMI-driven kiosk
+# screen, or one that pairs something over Bluetooth — should pass
+# DISABLE_HDMI=0 / DISABLE_BLUETOOTH=0 rather than editing
+# cloud-init-satellite.yaml.tpl's shared config.txt logic:
+#   DISABLE_HDMI=0 ./provision-satellite-sd.sh ...
+# See cloud-init-satellite.yaml.tpl's "Optional: disable unused
+# radios/outputs" runcmd block for what each one actually writes.
 
 : "${TAILSCALE_AUTH_KEY:?set TAILSCALE_AUTH_KEY}"
 : "${BACKEND_URL:?set BACKEND_URL}"
 REPO_URL="${REPO_URL:-https://github.com/squaremo/capture.git}"
+DISABLE_BLUETOOTH="${DISABLE_BLUETOOTH:-1}"
+DISABLE_HDMI="${DISABLE_HDMI:-1}"
 
 command -v envsubst >/dev/null || {
   echo "envsubst not found (part of gettext) — install it first." >&2
@@ -227,12 +241,12 @@ fi
 HOUSE_ID="$EFFECTIVE_HOUSE_ID"
 MACHINE_HOSTNAME="$EFFECTIVE_MACHINE_HOSTNAME"
 ADMIN_USER="$EFFECTIVE_ADMIN_USER"
-export HOUSE_ID MACHINE_HOSTNAME ADMIN_USER KIOSK_USER ADMIN_SSH_PUBLIC_KEY TAILSCALE_AUTH_KEY BACKEND_URL REPO_URL
+export HOUSE_ID MACHINE_HOSTNAME ADMIN_USER KIOSK_USER ADMIN_SSH_PUBLIC_KEY TAILSCALE_AUTH_KEY BACKEND_URL REPO_URL DISABLE_BLUETOOTH DISABLE_HDMI
 
 RENDERED="$(mktemp)"
 trap 'rm -f "$RENDERED"' EXIT
 
-envsubst '$HOUSE_ID $MACHINE_HOSTNAME $ADMIN_USER $KIOSK_USER $ADMIN_SSH_PUBLIC_KEY $TAILSCALE_AUTH_KEY $BACKEND_URL $REPO_URL' \
+envsubst '$HOUSE_ID $MACHINE_HOSTNAME $ADMIN_USER $KIOSK_USER $ADMIN_SSH_PUBLIC_KEY $TAILSCALE_AUTH_KEY $BACKEND_URL $REPO_URL $DISABLE_BLUETOOTH $DISABLE_HDMI' \
   < "$TEMPLATE" > "$RENDERED"
 
 if [ -n "$MERGE" ]; then

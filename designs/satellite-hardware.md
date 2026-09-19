@@ -234,10 +234,45 @@ device either way; the SSE channel only ever carries final text, to the
 one browser tab sitting on the same box.
 
 The physical button is also expected to wake the display if it's been
-blanked to save the screen. That's an OS-level action (`vcgencmd`/DPMS),
-so it lives in the GPIO script alongside the recording logic, not in the
-page — the same reasoning that puts recording there: a native process can
-do things a sandboxed kiosk tab can't reliably do to itself.
+blanked to save the screen. Low-power display sleep now exists
+(`infra/cloud-init-satellite.yaml.tpl`'s `swayidle` + `backlight.sh`):
+after 30 seconds with no input, the panel's backlight powers off via the
+standard `bl_power` sysfs knob, and any touch/mouse/keyboard activity —
+picked up through labwc's own idle-notify support — powers it back on
+automatically, with no in-page code involved. **Confirmed on real
+hardware** (Touch Display 2): labwc does advertise the idle protocol
+swayidle needs, and the backlight genuinely blanks/wakes on touch — the
+one real snag was `bl_power` being root-owned by default, fixed with a
+udev rule handing the `video` group (which `${KIOSK_USER}` is already
+in) write access to it, rather than giving the kiosk account any form
+of sudo. A GPIO button press is invisible to that mechanism, though
+(it's not a Wayland input event the compositor ever sees), so the GPIO
+script still needs its own explicit call to
+`/opt/capture-satellite/backlight.sh on` alongside the recording
+logic — the same reasoning that puts recording there: a native process
+can do things a sandboxed kiosk tab can't reliably do to itself.
+
+The same `swayidle` timeout/resume pair also drops every CPU core to
+its `powersave` governor while asleep (`cpu-power.sh`, restores
+whatever governor was actually running rather than assuming a
+specific one) — the next lever after the display, still tied to the
+exact same touch-to-wake trigger. Its permission fix uses a dedicated
+`pwrctl` group rather than reusing `video` (the backlight's group):
+CPU frequency scaling isn't display/GPU access, so it gets its own
+group rather than riding along on one that happened to already be
+there — same one-group-per-need shape as `${KIOSK_USER}`'s existing
+`video`/`render`/`input` split. Not yet run through the same live
+hardware pass the backlight got; worth confirming
+`scaling_governor` actually flips next time someone's at the box.
+
+Bluetooth and HDMI are turned off outright at the `config.txt` level
+(`dtoverlay=disable-bt` / `hdmi_blanking=2`) rather than cycled with
+sleep/wake — this kiosk build (DSI touchscreen, no BT peripheral) has
+no use for either, ever. Both are opt-out per satellite via
+`provision-satellite-sd.sh`'s `DISABLE_BLUETOOTH`/`DISABLE_HDMI` (default
+"1"/off), not hardcoded into the shared template, since a future
+satellite with an HDMI-driven screen or a Bluetooth peripheral would
+need the opposite.
 
 ### Landing a transcript when Station isn't idle
 
