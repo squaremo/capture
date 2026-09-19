@@ -256,7 +256,12 @@ The same `swayidle` timeout/resume pair also drops every CPU core to
 its `powersave` governor while asleep (`cpu-power.sh`, restores
 whatever governor was actually running rather than assuming a
 specific one) — the next lever after the display, still tied to the
-exact same touch-to-wake trigger. Not yet run through the same live
+exact same touch-to-wake trigger. Its permission fix uses a dedicated
+`pwrctl` group rather than reusing `video` (the backlight's group):
+CPU frequency scaling isn't display/GPU access, so it gets its own
+group rather than riding along on one that happened to already be
+there — same one-group-per-need shape as `${KIOSK_USER}`'s existing
+`video`/`render`/`input` split. Not yet run through the same live
 hardware pass the backlight got; worth confirming
 `scaling_governor` actually flips next time someone's at the box.
 

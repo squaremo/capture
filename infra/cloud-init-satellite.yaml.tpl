@@ -30,6 +30,19 @@ manage_etc_hosts: true
 # interactive SSH login too, not just a physical console login, so
 # sharing one account here would mean editing your own dotfiles risks
 # breaking the kiosk, and vice versa.
+# pwrctl: not a stock group — created below purely so cpufreq's
+# governor knobs (cpufreq-permissions.service) have somewhere to be
+# handed to that isn't `video`. `video` is the right, conventional
+# group for the backlight (systemd's own default udev rules already
+# grant it write access there for this exact reason), but CPU
+# frequency scaling has nothing to do with display/GPU access — giving
+# it to ${KIOSK_USER} via `video` just because that group happens to
+# already be there would blur why the account has each permission it
+# holds, when every other group on this account maps to one specific,
+# documented need.
+groups:
+  - pwrctl
+
 users:
   - name: ${ADMIN_USER}
     groups: sudo
@@ -40,8 +53,8 @@ users:
   - name: ${KIOSK_USER}
     # video/render/input: needed for labwc (the kiosk Wayland compositor,
     # below) to get GPU/input access directly, with no display/login
-    # manager brokering it.
-    groups: video,render,input
+    # manager brokering it. pwrctl: see the group definition above.
+    groups: video,render,input,pwrctl
     shell: /bin/bash
     lock_passwd: true
 
@@ -297,24 +310,28 @@ write_files:
       done
 
   # cpufreq's sysfs knobs are root-owned by default, same problem as
-  # `bl_power` above and the same fix in spirit — hand ${KIOSK_USER}'s
-  # existing `video` group write access rather than any form of sudo.
-  # A plain oneshot service, not a udev rule: unlike the backlight
-  # device, these files exist under /sys/devices/system/cpu regardless
-  # of any hotplug event, so there's nothing for a udev rule to trigger
-  # on reliably — a service that just runs once at boot, after the
+  # `bl_power` above and the same fix in spirit — hand ${KIOSK_USER}
+  # group write access rather than any form of sudo. Uses the dedicated
+  # `pwrctl` group (see the `groups:`/`users:` entries above), not
+  # `video` — CPU frequency scaling has nothing to do with display/GPU
+  # access, unlike the backlight, so it gets its own group rather than
+  # riding along on one that happens to already be there. A plain
+  # oneshot service, not a udev rule: unlike the backlight device,
+  # these files exist under /sys/devices/system/cpu regardless of any
+  # hotplug event, so there's nothing for a udev rule to trigger on
+  # reliably — a service that just runs once at boot, after the
   # cpufreq driver's already loaded, is simpler and matches the pattern
   # fix-goodix-touch.service already uses here for a boot-order-
   # sensitive one-shot fix.
   - path: /etc/systemd/system/cpufreq-permissions.service
     content: |
       [Unit]
-      Description=Grant the video group write access to cpufreq governor knobs
+      Description=Grant the pwrctl group write access to cpufreq governor knobs
       After=multi-user.target
 
       [Service]
       Type=oneshot
-      ExecStart=/bin/sh -c 'chgrp video /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor && chmod g+w /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor'
+      ExecStart=/bin/sh -c 'chgrp pwrctl /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor && chmod g+w /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor'
 
       [Install]
       WantedBy=multi-user.target
