@@ -241,8 +241,10 @@ write_files:
   # OS-level action, since a sandboxed kiosk tab can't reliably do it to
   # itself) via the standard `bl_power` backlight sysfs knob, which works
   # regardless of compositor/driver. Globs the device rather than
-  # hardcoding a name — not yet confirmed which backlight node the Touch
-  # Display 2's driver registers as on this exact build.
+  # hardcoding a name. Confirmed on real hardware (Touch Display 2):
+  # backlight actually blanks/wakes via this script, once ${KIOSK_USER}
+  # can write to `bl_power` at all — see the udev rule below for that
+  # part.
   - path: /opt/capture-satellite/backlight.sh
     permissions: "0755"
     content: |
@@ -254,6 +256,18 @@ write_files:
           on)  echo 0 > "$f" ;;
         esac
       done
+
+  # `bl_power` is root-owned by default — ${KIOSK_USER} writing to it
+  # directly fails "Permission denied" (confirmed on real hardware).
+  # Fix is a udev rule handing the `video` group write access, not
+  # sudo: ${KIOSK_USER} deliberately has no sudo/SSH-key path to admin
+  # (see the users: comment above) precisely so a compromised Chromium
+  # session can't escalate, and it's already in `video` for GPU access
+  # — reusing that group for backlight access keeps the same "no path
+  # to root" property rather than punching a hole in it.
+  - path: /etc/udev/rules.d/90-backlight-video-group.rules
+    content: |
+      SUBSYSTEM=="backlight", RUN+="/bin/chgrp video /sys/class/backlight/%k/bl_power", RUN+="/bin/chmod g+w /sys/class/backlight/%k/bl_power"
 
   # labwc's own autostart mechanism — run once labwc itself has
   # started, in place of cage's old "take the one client as a command-
@@ -288,11 +302,10 @@ write_files:
       # idle-notify support (labwc is built on wlroots, which implements
       # the same idle protocol swaylock and friends rely on) rather than
       # anything Station's page has to opt into — a touch wakes the
-      # panel with no in-page code at all. Not yet confirmed on real
-      # hardware that this labwc build actually advertises the idle
-      # protocol swayidle needs; if it doesn't, swayidle exits
-      # immediately and the panel just never sleeps (Chromium's own
-      # kiosk loop above is unaffected either way).
+      # panel with no in-page code at all. Confirmed on real hardware:
+      # labwc does advertise the idle protocol swayidle needs, and the
+      # backlight genuinely blanks/wakes on touch (see the udev rule
+      # above for the permission fix that took to get there).
       swayidle -w \
         timeout 300 '/opt/capture-satellite/backlight.sh off' \
         resume '/opt/capture-satellite/backlight.sh on' &
@@ -401,6 +414,13 @@ runcmd:
   - systemctl daemon-reload
   - systemctl restart getty@tty1
   - systemctl enable --now fix-goodix-touch.service
+
+  # Applies the backlight udev rule (write_files, above) immediately —
+  # the backlight device already exists by this point in boot, so
+  # without this, ${KIOSK_USER} would only get write access to
+  # `bl_power` after the *next* reboot re-triggers udev, not this one.
+  - udevadm control --reload-rules
+  - udevadm trigger --subsystem-match=backlight
 
   # ── Touch Display 2 (7") ─────────────────────────────────────────────
   # dtoverlay=vc4-kms-v3d (Raspberry Pi OS's default) drives video on

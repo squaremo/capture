@@ -239,10 +239,16 @@ blanked to save the screen. Low-power display sleep now exists
 after 5 minutes with no input, the panel's backlight powers off via the
 standard `bl_power` sysfs knob, and any touch/mouse/keyboard activity —
 picked up through labwc's own idle-notify support — powers it back on
-automatically, with no in-page code involved. A GPIO button press is
-invisible to that mechanism, though (it's not a Wayland input event the
-compositor ever sees), so the GPIO script still needs its own explicit
-call to `/opt/capture-satellite/backlight.sh on` alongside the recording
+automatically, with no in-page code involved. **Confirmed on real
+hardware** (Touch Display 2): labwc does advertise the idle protocol
+swayidle needs, and the backlight genuinely blanks/wakes on touch — the
+one real snag was `bl_power` being root-owned by default, fixed with a
+udev rule handing the `video` group (which `${KIOSK_USER}` is already
+in) write access to it, rather than giving the kiosk account any form
+of sudo. A GPIO button press is invisible to that mechanism, though
+(it's not a Wayland input event the compositor ever sees), so the GPIO
+script still needs its own explicit call to
+`/opt/capture-satellite/backlight.sh on` alongside the recording
 logic — the same reasoning that puts recording there: a native process
 can do things a sandboxed kiosk tab can't reliably do to itself.
 
