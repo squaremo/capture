@@ -75,6 +75,10 @@ packages:
   # headless" in designs/satellite-hardware.md.
   - labwc
   - seatd
+  # Real, OS-level screen power-down after the panel's idle for a while —
+  # see the backlight.sh write_files entry and its autostart wiring
+  # below for why this replaces any in-page "screensaver" approach.
+  - swayidle
   # `chromium` here, not `chromium-browser` — confirmed on real
   # hardware that `chromium-browser` is a transitional/dependency-only
   # package on this repo that doesn't provide its own binary of that
@@ -232,6 +236,25 @@ write_files:
       export XDG_RUNTIME_DIR=/run/user/$(id -u)
       exec labwc
 
+  # Real screen power-down (not a browser-side dimming trick — see
+  # designs/satellite-hardware.md's note that blanking has to be an
+  # OS-level action, since a sandboxed kiosk tab can't reliably do it to
+  # itself) via the standard `bl_power` backlight sysfs knob, which works
+  # regardless of compositor/driver. Globs the device rather than
+  # hardcoding a name — not yet confirmed which backlight node the Touch
+  # Display 2's driver registers as on this exact build.
+  - path: /opt/capture-satellite/backlight.sh
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      # $1: "on" or "off".
+      for f in /sys/class/backlight/*/bl_power; do
+        case "$1" in
+          off) echo 1 > "$f" ;;
+          on)  echo 0 > "$f" ;;
+        esac
+      done
+
   # labwc's own autostart mechanism — run once labwc itself has
   # started, in place of cage's old "take the one client as a command-
   # line argument" model. Backgrounded (`&`) since labwc's autostart
@@ -258,6 +281,21 @@ write_files:
           sleep 2
         done
       ) &
+
+      # Low-power sleep: after 5 minutes with no input at all (touch,
+      # mouse, keyboard), power the panel's backlight off; power it back
+      # on the moment any input arrives. swayidle watches labwc's own
+      # idle-notify support (labwc is built on wlroots, which implements
+      # the same idle protocol swaylock and friends rely on) rather than
+      # anything Station's page has to opt into — a touch wakes the
+      # panel with no in-page code at all. Not yet confirmed on real
+      # hardware that this labwc build actually advertises the idle
+      # protocol swayidle needs; if it doesn't, swayidle exits
+      # immediately and the panel just never sleeps (Chromium's own
+      # kiosk loop above is unaffected either way).
+      swayidle -w \
+        timeout 300 '/opt/capture-satellite/backlight.sh off' \
+        resume '/opt/capture-satellite/backlight.sh on' &
 
   # ${KIOSK_USER}'s login shell runs this once, on tty1 only (not over
   # SSH — this account has no SSH key at all — and not if a compositor

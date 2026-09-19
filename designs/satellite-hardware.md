@@ -234,10 +234,17 @@ device either way; the SSE channel only ever carries final text, to the
 one browser tab sitting on the same box.
 
 The physical button is also expected to wake the display if it's been
-blanked to save the screen. That's an OS-level action (`vcgencmd`/DPMS),
-so it lives in the GPIO script alongside the recording logic, not in the
-page — the same reasoning that puts recording there: a native process can
-do things a sandboxed kiosk tab can't reliably do to itself.
+blanked to save the screen. Low-power display sleep now exists
+(`infra/cloud-init-satellite.yaml.tpl`'s `swayidle` + `backlight.sh`):
+after 5 minutes with no input, the panel's backlight powers off via the
+standard `bl_power` sysfs knob, and any touch/mouse/keyboard activity —
+picked up through labwc's own idle-notify support — powers it back on
+automatically, with no in-page code involved. A GPIO button press is
+invisible to that mechanism, though (it's not a Wayland input event the
+compositor ever sees), so the GPIO script still needs its own explicit
+call to `/opt/capture-satellite/backlight.sh on` alongside the recording
+logic — the same reasoning that puts recording there: a native process
+can do things a sandboxed kiosk tab can't reliably do to itself.
 
 ### Landing a transcript when Station isn't idle
 
