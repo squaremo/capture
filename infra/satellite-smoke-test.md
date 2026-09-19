@@ -148,11 +148,22 @@ reboot at the end of the cloud-config — `last /` or `uptime` will show
 whether a reboot happened at all).
 
 Once the card shows up, an actual loopback test — speak into the mic,
-hear it back on the speaker:
+hear it back on the speaker. **Confirmed working on real hardware**
+with this exact device name/invocation (through headphones plugged
+into the HAT's own jack; not yet tried with a separate powered
+speaker):
 
 ```bash
-arecord -D plughw:wm8960soundcard -f S16_LE -d 5 /tmp/test.wav   # talk during this
-aplay -D plughw:wm8960soundcard /tmp/test.wav
+arecord -D plughw:wm8960soundcard,0 -f S16_LE -r 44100 -d 5 /tmp/test.wav   # talk during this
+aplay -D plughw:wm8960soundcard,0 /tmp/test.wav
+```
+
+If playback is silent despite a valid-sounding recording, check for a
+muted or zeroed channel before assuming something's actually broken —
+fresh cards often start that way:
+
+```bash
+alsamixer -c 0
 ```
 
 (Device name may differ — check the exact name `aplay -l`/`arecord -l`

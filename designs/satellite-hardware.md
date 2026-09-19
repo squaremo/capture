@@ -32,7 +32,7 @@ rather than a second, Android-specific app.
 | Part | Pick | Why |
 |---|---|---|
 | Compute | Raspberry Pi 4 (2GB) | Enough for Chromium kiosk + a small local Whisper model. Pi 5 was considered and rejected specifically for this build — see the audio jack note below. |
-| Screen | Official Raspberry Pi Touch Display 2, 5" (DSI) | Clean cabling, long-term official driver support. A budget HDMI touchscreen (e.g. SunFounder 5" 800×480) is a cheaper fallback with bulkier cabling. |
+| Screen | Official Raspberry Pi Touch Display 2, **7"** (DSI, portrait-native 720×1280) | Clean cabling, long-term official driver support. A budget HDMI touchscreen (e.g. SunFounder 5" 800×480) is a cheaper fallback with bulkier cabling. Corrected from an earlier "5"" here — the unit actually in hand is the 7" model; see "Touch Display 2 setup" below for what it took to get both video and touch working. |
 | Mic/Speaker | ~~Plain USB microphone capsule~~ / ~~Pi 4's 3.5mm jack~~ — **superseded**: a WM8960-codec audio HAT (Waveshare), now actually in hand | Combines mic array + speaker output on one board via I2S, driven by an out-of-tree DKMS module (see "WM8960 audio HAT" below) rather than USB/analog-jack. This specific board has a pass-through header exposing the full 40-pin GPIO, unlike the generic WM8960 boards a first search turned up — confirmed by hand, not assumed — so it doesn't reopen the ReSpeaker rejection's GPIO-header problem below after all. |
 | Physical PTT button | Standalone arcade/momentary push-button, wired to a free GPIO pin + GND, panel-mounted through the case | Still viable via the WM8960 HAT's pass-through header, above. |
 | Case | SmartiPi Touch 2 | Purpose-built for a Pi + official touch display. Panel-mounting the button means drilling one hole per unit — needs a repeatable jig/template if this gets built more than once. |
@@ -94,6 +94,46 @@ HAT search, which turned up boards without one) — so unlike the
 ReSpeaker rejection below, it doesn't block the physical PTT button's
 GPIO wiring.
 
+## Touch Display 2 setup
+
+Confirmed working on real hardware after three separate, independent
+issues — video, then touch detection, then a boot-timing race — each
+needing its own fix, wired into `infra/cloud-init-satellite.yaml.tpl`'s
+"Touch Display 2 (7")" `runcmd` section and `fix-goodix-touch.service`:
+
+1. **Video worked out of the box** (the default `vc4-kms-v3d` overlay's
+   generic DSI panel probing was enough for the `ili9881c-dsi` panel
+   driver to bind), but **touch did nothing at all** — no touch device
+   anywhere in `/proc/bus/input/devices`. Needed an explicit
+   `dtoverlay=vc4-kms-dsi-ili9881-7inch` in `/boot/firmware/config.txt`
+   — the specific panel overlay, not just the generic KMS one, is what
+   actually instantiates the bundled Goodix touch controller in the
+   device tree at all.
+2. Even with that overlay, touch device registration was still flaky
+   depending on when in the boot sequence it was checked. Root cause
+   found in `dmesg`: `Goodix-TS 10-005d: I2C communication failure: -5`
+   — the kernel's `goodix_ts` driver probes before the chip is actually
+   ready to answer on I2C after a *software* reboot specifically (not a
+   full power cycle), fails once, and never retries on its own. This is
+   a documented issue against this exact display, not something
+   specific to this project. Fix: `fix-goodix-touch.service`, a oneshot
+   unit that does `rmmod goodix_ts` (`-` prefixed so a failure there —
+   e.g. the module never loaded — doesn't block what follows) then
+   `modprobe goodix_ts`, forcing a fresh probe once the system's further
+   along and the chip has settled. Confirmed on real hardware: the
+   device (`10-005d Goodix Capacitive TouchScreen`) registers cleanly
+   after this reload, having failed silently before it.
+3. **The panel is portrait-native** (720×1280) — landscape needed a
+   `panel_orientation` value on the `video=` kernel cmdline parameter in
+   `/boot/firmware/cmdline.txt`, Bookworm/Trixie's Wayland-era
+   replacement for the old `display_rotate=` setting. Specifically a
+   DRM-level property, which matters here: `cage` is a KMS/DRM-native
+   Wayland compositor, so it respects this correctly, unlike legacy
+   console-only rotation tricks that don't affect apps drawing straight
+   to DRM. `left_side_up` vs. `right_side_up` depends on which way the
+   panel is physically mounted — confirmed correct for this build, but
+   worth flipping on a second unit if it comes up rotated the wrong way.
+
 ## Display stack: minimal, not headless
 
 Correction to earlier guidance in this conversation (and implicitly to
@@ -114,7 +154,8 @@ Raspberry-Pi-documented kiosk pattern:
    enough to run one fullscreen client) — the actual OS in use is
    Raspberry Pi OS **Trixie** (Debian 13, released Oct 2025), not
    Bookworm as earlier drafts of this doc assumed; `labwc` is current on
-   both.
+   both. An earlier version of this build used `cage` instead — see
+   "Switched cage → labwc" below for why that changed.
 2. Chromium, launched `--kiosk --app=http://localhost:<port>/?station`
    against this same box's own satellite process (see Satellite-served
    frontend in `designs/satellites.md` — no separate hosting needed,
@@ -122,21 +163,22 @@ Raspberry-Pi-documented kiosk pattern:
 3. Console autologin + autostart, so the compositor + Chromium launch
    with no keyboard interaction ever needed after boot.
 
-Added to `infra/cloud-init-satellite.yaml.tpl`: `cage`/`seatd`/
-`chromium` packages, a `getty@tty1` autologin drop-in, and a `kiosk.sh`
-(launched from the kiosk account's `.bash_profile` on tty1 only)
-running `cage -- chromium --kiosk --app=http://localhost/?station`
-against this same box's own satellite process.
+Added to `infra/cloud-init-satellite.yaml.tpl`: `labwc`/`seatd`/
+`chromium` packages, a `getty@tty1` autologin drop-in, `kiosk.sh`
+(launched from the kiosk account's `.bash_profile` on tty1 only,
+exports `XDG_RUNTIME_DIR` and execs `labwc`), and a
+`~/.config/labwc/autostart` script that launches Chromium against this
+same box's own satellite process, in a respawn loop for resilience.
 
 **Corrected against real hardware**: earlier guidance here said
 `chromium-browser` was confirmed to exist on Trixie — true as a package
 name, but wrong in the way that mattered. It installs as a
 transitional/dependency-only package on this repo that doesn't provide
-its own binary of that name; `cage`'s actual client is the plain
-`chromium` binary. Surfaced as `cage`'s "Failed to spawn client: No
-such file or directory" once everything else (XDG_RUNTIME_DIR, seat
-access) was already working — a reminder that "the package exists"
-isn't the same claim as "the binary you're about to exec exists."
+its own binary of that name; the actual client binary is plain
+`chromium`. Surfaced as `cage`'s "Failed to spawn client: No such file
+or directory" once everything else (XDG_RUNTIME_DIR, seat access) was
+already working — a reminder that "the package exists" isn't the same
+claim as "the binary you're about to exec exists."
 
 ### Rejected: ReSpeaker 2-Mic Pi HAT
 
@@ -270,6 +312,84 @@ Candidate for folding into a cloud-init-style first-boot script for this
 box later (mirroring `infra/cloud-init.yaml.tpl`'s pattern), once the
 provisioning story below is actually written — not done yet, this is
 still a manual post-flash step.
+
+## Switched cage → labwc
+
+Investigating TODO #1 below (browser stayed portrait despite the
+console being correctly rotated) turned up the actual cause: `cage`
+(this OS's packaged version) ignores the DRM `panel_orientation`
+property entirely — it only supports *static* rotation passed at its
+own startup, not automatic detection, which is exactly the mechanism
+`panel_orientation` relies on. `labwc` honours the property at output
+init instead, the same way the tty console already does.
+
+That also mattered for TODO #4 (on-screen keyboard): `cage` is
+deliberately single-client-only with no `wlr-layer-shell` support at
+all, which any Wayland virtual keyboard (`squeekboard`, `wvkbd`) needs
+just to exist as an overlay surface in the first place. `labwc`
+implements layer-shell. **This does not, by itself, fix TODO #4** —
+getting a keyboard to actually render *above* a fullscreen Chromium
+kiosk is a separate, still-open upstream problem
+([labwc/labwc#2926](https://github.com/labwc/labwc/issues/2926)):
+squeekboard/wvkbd are hardcoded to a layer that sits below labwc's
+"fullscreen windows" layer, so a fullscreen Chromium still covers them
+regardless of compositor. Switching compositors was a necessary step
+toward a keyboard, not a complete fix.
+
+Mechanically: `cage`'s whole model was "take one client as a
+command-line argument, run only that." `labwc` is a real (if
+minimal) window manager with its own autostart mechanism instead —
+`kiosk.sh` now just execs `labwc` (still exporting `XDG_RUNTIME_DIR`
+first, same requirement as before), and a new
+`~/.config/labwc/autostart` script launches Chromium as a background
+child. That shape change costs one thing worth calling out: under
+`cage`, a Chromium crash ended the whole tty1 login session, which
+`getty` then restarted — crude, but a real self-healing mechanism.
+Under `labwc`, Chromium is just a background child of a script that
+otherwise exits immediately; without deliberately adding one back, a
+crash would leave `labwc` running with a blank screen and nothing to
+recover it. Fixed with a respawn loop (`while true; do chromium ...;
+sleep 2; done &`) in the autostart script itself, rather than losing
+that resilience in the compositor switch.
+
+## Live troubleshooting TODOs
+
+Recorded during hands-on debugging of `capture-station-1`:
+
+1. The console/tty text is correctly rotated to landscape, but the
+   browser was still rendering portrait. **Still not actually fixed**:
+   switching to `labwc` (see "Switched cage → labwc" above) was
+   expected to resolve this via automatic `panel_orientation` detection
+   at output init, same as the tty console — confirmed on real hardware
+   that it does **not**, Chromium still comes up portrait under `labwc`
+   too. Next step in progress: an explicit `<output>` transform in
+   `labwc`'s own `rc.xml` (rather than relying on automatic detection at
+   all) — exact XML syntax not yet confirmed, most reference docs for it
+   were unreachable mid-investigation (network egress blocks on
+   labwc.github.io, the Debian/Ubuntu/openSUSE manpage mirrors,
+   ArchWiki, GitHub Gist, and the Raspberry Pi forum thread that likely
+   had a working example) — needs picking back up with better access or
+   a different source.
+2. Hide the mouse pointer — there's no mouse on a touchscreen kiosk, so
+   a visible cursor sitting on screen is pure visual noise. Likely a
+   Chromium flag (something in the `--kiosk`/cursor-autohide family) or
+   an `labwc`/`wlr` idle-inhibit-adjacent setting; not yet looked into.
+3. ~~How to actually check the WM8960 mic works, beyond `dkms
+   status`/`aplay -l`/`arecord -l`.~~ **Confirmed working on real
+   hardware**: `card 0: wm8960soundcard` shows for both playback and
+   capture; recording via `arecord -D plughw:wm8960soundcard,0 -f
+   S16_LE -r 44100 -d 5 <file>` then playing back via `aplay -D
+   plughw:wm8960soundcard,0 <file>` round-tripped real audio
+   successfully (confirmed through headphones plugged into the HAT's
+   jack, not yet tried with a separate powered speaker). Full loopback
+   test added to `infra/satellite-smoke-test.md` §7.
+4. Enable an on-screen keyboard — a touchscreen kiosk needs one for any
+   text entry (the capture textarea itself) since there's no physical
+   keyboard attached. `labwc` (above) is a necessary step, not a
+   complete fix — the layer-ordering problem
+   ([labwc/labwc#2926](https://github.com/labwc/labwc/issues/2926))
+   that hides squeekboard/wvkbd behind a fullscreen Chromium kiosk is
+   still open and unresolved upstream. Not yet attempted.
 
 ## Open questions
 
