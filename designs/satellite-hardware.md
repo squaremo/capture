@@ -208,13 +208,43 @@ including the two new ones.
 | Mode | Trigger | Where it runs | Transcription |
 |---|---|---|---|
 | `webspeech` (existing) | Click to start, click to stop | Entirely in-page | Browser's built-in Web Speech API, cloud-processed |
-| `whisper-stream` (new) | Hold to record, release to stop | In-page, on-screen button | `MediaRecorder` captures while held; on release, the page itself POSTs the audio to a local `whisper.cpp` HTTP endpoint and gets the transcript back synchronously in the response |
+| `whisper-stream` (**implemented**) | Hold to record, release to stop | In-page, on-screen button | `MediaRecorder` captures while held (capped at 25s — see below); on release, the page itself POSTs the audio to `POST /api/transcribe` and gets the transcript back synchronously in the response |
 | `whisper-gpio` (new) | Hold the physical button, release to stop | Outside the browser entirely | A background script (the `station/wakeword.py`-shaped piece, not yet written) watches the GPIO pin directly, records for the duration held, and calls the same local `whisper.cpp` endpoint |
 
 `webspeech` stays exactly as it is — it's the right tradeoff for laptop
 dev, where convenience beats privacy and there's no satellite hardware
-involved anyway. The other two are satellite-only and share one local
-`whisper.cpp` service; they differ only in what triggers the recording.
+involved anyway. The other two are satellite-only.
+
+**`whisper-stream` is implemented** (`createCaptureInput`'s
+`setupWhisperStream()` in `frontend/src/components/capture.js`,
+`POST /api/transcribe` in `satellite/server.js`) but **not the local
+`whisper.cpp` service itself** the way this section originally
+described it — that ended up as a separate, optional `whisper/`
+directory/image (own `Dockerfile`, own Fastify server) rather than code
+baked into the satellite, specifically so a box with no mic hardware, or
+one that hasn't opted in, never pulls whisper.cpp/ffmpeg/the model at
+all. `satellite/services/whisper.js` is just an HTTP client to it
+(`WHISPER_URL`); see `whisper/README.md` and
+`infra/enable-satellite-whisper.sh` (the one-command way to turn it on
+for an already-bootstrapped box) for the actual shape. `whisper-gpio`
+would still share that same service once it exists — only what triggers
+the recording differs.
+
+Unverified against real Pi hardware yet either way — written and
+buildable, not yet confirmed against a live mic capture or a real
+arm64 image build (whisper.cpp is built from source in `whisper/
+Dockerfile`'s multi-stage build specifically because no arm64 binary
+release exists to just fetch).
+
+The 25s hold cap (`WHISPER_MAX_RECORD_MS` in `capture.js`) comes from
+Whisper's own architecture, not a UX guess: the encoder always processes
+a fixed 30-second window per call (positional embeddings sized for
+exactly that), so anything longer either gets silently truncated or
+needs chunking — 25s leaves headroom under that hard limit rather than
+capping right at it. Model choice is `tiny.en`, baked into the
+`whisper/` image — see the RAM/CPU tradeoff discussion this design
+session had: `base` is roughly 2x `tiny`'s footprint on a Pi 4 2GB
+that's already running a Chromium kiosk.
 
 ### The bridge `whisper-gpio` needs that `whisper-stream` doesn't
 
@@ -269,12 +299,17 @@ so it's handled the same way as `thinking` here.
 
 ### Mode selection
 
-Not yet decided in detail, but the natural fit is a runtime config flag
-alongside `defaultHouse`/`backendUrl` in `GET /config.json` (see House
-attribution in `designs/satellites.md`) — a satellite build reports
-itself as `whisper-stream`(+`whisper-gpio`), everything else defaults to
-`webspeech`. Keeps the same build-once/configure-per-deployment split
-already used for house identity.
+**Implemented**, via `GET /config.json`'s `voiceMode` field, alongside
+`defaultHouse`/`backendUrl` (see House attribution in
+`designs/satellites.md`) — same build-once/configure-per-deployment
+split already used for house identity. `satellite/server.js` reports
+`voiceMode: 'whisper-stream'` when `WHISPER_URL` is set (i.e. the
+separate `whisper` service is configured), `'webspeech'` otherwise;
+`createCaptureInput({ voiceMode })` in `capture.js` picks the mode
+accordingly. The general/laptop deployment has no `/config.json` at all,
+so it always falls back to `webspeech`. `whisper-gpio`, once it exists,
+would report `voiceMode: 'whisper-gpio'` (or both, if a satellite ever
+wants the on-screen button available too) the same way.
 
 ## OS maintenance: unattended-upgrades
 
@@ -393,16 +428,25 @@ Recorded during hands-on debugging of `capture-station-1`:
 
 ## Open questions
 
-- Exact shape of the local `whisper.cpp` service — a small wrapper this
-  project writes, or `whisper.cpp`'s own bundled `server` example reused
-  as-is (it already speaks plain HTTP; would need the SSE push endpoint
-  added or fronted separately for `whisper-gpio`).
-- Model size/quantization for real-time performance on a Pi 4 — `tiny` or
-  `base` English-only is the expectation for a few seconds of
-  push-to-talk speech, not yet benchmarked against real hardware.
-- Provisioning: how the satellite is told which voice-input mode(s) it
-  supports, and how the physical-button GPIO pin assignment and case
-  drill template are documented for repeat builds.
+- ~~Exact shape of the local `whisper.cpp` service~~ **Decided and
+  implemented**: a small hand-written wrapper (`whisper/`), not
+  `whisper.cpp`'s bundled `server` example — a separate, optional
+  image/Compose service from the satellite itself, gated by
+  `WHISPER_URL`/a Compose profile so an opted-out box never pulls it.
+  The SSE push endpoint `whisper-gpio` will need is still open — not
+  added yet, since `whisper-gpio` itself isn't built.
+- Model size/quantization for real-time performance on a Pi 4 —
+  **decided**: `tiny.en`, baked into the `whisper/` image
+  (`WHISPER_MODEL_PATH`), not `base` — see the RAM/CPU tradeoff
+  discussion (`base` is roughly 2x `tiny`'s footprint on a Pi 4 2GB
+  already running a Chromium kiosk). Still not benchmarked against real
+  hardware.
+- ~~Provisioning: how the satellite is told which voice-input mode(s) it
+  supports~~ **Decided and implemented** for `whisper-stream`: `GET
+  /config.json`'s `voiceMode` field (see Mode selection above), and
+  `infra/enable-satellite-whisper.sh` for turning the underlying service
+  on post-boot. The physical-button GPIO pin assignment and case drill
+  template question (for `whisper-gpio`) is still open.
 - The `thinking`/`list` queue-and-apply-later behaviour for `whisper-gpio`
   (see Landing a transcript when Station isn't idle) is a proposal, not
   yet validated against how often a physical-button press would actually

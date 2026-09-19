@@ -405,6 +405,10 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 }
 .btn-voice:hover { color: var(--text); border-color: var(--text-dim); }
 .btn-voice.recording { color: var(--sig-fail); border-color: var(--sig-fail); animation: pulse 1s infinite; }
+/* whisper-stream only (see capture.js) — briefly shown between release
+   and the transcript coming back, distinct from the red "recording"
+   state so it's clear the hold itself already ended. */
+.btn-voice.transcribing { color: var(--accent); border-color: var(--accent); animation: pulse 1s infinite; }
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }

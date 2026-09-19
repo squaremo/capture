@@ -2,6 +2,13 @@ import { icon } from './icons.js'
 
 const STORAGE_KEY = 'captureHouse'
 
+// Hard cap on a whisper-stream hold — this is a quick-capture tool, not
+// dictation, and Whisper's encoder has its own fixed 30s window per call
+// regardless; stopping well inside that (rather than anywhere near it)
+// means a capture never gets silently truncated. See the "how many
+// seconds can the model reasonably deal with" design discussion.
+const WHISPER_MAX_RECORD_MS = 25_000
+
 // defaultHouse comes from runtime config (see config.js) — which house
 // this deployment "is," empty for the general frontend, set when a
 // satellite is the one serving this page.
@@ -14,7 +21,15 @@ const STORAGE_KEY = 'captureHouse'
 // a capture still needs tagging with the right house — so setHouses()
 // below keeps computing houseSelect's value exactly as before; this flag
 // only ever suppresses *showing* the row.
-export function createCaptureInput({ onSubmit, defaultHouse, hideHouseChooser = false }) {
+// voiceMode: 'webspeech' (default) or 'whisper-stream' — from runtime
+// config's GET /config.json (see config.js), driven by whether the
+// satellite's own WHISPER_URL is set (satellite/server.js). 'webspeech'
+// is the only mode on the general/laptop deployment, which has no
+// /config.json at all. See designs/satellite-hardware.md's "Voice input:
+// three modes" — webspeech is click-to-toggle against the browser's own
+// cloud speech engine; whisper-stream is hold-to-record against this
+// satellite's local whisper.cpp pipeline, audio never leaving the box.
+export function createCaptureInput({ onSubmit, defaultHouse, hideHouseChooser = false, voiceMode = 'webspeech' }) {
   const section = document.createElement('section')
   section.className = 'capture'
 
@@ -80,36 +95,133 @@ export function createCaptureInput({ onSubmit, defaultHouse, hideHouseChooser = 
 
   submitBtn.addEventListener('click', submit)
 
-  // Voice via Web Speech API
-  let recognition = null
-  if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-    recognition = new SR()
-    recognition.continuous = false
-    recognition.interimResults = false
-    recognition.lang = 'en-US'
+  if (voiceMode === 'whisper-stream') setupWhisperStream()
+  else setupWebSpeech()
 
-    recognition.onresult = (e) => {
-      textarea.value = e.results[0][0].transcript
-      voiceBtn.classList.remove('recording')
-      textarea.focus()
+  // Click-to-toggle against the browser's own SpeechRecognition — audio
+  // goes to Chrome's cloud speech service, entirely outside this app.
+  // The only mode on a non-satellite deployment; see the module doc
+  // comment above.
+  function setupWebSpeech() {
+    let recognition = null
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+      recognition = new SR()
+      recognition.continuous = false
+      recognition.interimResults = false
+      recognition.lang = 'en-US'
+
+      recognition.onresult = (e) => {
+        textarea.value = e.results[0][0].transcript
+        voiceBtn.classList.remove('recording')
+        textarea.focus()
+      }
+      recognition.onend = () => voiceBtn.classList.remove('recording')
+      recognition.onerror = () => voiceBtn.classList.remove('recording')
+    } else {
+      voiceBtn.disabled = true
+      voiceBtn.title = 'Speech recognition not supported in this browser'
     }
-    recognition.onend = () => voiceBtn.classList.remove('recording')
-    recognition.onerror = () => voiceBtn.classList.remove('recording')
-  } else {
-    voiceBtn.disabled = true
-    voiceBtn.title = 'Speech recognition not supported in this browser'
+
+    voiceBtn.addEventListener('click', () => {
+      if (!recognition) return
+      if (voiceBtn.classList.contains('recording')) {
+        recognition.stop()
+      } else {
+        voiceBtn.classList.add('recording')
+        recognition.start()
+      }
+    })
   }
 
-  voiceBtn.addEventListener('click', () => {
-    if (!recognition) return
-    if (voiceBtn.classList.contains('recording')) {
-      recognition.stop()
-    } else {
-      voiceBtn.classList.add('recording')
-      recognition.start()
+  // Hold-to-record against this satellite's own local whisper.cpp
+  // pipeline — POST /api/transcribe (relative: same origin as this page,
+  // since whisper-stream only ever gets selected when a satellite is
+  // serving the frontend, see the module doc comment). A fresh
+  // getUserMedia stream per press, stopped again on release, rather than
+  // one held open for the input's whole lifetime — a Pi's mic-active
+  // indicator (if the WM8960 HAT ever gets one) shouldn't stay lit
+  // between captures. Pointer events, not mouse/touch separately, so one
+  // set of handlers covers both the kiosk touchscreen and a mouse during
+  // dev testing.
+  function setupWhisperStream() {
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      voiceBtn.disabled = true
+      voiceBtn.title = 'Microphone capture not supported in this browser'
+      return
     }
-  })
+
+    let recorder = null
+    let chunks = []
+    let stream = null
+    let autoStopTimer = null
+    let pointerId = null
+
+    voiceBtn.title = 'Hold to record'
+
+    voiceBtn.addEventListener('pointerdown', async (e) => {
+      if (recorder) return // already recording (e.g. a second finger)
+      e.preventDefault()
+      pointerId = e.pointerId
+      voiceBtn.setPointerCapture(pointerId)
+
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      } catch (err) {
+        console.error('Microphone access failed:', err)
+        voiceBtn.title = 'Microphone access failed — check permissions'
+        return
+      }
+
+      chunks = []
+      recorder = new MediaRecorder(stream)
+      recorder.ondataavailable = (evt) => { if (evt.data.size > 0) chunks.push(evt.data) }
+      recorder.onstop = handleStop
+      recorder.start()
+      voiceBtn.classList.add('recording')
+      autoStopTimer = setTimeout(stopRecording, WHISPER_MAX_RECORD_MS)
+    })
+
+    voiceBtn.addEventListener('pointerup', stopRecording)
+    voiceBtn.addEventListener('pointercancel', stopRecording)
+
+    function stopRecording() {
+      if (!recorder) return
+      clearTimeout(autoStopTimer)
+      if (pointerId !== null) {
+        try { voiceBtn.releasePointerCapture(pointerId) } catch { /* already released */ }
+        pointerId = null
+      }
+      recorder.stop()
+    }
+
+    async function handleStop() {
+      voiceBtn.classList.remove('recording')
+      stream.getTracks().forEach((t) => t.stop())
+      const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' })
+      recorder = null
+      chunks = []
+      if (blob.size === 0) return // tap with no hold — nothing recorded
+
+      voiceBtn.classList.add('transcribing')
+      try {
+        const res = await fetch('/api/transcribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'audio/webm' },
+          body: blob,
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(data.error || `transcribe failed: ${res.status}`)
+        textarea.value = data.text
+        textarea.focus()
+      } catch (err) {
+        console.error('Transcription failed:', err)
+        voiceBtn.title = 'Transcription failed — try again'
+      } finally {
+        voiceBtn.classList.remove('transcribing')
+      }
+    }
+  }
 
   houseSelect.addEventListener('change', () => {
     updateHouseDot()
