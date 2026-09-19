@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
 import * as sonos from './services/sonos.js'
 import * as dirigera from './services/dirigera.js'
+import * as whisper from './services/whisper.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -64,11 +65,26 @@ const tlsOptions = TLS_CERT_PATH && TLS_KEY_PATH
 // when a token is actually configured. The hub checks this before
 // dispatching an action rather than firing blind into an unsupported
 // house.
-const CAPABILITIES = ['sonos', ...(dirigera.isConfigured() ? ['dirigera'] : [])]
+const CAPABILITIES = [
+  'sonos',
+  ...(dirigera.isConfigured() ? ['dirigera'] : []),
+  ...(whisper.isConfigured() ? ['whisper'] : []),
+]
 
 const testPageHtml = readFileSync(join(__dirname, 'public/index.html'), 'utf8')
 
-export const app = Fastify({ logger: true, https: tlsOptions })
+// Fastify's default bodyLimit (1 MiB) is tight for a webm/opus recording —
+// raised so the ~20-25s hold-to-record cap the frontend enforces (see
+// capture.js) always fits with headroom, at typical voice bitrates.
+export const app = Fastify({ logger: true, https: tlsOptions, bodyLimit: 5 * 1024 * 1024 })
+
+// MediaRecorder in Chromium produces audio/webm — Fastify only parses
+// application/json out of the box, so anything else 415s unless a parser
+// is registered. This one just buffers the raw bytes; whisper.js does the
+// actual decoding (via ffmpeg) once they reach POST /api/transcribe below.
+app.addContentTypeParser('audio/webm', { parseAs: 'buffer' }, (req, body, done) => {
+  done(null, body)
+})
 
 // ── Runtime config for the frontend ─────────────────────────
 // Replaces what used to be a frontend build-time constant (DEFAULT_HOUSE)
@@ -79,6 +95,13 @@ app.get('/config.json', async () => ({
   defaultHouse: HOUSE_ID,
   backendUrl: BACKEND_URL,
   isStation: IS_STATION,
+  // Tells createCaptureInput() (frontend/src/components/capture.js) which
+  // voice-input mode to wire the mic button to — 'whisper-stream' only
+  // when the separate `whisper` service is configured (WHISPER_URL set —
+  // see services/whisper.js and whisper/README.md), 'webspeech' (the
+  // existing browser-only mode) everywhere else, unchanged from today.
+  // See designs/satellite-hardware.md's "Voice input: three modes".
+  voiceMode: whisper.isConfigured() ? 'whisper-stream' : 'webspeech',
 }))
 
 // ── UI ─────────────────────────────────────────────────────
@@ -230,6 +253,31 @@ app.post('/api/volume', async (req, reply) => {
   }
   try {
     return await sonos.setVolume({ speaker, level })
+  } catch (err) {
+    return reply.code(422).send({ error: err.message })
+  }
+})
+
+// Transcribes a held-to-record clip for the whisper-stream voice-input
+// mode (see designs/satellite-hardware.md) — the frontend's own
+// MediaRecorder captures the whole press-to-release clip and POSTs it
+// here once, rather than streaming chunks (see the whisper-streaming
+// design discussion: Whisper's encoder isn't causal, so re-decoding
+// overlapping windows in real time buys nothing for a few seconds of
+// push-to-talk speech and costs accuracy). Just proxies to the separate
+// `whisper` service (services/whisper.js) — this satellite never runs
+// ffmpeg/whisper.cpp itself, see whisper/README.md for why that's a
+// distinct, optional image. Always returns 422 rather than 500 on a
+// pipeline failure (service unreachable, bad model, empty result) — same
+// shape as the other resolve-style endpoints below, so the frontend can
+// surface it as a normal capture failure instead of a fetch exception.
+app.post('/api/transcribe', async (req, reply) => {
+  if (!whisper.isConfigured()) {
+    return reply.code(400).send({ error: 'whisper not configured on this satellite (WHISPER_URL unset)' })
+  }
+  try {
+    const text = await whisper.transcribe(req.body)
+    return { text }
   } catch (err) {
     return reply.code(422).send({ error: err.message })
   }
