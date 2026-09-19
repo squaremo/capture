@@ -38,7 +38,7 @@ users:
     ssh_authorized_keys:
       - ${ADMIN_SSH_PUBLIC_KEY}
   - name: ${KIOSK_USER}
-    # video/render/input: needed for cage (the kiosk Wayland compositor,
+    # video/render/input: needed for labwc (the kiosk Wayland compositor,
     # below) to get GPU/input access directly, with no display/login
     # manager brokering it.
     groups: video,render,input
@@ -58,26 +58,35 @@ packages:
   # to use it. install.sh pulls in the codec's own build deps itself
   # (dkms/headers/i2c-tools); this is just the diagnostic tools.
   - alsa-utils
-  # Display stack: cage is a Wayland compositor built specifically to run
-  # one fullscreen client and nothing else — no panel, no window
-  # management, no desktop session to configure — the right fit for a
-  # kiosk showing exactly one page. seatd gives it direct seat/GPU access
-  # with no login/display manager needed. See "Display stack: minimal,
-  # not headless" in designs/satellite-hardware.md.
-  - cage
+  # Display stack: labwc, not cage — switched after confirming on real
+  # hardware that cage (this OS's packaged version) ignores the DRM
+  # `panel_orientation` property entirely; it only supports *static*
+  # rotation passed at its own startup, not automatic detection. labwc
+  # honours `panel_orientation` at output init (same mechanism the tty
+  # console already uses correctly), and — unlike cage, which is
+  # deliberately single-client-only with no layer-shell support at all —
+  # implements wlr-layer-shell, a prerequisite for ever getting an
+  # on-screen keyboard (squeekboard/wvkbd) to render above the kiosk at
+  # all, even though that specific problem (a keyboard's layer sitting
+  # below Chromium's fullscreen layer) is a separate, still-open issue
+  # upstream (labwc/labwc#2926) that switching compositors alone doesn't
+  # resolve. seatd gives either compositor direct seat/GPU access with
+  # no login/display manager needed. See "Display stack: minimal, not
+  # headless" in designs/satellite-hardware.md.
+  - labwc
   - seatd
   # `chromium` here, not `chromium-browser` — confirmed on real
   # hardware that `chromium-browser` is a transitional/dependency-only
   # package on this repo that doesn't provide its own binary of that
   # name; the real binary installs as plain `chromium`. Hit this as
-  # `cage`'s "Failed to spawn client: No such file or directory" once
+  # cage's "Failed to spawn client: No such file or directory" once
   # everything else (XDG_RUNTIME_DIR, seat access) was already working.
   - chromium
-  # NOTE: not yet verified against real hardware — seatd may require
-  # ${KIOSK_USER} to also be in a `seatd`/`seat` group (name varies by
-  # package version) for cage to get a seat, on top of the
-  # video/render/input groups above. First thing to check if cage exits
-  # immediately with a seat-access error.
+  # NOTE: not yet re-verified against real hardware since the cage->labwc
+  # switch — seatd may require ${KIOSK_USER} to also be in a
+  # `seatd`/`seat` group beyond video/render/input (name varies by
+  # package version) for either compositor to get a seat. First thing to
+  # check if labwc exits immediately with a seat-access error.
   # whisper.cpp build deps (build-essential, cmake) and audio tooling
   # (alsa-utils) are deliberately left out here — the whisper.cpp
   # service's own shape isn't decided yet (see Open questions in
@@ -196,41 +205,59 @@ write_files:
       ExecStart=-/sbin/agetty --autologin ${KIOSK_USER} --noclear %I $TERM
 
   # Launched by the profile hook below once ${KIOSK_USER}'s shell starts
-  # on tty1. Points at nginx's plain-HTTP :80/localhost server block
-  # (satellite/nginx.conf) — not directly at the satellite container's
-  # own port 4000, since in the split-container deployment the satellite
-  # container no longer serves the frontend build itself, only the API
-  # (see "Docker + Watchtower deployment" in
-  # designs/satellite-provisioning.md). --kiosk fullscreens with no
-  # chrome/tabs/address bar; the update check is disabled since
-  # Watchtower-style auto-update doesn't apply to a browser binary and
-  # there's no need for it to ever phone out.
-  # XDG_RUNTIME_DIR: cage needs it set, and a bare console
-  # `agetty --autologin` doesn't reliably get pam_systemd/logind to set
-  # it up the way a full graphical/systemd-managed login session would
-  # — hit exactly this on real hardware (`cage.c: XDG_RUNTIME_DIR is
-  # not set in the environment`, cage exiting immediately, which then
-  # ended the whole login session and made getty@tty1 restart-loop fast
-  # enough to trip systemd's start-limit and give up entirely). Only
-  # exports the variable here, doesn't try to create the directory
-  # itself — /run/user is root-owned (0755), so ${KIOSK_USER} can't
-  # mkdir under it (hit this too: "Permission denied", then cage
-  # failing again with "Unable to open Wayland socket" against a
-  # directory that was never actually created). `loginctl enable-linger
-  # ${KIOSK_USER}` in runcmd below is what actually gets logind to
-  # create and maintain this directory, with no active session needed
-  # to trigger it.
+  # on tty1. Starts labwc itself only — what actually shows Station
+  # (Chromium, via nginx's plain-HTTP :80/localhost block) is
+  # ${KIOSK_USER}'s labwc autostart script below, since unlike cage
+  # (which took its one client as a command-line argument), labwc is a
+  # real compositor with its own autostart mechanism instead.
+  # XDG_RUNTIME_DIR: labwc (like cage before it) needs it set, and a
+  # bare console `agetty --autologin` doesn't reliably get
+  # pam_systemd/logind to set it up the way a full graphical/systemd-
+  # managed login session would — hit exactly this on real hardware
+  # with cage (`cage.c: XDG_RUNTIME_DIR is not set in the environment`,
+  # exiting immediately, which then ended the whole login session and
+  # made getty@tty1 restart-loop fast enough to trip systemd's
+  # start-limit and give up entirely). Only exports the variable here,
+  # doesn't try to create the directory itself — /run/user is
+  # root-owned (0755), so ${KIOSK_USER} can't mkdir under it (hit this
+  # too: "Permission denied", then cage failing again with "Unable to
+  # open Wayland socket" against a directory that was never actually
+  # created). `loginctl enable-linger ${KIOSK_USER}` in runcmd below is
+  # what actually gets logind to create and maintain this directory,
+  # with no active session needed to trigger it.
   - path: /opt/capture-satellite/kiosk.sh
     permissions: "0755"
     content: |
       #!/bin/sh
       export XDG_RUNTIME_DIR=/run/user/$(id -u)
-      exec cage -- chromium \
-        --kiosk \
-        --noerrdialogs \
-        --disable-infobars \
-        --check-for-update-interval=31536000 \
-        --app=http://localhost/?station
+      exec labwc
+
+  # labwc's own autostart mechanism — run once labwc itself has
+  # started, in place of cage's old "take the one client as a command-
+  # line argument" model. Backgrounded (`&`) since labwc's autostart
+  # runs synchronously and would otherwise block labwc's own startup
+  # waiting for a command that's meant to run for the session's whole
+  # lifetime. Wrapped in a respawn loop rather than a bare one-shot
+  # launch: under cage, a Chromium crash ended the whole login session,
+  # which getty then restarted — a crude but real self-healing
+  # mechanism. Under labwc, Chromium is just a background child of this
+  # script; without the loop, a crash would leave labwc running with a
+  # blank screen and nothing to bring the kiosk back.
+  - path: /home/${KIOSK_USER}/.config/labwc/autostart
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      (
+        while true; do
+          chromium \
+            --kiosk \
+            --noerrdialogs \
+            --disable-infobars \
+            --check-for-update-interval=31536000 \
+            --app=http://localhost/?station
+          sleep 2
+        done
+      ) &
 
   # ${KIOSK_USER}'s login shell runs this once, on tty1 only (not over
   # SSH — this account has no SSH key at all — and not if a compositor
@@ -244,8 +271,9 @@ write_files:
   # never landed at all — turns out write_files validates the owner
   # before writing content, not after). root:root, world-readable is
   # fine for a .bash_profile anyway since only read access matters to
-  # source it; chown'd to the real account below in runcmd, which runs
-  # safely after users exist.
+  # source it; chown'd (recursively, covering .config/labwc/autostart
+  # too) to the real account below in runcmd, which runs safely after
+  # users exist.
   - path: /home/${KIOSK_USER}/.bash_profile
     content: |
       if [ -z "$WAYLAND_DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then
@@ -280,7 +308,12 @@ write_files:
       WantedBy=multi-user.target
 
 runcmd:
-  - chown ${KIOSK_USER}:${KIOSK_USER} /home/${KIOSK_USER}/.bash_profile
+  # Recursive: covers .bash_profile and .config/labwc/autostart (both
+  # written root:root above, for the same write_files-runs-before-users
+  # reason), and anything else that ends up under this account's home
+  # directory later without having to remember a new chown line each
+  # time.
+  - chown -R ${KIOSK_USER}:${KIOSK_USER} /home/${KIOSK_USER}
 
   # Gets logind to create and maintain /run/user/<uid> for the kiosk
   # account persistently, with no active login session needed to
@@ -343,13 +376,15 @@ runcmd:
   #
   # Panel is portrait-native (720x1280) — panel_orientation on the
   # video= cmdline parameter is Bookworm/Trixie's Wayland-era
-  # replacement for the old display_rotate= setting, and specifically
-  # a DRM-level property that cage (a KMS/DRM-native compositor)
-  # respects correctly, unlike legacy console-only rotation tricks
-  # that don't affect apps drawing straight to DRM. left_side_up vs.
-  # right_side_up depends on which way the panel is physically
-  # mounted — confirmed correct for this build, but flip it if a
-  # second unit comes up rotated the wrong way.
+  # replacement for the old display_rotate= setting, and specifically a
+  # DRM-level property. The tty console honours it correctly (it comes
+  # up already rotated); cage did NOT (confirmed on real hardware — this
+  # is one of the two reasons this template switched to labwc, see the
+  # Display stack packages comment above), so it's labwc that's actually
+  # relied on to read this property at output init. left_side_up vs.
+  # right_side_up depends on which way the panel is physically mounted —
+  # confirmed correct for this build, but flip it if a second unit comes
+  # up rotated the wrong way.
   - grep -q "^dtoverlay=vc4-kms-dsi-ili9881-7inch" /boot/firmware/config.txt || echo "dtoverlay=vc4-kms-dsi-ili9881-7inch" >> /boot/firmware/config.txt
   - sed -i 's/$/ video=DSI-1:720x1280M@60D,panel_orientation=left_side_up/' /boot/firmware/cmdline.txt
 

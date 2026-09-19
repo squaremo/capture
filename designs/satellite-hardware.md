@@ -154,7 +154,8 @@ Raspberry-Pi-documented kiosk pattern:
    enough to run one fullscreen client) — the actual OS in use is
    Raspberry Pi OS **Trixie** (Debian 13, released Oct 2025), not
    Bookworm as earlier drafts of this doc assumed; `labwc` is current on
-   both.
+   both. An earlier version of this build used `cage` instead — see
+   "Switched cage → labwc" below for why that changed.
 2. Chromium, launched `--kiosk --app=http://localhost:<port>/?station`
    against this same box's own satellite process (see Satellite-served
    frontend in `designs/satellites.md` — no separate hosting needed,
@@ -162,21 +163,22 @@ Raspberry-Pi-documented kiosk pattern:
 3. Console autologin + autostart, so the compositor + Chromium launch
    with no keyboard interaction ever needed after boot.
 
-Added to `infra/cloud-init-satellite.yaml.tpl`: `cage`/`seatd`/
-`chromium` packages, a `getty@tty1` autologin drop-in, and a `kiosk.sh`
-(launched from the kiosk account's `.bash_profile` on tty1 only)
-running `cage -- chromium --kiosk --app=http://localhost/?station`
-against this same box's own satellite process.
+Added to `infra/cloud-init-satellite.yaml.tpl`: `labwc`/`seatd`/
+`chromium` packages, a `getty@tty1` autologin drop-in, `kiosk.sh`
+(launched from the kiosk account's `.bash_profile` on tty1 only,
+exports `XDG_RUNTIME_DIR` and execs `labwc`), and a
+`~/.config/labwc/autostart` script that launches Chromium against this
+same box's own satellite process, in a respawn loop for resilience.
 
 **Corrected against real hardware**: earlier guidance here said
 `chromium-browser` was confirmed to exist on Trixie — true as a package
 name, but wrong in the way that mattered. It installs as a
 transitional/dependency-only package on this repo that doesn't provide
-its own binary of that name; `cage`'s actual client is the plain
-`chromium` binary. Surfaced as `cage`'s "Failed to spawn client: No
-such file or directory" once everything else (XDG_RUNTIME_DIR, seat
-access) was already working — a reminder that "the package exists"
-isn't the same claim as "the binary you're about to exec exists."
+its own binary of that name; the actual client binary is plain
+`chromium`. Surfaced as `cage`'s "Failed to spawn client: No such file
+or directory" once everything else (XDG_RUNTIME_DIR, seat access) was
+already working — a reminder that "the package exists" isn't the same
+claim as "the binary you're about to exec exists."
 
 ### Rejected: ReSpeaker 2-Mic Pi HAT
 
@@ -311,22 +313,57 @@ box later (mirroring `infra/cloud-init.yaml.tpl`'s pattern), once the
 provisioning story below is actually written — not done yet, this is
 still a manual post-flash step.
 
+## Switched cage → labwc
+
+Investigating TODO #1 below (browser stayed portrait despite the
+console being correctly rotated) turned up the actual cause: `cage`
+(this OS's packaged version) ignores the DRM `panel_orientation`
+property entirely — it only supports *static* rotation passed at its
+own startup, not automatic detection, which is exactly the mechanism
+`panel_orientation` relies on. `labwc` honours the property at output
+init instead, the same way the tty console already does.
+
+That also mattered for TODO #4 (on-screen keyboard): `cage` is
+deliberately single-client-only with no `wlr-layer-shell` support at
+all, which any Wayland virtual keyboard (`squeekboard`, `wvkbd`) needs
+just to exist as an overlay surface in the first place. `labwc`
+implements layer-shell. **This does not, by itself, fix TODO #4** —
+getting a keyboard to actually render *above* a fullscreen Chromium
+kiosk is a separate, still-open upstream problem
+([labwc/labwc#2926](https://github.com/labwc/labwc/issues/2926)):
+squeekboard/wvkbd are hardcoded to a layer that sits below labwc's
+"fullscreen windows" layer, so a fullscreen Chromium still covers them
+regardless of compositor. Switching compositors was a necessary step
+toward a keyboard, not a complete fix.
+
+Mechanically: `cage`'s whole model was "take one client as a
+command-line argument, run only that." `labwc` is a real (if
+minimal) window manager with its own autostart mechanism instead —
+`kiosk.sh` now just execs `labwc` (still exporting `XDG_RUNTIME_DIR`
+first, same requirement as before), and a new
+`~/.config/labwc/autostart` script launches Chromium as a background
+child. That shape change costs one thing worth calling out: under
+`cage`, a Chromium crash ended the whole tty1 login session, which
+`getty` then restarted — crude, but a real self-healing mechanism.
+Under `labwc`, Chromium is just a background child of a script that
+otherwise exits immediately; without deliberately adding one back, a
+crash would leave `labwc` running with a blank screen and nothing to
+recover it. Fixed with a respawn loop (`while true; do chromium ...;
+sleep 2; done &`) in the autostart script itself, rather than losing
+that resilience in the compositor switch.
+
 ## Live troubleshooting TODOs
 
-Recorded during hands-on debugging of `capture-station-1`, not yet
-investigated:
+Recorded during hands-on debugging of `capture-station-1`:
 
-1. The console/tty text is correctly rotated to landscape (the
-   `panel_orientation` cmdline fix above), but the browser (`cage` +
-   `chromium`) is still rendering portrait — so the DRM-level rotation
-   isn't propagating all the way through to what Chromium actually
-   draws. Needs digging into whether Chromium under Wayland picks up
-   the output transform from the compositor/DRM, or needs its own
-   explicit orientation hint.
+1. ~~The console/tty text is correctly rotated to landscape, but the
+   browser was still rendering portrait.~~ **Root-caused and fixed** —
+   see "Switched cage → labwc" above. Not yet re-confirmed on real
+   hardware since the switch.
 2. Hide the mouse pointer — there's no mouse on a touchscreen kiosk, so
    a visible cursor sitting on screen is pure visual noise. Likely a
    Chromium flag (something in the `--kiosk`/cursor-autohide family) or
-   a `cage`/`wlr` idle-inhibit-adjacent setting; not yet looked into.
+   an `labwc`/`wlr` idle-inhibit-adjacent setting; not yet looked into.
 3. How to actually check the WM8960 mic works, beyond `dkms
    status`/`aplay -l`/`arecord -l` already in
    `infra/satellite-smoke-test.md` §7 — i.e. an actual "does sound come
@@ -334,9 +371,11 @@ investigated:
    enough along to try it for real, not just confirm the driver loaded.
 4. Enable an on-screen keyboard — a touchscreen kiosk needs one for any
    text entry (the capture textarea itself) since there's no physical
-   keyboard attached. Not yet looked into; likely a Wayland virtual
-   keyboard protocol implementation (e.g. `wvkbd` or similar) run
-   alongside `cage`/`chromium`, since `cage` itself doesn't provide one.
+   keyboard attached. `labwc` (above) is a necessary step, not a
+   complete fix — the layer-ordering problem
+   ([labwc/labwc#2926](https://github.com/labwc/labwc/issues/2926))
+   that hides squeekboard/wvkbd behind a fullscreen Chromium kiosk is
+   still open and unresolved upstream. Not yet attempted.
 
 ## Open questions
 
