@@ -252,6 +252,23 @@ script still needs its own explicit call to
 logic — the same reasoning that puts recording there: a native process
 can do things a sandboxed kiosk tab can't reliably do to itself.
 
+The same `swayidle` timeout/resume pair also drops every CPU core to
+its `powersave` governor while asleep (`cpu-power.sh`, restores
+whatever governor was actually running rather than assuming a
+specific one) — the next lever after the display, still tied to the
+exact same touch-to-wake trigger. Not yet run through the same live
+hardware pass the backlight got; worth confirming
+`scaling_governor` actually flips next time someone's at the box.
+
+Bluetooth and HDMI are turned off outright at the `config.txt` level
+(`dtoverlay=disable-bt` / `hdmi_blanking=2`) rather than cycled with
+sleep/wake — this kiosk build (DSI touchscreen, no BT peripheral) has
+no use for either, ever. Both are opt-out per satellite via
+`provision-satellite-sd.sh`'s `DISABLE_BLUETOOTH`/`DISABLE_HDMI` (default
+"1"/off), not hardcoded into the shared template, since a future
+satellite with an HDMI-driven screen or a Bluetooth peripheral would
+need the opposite.
+
 ### Landing a transcript when Station isn't idle
 
 `whisper-stream`'s on-screen button lives inside `paneIdle`'s capture

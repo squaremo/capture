@@ -269,6 +269,56 @@ write_files:
     content: |
       SUBSYSTEM=="backlight", RUN+="/bin/chgrp video /sys/class/backlight/%k/bl_power", RUN+="/bin/chmod g+w /sys/class/backlight/%k/bl_power"
 
+  # Second half of the idle/awake pair, alongside backlight.sh — drops
+  # every CPU core to its lowest-power governor while the panel's
+  # asleep, restores whatever governor was actually running beforehand
+  # (rather than assuming e.g. "ondemand") on wake. Remembers the
+  # pre-sleep governor per core in /run (tmpfs, cleared every boot —
+  # fine, since "low" always runs before "normal" ever needs to read
+  # it).
+  - path: /opt/capture-satellite/cpu-power.sh
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      # $1: "low" or "normal".
+      mkdir -p /run/capture-satellite
+      for gov in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+        cpu=$(basename "$(dirname "$(dirname "$gov")")")
+        saved="/run/capture-satellite/governor.$cpu"
+        case "$1" in
+          low)
+            cat "$gov" > "$saved"
+            echo powersave > "$gov"
+            ;;
+          normal)
+            [ -f "$saved" ] && cat "$saved" > "$gov"
+            ;;
+        esac
+      done
+
+  # cpufreq's sysfs knobs are root-owned by default, same problem as
+  # `bl_power` above and the same fix in spirit — hand ${KIOSK_USER}'s
+  # existing `video` group write access rather than any form of sudo.
+  # A plain oneshot service, not a udev rule: unlike the backlight
+  # device, these files exist under /sys/devices/system/cpu regardless
+  # of any hotplug event, so there's nothing for a udev rule to trigger
+  # on reliably — a service that just runs once at boot, after the
+  # cpufreq driver's already loaded, is simpler and matches the pattern
+  # fix-goodix-touch.service already uses here for a boot-order-
+  # sensitive one-shot fix.
+  - path: /etc/systemd/system/cpufreq-permissions.service
+    content: |
+      [Unit]
+      Description=Grant the video group write access to cpufreq governor knobs
+      After=multi-user.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/bin/sh -c 'chgrp video /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor && chmod g+w /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor'
+
+      [Install]
+      WantedBy=multi-user.target
+
   # labwc's own autostart mechanism — run once labwc itself has
   # started, in place of cage's old "take the one client as a command-
   # line argument" model. Backgrounded (`&`) since labwc's autostart
@@ -297,18 +347,26 @@ write_files:
       ) &
 
       # Low-power sleep: after 5 minutes with no input at all (touch,
-      # mouse, keyboard), power the panel's backlight off; power it back
-      # on the moment any input arrives. swayidle watches labwc's own
-      # idle-notify support (labwc is built on wlroots, which implements
-      # the same idle protocol swaylock and friends rely on) rather than
-      # anything Station's page has to opt into — a touch wakes the
-      # panel with no in-page code at all. Confirmed on real hardware:
-      # labwc does advertise the idle protocol swayidle needs, and the
-      # backlight genuinely blanks/wakes on touch (see the udev rule
-      # above for the permission fix that took to get there).
+      # mouse, keyboard), power the panel's backlight off and drop every
+      # CPU core to its lowest-power governor; undo both the moment any
+      # input arrives. swayidle watches labwc's own idle-notify support
+      # (labwc is built on wlroots, which implements the same idle
+      # protocol swaylock and friends rely on) rather than anything
+      # Station's page has to opt into — a touch wakes the panel with no
+      # in-page code at all. Confirmed on real hardware: labwc does
+      # advertise the idle protocol swayidle needs, and the backlight
+      # genuinely blanks/wakes on touch (see the udev rule above for the
+      # permission fix that took to get there). The CPU half hasn't been
+      # through that same live-verification pass yet — same permission-
+      # fix shape as the backlight one (cpufreq-permissions.service,
+      # above), but check `cat /sys/devices/system/cpu/cpu0/cpufreq/
+      # scaling_governor` actually flips on the next real test.
+      # swayidle already runs its timeout/resume commands via `sh -c`,
+      # so a plain `;`-joined string is enough — no need to nest a
+      # second `sh -c` inside it.
       swayidle -w \
-        timeout 300 '/opt/capture-satellite/backlight.sh off' \
-        resume '/opt/capture-satellite/backlight.sh on' &
+        timeout 300 '/opt/capture-satellite/backlight.sh off; /opt/capture-satellite/cpu-power.sh low' \
+        resume '/opt/capture-satellite/backlight.sh on; /opt/capture-satellite/cpu-power.sh normal' &
 
   # ${KIOSK_USER}'s login shell runs this once, on tty1 only (not over
   # SSH — this account has no SSH key at all — and not if a compositor
@@ -414,6 +472,7 @@ runcmd:
   - systemctl daemon-reload
   - systemctl restart getty@tty1
   - systemctl enable --now fix-goodix-touch.service
+  - systemctl enable --now cpufreq-permissions.service
 
   # Applies the backlight udev rule (write_files, above) immediately —
   # the backlight device already exists by this point in boot, so
@@ -421,6 +480,26 @@ runcmd:
   # `bl_power` after the *next* reboot re-triggers udev, not this one.
   - udevadm control --reload-rules
   - udevadm trigger --subsystem-match=backlight
+
+  # ── Optional: disable unused radios/outputs to save power ────────────
+  # A permanent, config.txt-level cut rather than anything cycled with
+  # the idle/awake sleep logic above — Bluetooth and HDMI aren't used at
+  # all on this kiosk build (Touch Display 2 over DSI, no BT
+  # peripheral), so there's no reason to keep either powered.
+  # DISABLE_BLUETOOTH/DISABLE_HDMI default to "1" in
+  # provision-satellite-sd.sh, which is what this "${DISABLE_BLUETOOTH}"/
+  # "${DISABLE_HDMI}" text actually resolves to for the common case — a
+  # satellite that genuinely needs one of these (an HDMI-driven kiosk, a
+  # Bluetooth peripheral) should override that script's own
+  # DISABLE_BLUETOOTH=0/DISABLE_HDMI=0 rather than editing this file, so
+  # this block never has to special-case one satellite's hardware
+  # against another's. Confirmed correct dtoverlay/config option names,
+  # not yet confirmed these are the *only* things needed for either cut
+  # to actually take effect on this exact board/firmware — check
+  # `hciconfig`/`rfkill list` and power draw before/after on the next
+  # satellite this runs on.
+  - if [ "${DISABLE_BLUETOOTH}" = "1" ]; then grep -q "^dtoverlay=disable-bt" /boot/firmware/config.txt || echo "dtoverlay=disable-bt" >> /boot/firmware/config.txt; fi
+  - if [ "${DISABLE_HDMI}" = "1" ]; then grep -q "^hdmi_blanking=2" /boot/firmware/config.txt || echo "hdmi_blanking=2" >> /boot/firmware/config.txt; fi
 
   # ── Touch Display 2 (7") ─────────────────────────────────────────────
   # dtoverlay=vc4-kms-v3d (Raspberry Pi OS's default) drives video on
