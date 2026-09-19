@@ -34,7 +34,7 @@ rather than a second, Android-specific app.
 | Compute | Raspberry Pi 4 (2GB) | Enough for Chromium kiosk + a small local Whisper model. Pi 5 was considered and rejected specifically for this build — see the audio jack note below. |
 | Screen | Official Raspberry Pi Touch Display 2, **7"** (DSI, portrait-native 720×1280) | Clean cabling, long-term official driver support. A budget HDMI touchscreen (e.g. SunFounder 5" 800×480) is a cheaper fallback with bulkier cabling. Corrected from an earlier "5"" here — the unit actually in hand is the 7" model; see "Touch Display 2 setup" below for what it took to get both video and touch working. |
 | Mic/Speaker | ~~Plain USB microphone capsule~~ / ~~Pi 4's 3.5mm jack~~ — **superseded**: a WM8960-codec audio HAT (Waveshare), now actually in hand | Combines mic array + speaker output on one board via I2S, driven by an out-of-tree DKMS module (see "WM8960 audio HAT" below) rather than USB/analog-jack. This specific board has a pass-through header exposing the full 40-pin GPIO, unlike the generic WM8960 boards a first search turned up — confirmed by hand, not assumed — so it doesn't reopen the ReSpeaker rejection's GPIO-header problem below after all. |
-| Physical PTT button | Standalone arcade/momentary push-button, wired to a free GPIO pin + GND, panel-mounted through the case | Still viable via the WM8960 HAT's pass-through header, above. |
+| Physical PTT button | ~~Standalone arcade/momentary push-button~~ — **superseded, planned**: a custom-built control board (indicator lights, volume rocker, PTT button — see "Custom control board" below), not yet built | Still viable via the WM8960 HAT's pass-through header, above — the board just adds more I/O on that same header than a bare momentary switch needed. |
 | Case | SmartiPi Touch 2 | Purpose-built for a Pi + official touch display. Panel-mounting the button means drilling one hole per unit — needs a repeatable jig/template if this gets built more than once. |
 | microSD | 32GB | |
 
@@ -192,6 +192,50 @@ right next to it) and the Pi 4's own 3.5mm jack for audio out. Both
 changes together leave the entire 40-pin header free, which is what makes
 wiring a standalone, externally-mounted button straightforward instead of
 fighting for header space.
+
+## Custom control board (planned, not yet built)
+
+Supersedes the Parts list's original "standalone arcade/momentary
+push-button" row above. Not started — captured here so the plan exists
+before it's forgotten, same reason `designs/satellite-hardware.md` as a
+whole exists. A small board, panel-mounted into the case alongside the
+touchscreen, carrying:
+
+- **Indicator lights** — status at a glance without waking the screen
+  (recording/listening, transcribing, error at minimum; exact states not
+  decided). Needs GPIO *output* pins, unlike the PTT button's input-only
+  requirement, and probably wants driving through a shift register or a
+  couple of transistors rather than raw GPIO if there's more than one or
+  two LEDs, to avoid eating the whole free header for lighting alone.
+- **Volume rocker** — two momentary contacts (up/down) rather than the
+  single PTT switch this doc assumed until now. Software side not
+  designed yet — presumably a local-only, ungated control in the same
+  spirit as the local Sonos/Dirigera panel's volume slider
+  (`frontend/src/components/localActivity.js`, see
+  `designs/satellites.md`'s Safety section: direct manual control at the
+  physical device is a different trust level from an LLM-proposed
+  action), but whether it targets Sonos volume, the WM8960's own output
+  level, or something else isn't decided.
+- **PTT button** — the same role the standalone arcade button would have
+  played; see `whisper-gpio` below.
+
+**This changes what `whisper-gpio`'s "GPIO script" needs to watch and
+drive** — more than the bare momentary-switch assumption the Voice input
+section below was written against. It's not just reading one pin
+anymore: driving indicator lights (so "listening"/"transcribing"/"error"
+states are visible without the screen), debouncing two more inputs for
+the volume rocker, and only then the original single PTT-press-and-hold
+read. Whether that's still one script or wants splitting (a PTT/
+recording piece vs. a status-lights piece, e.g. one process per concern)
+isn't decided — revisit once the board's actual pinout exists to design
+against, rather than guessing now. The WM8960 HAT's pass-through header
+still has the free GPIO for all of this — confirmed to exist, not yet
+confirmed to be *enough* pins for lights + rocker + button together.
+
+`whisper-gpio` itself stays not-started until this board exists — see
+the Voice input section's table below, unchanged in scope, just now
+explicitly waiting on real hardware to design the GPIO side against
+rather than an assumed single button.
 
 ## Voice input: three modes
 
@@ -445,8 +489,11 @@ Recorded during hands-on debugging of `capture-station-1`:
   supports~~ **Decided and implemented** for `whisper-stream`: `GET
   /config.json`'s `voiceMode` field (see Mode selection above), and
   `infra/enable-satellite-whisper.sh` for turning the underlying service
-  on post-boot. The physical-button GPIO pin assignment and case drill
-  template question (for `whisper-gpio`) is still open.
+  on post-boot. The GPIO pin assignment and case drill template question
+  (for `whisper-gpio`) is still open, and now waits on the custom control
+  board (see "Custom control board" above) rather than a standalone
+  button — the pinout question got bigger (lights + rocker + button),
+  not smaller.
 - The `thinking`/`list` queue-and-apply-later behaviour for `whisper-gpio`
   (see Landing a transcript when Station isn't idle) is a proposal, not
   yet validated against how often a physical-button press would actually
