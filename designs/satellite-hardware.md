@@ -356,19 +356,33 @@ that resilience in the compositor switch.
 
 Recorded during hands-on debugging of `capture-station-1`:
 
-1. ~~The console/tty text is correctly rotated to landscape, but the
-   browser was still rendering portrait.~~ **Root-caused and fixed** —
-   see "Switched cage → labwc" above. Not yet re-confirmed on real
-   hardware since the switch.
+1. The console/tty text is correctly rotated to landscape, but the
+   browser was still rendering portrait. **Still not actually fixed**:
+   switching to `labwc` (see "Switched cage → labwc" above) was
+   expected to resolve this via automatic `panel_orientation` detection
+   at output init, same as the tty console — confirmed on real hardware
+   that it does **not**, Chromium still comes up portrait under `labwc`
+   too. Next step in progress: an explicit `<output>` transform in
+   `labwc`'s own `rc.xml` (rather than relying on automatic detection at
+   all) — exact XML syntax not yet confirmed, most reference docs for it
+   were unreachable mid-investigation (network egress blocks on
+   labwc.github.io, the Debian/Ubuntu/openSUSE manpage mirrors,
+   ArchWiki, GitHub Gist, and the Raspberry Pi forum thread that likely
+   had a working example) — needs picking back up with better access or
+   a different source.
 2. Hide the mouse pointer — there's no mouse on a touchscreen kiosk, so
    a visible cursor sitting on screen is pure visual noise. Likely a
    Chromium flag (something in the `--kiosk`/cursor-autohide family) or
    an `labwc`/`wlr` idle-inhibit-adjacent setting; not yet looked into.
-3. How to actually check the WM8960 mic works, beyond `dkms
-   status`/`aplay -l`/`arecord -l` already in
-   `infra/satellite-smoke-test.md` §7 — i.e. an actual "does sound come
-   out, does the mic pick anything up" test now that the box is far
-   enough along to try it for real, not just confirm the driver loaded.
+3. ~~How to actually check the WM8960 mic works, beyond `dkms
+   status`/`aplay -l`/`arecord -l`.~~ **Confirmed working on real
+   hardware**: `card 0: wm8960soundcard` shows for both playback and
+   capture; recording via `arecord -D plughw:wm8960soundcard,0 -f
+   S16_LE -r 44100 -d 5 <file>` then playing back via `aplay -D
+   plughw:wm8960soundcard,0 <file>` round-tripped real audio
+   successfully (confirmed through headphones plugged into the HAT's
+   jack, not yet tried with a separate powered speaker). Full loopback
+   test added to `infra/satellite-smoke-test.md` §7.
 4. Enable an on-screen keyboard — a touchscreen kiosk needs one for any
    text entry (the capture textarea itself) since there's no physical
    keyboard attached. `labwc` (above) is a necessary step, not a
