@@ -120,13 +120,20 @@
 
 /* No mouse on a touchscreen kiosk — the arrow Chromium still draws (it
    synthesizes hover/pointer state from touch) is pure visual noise.
-   !important because styles.css sets `cursor: pointer` on individual
-   interactive elements, which would otherwise win over this on
-   specificity. station.js's tap-ripple (below) replaces it with
-   feedback that actually means something on a touchscreen: where you
-   just tapped, not where a mouse happens to be. */
-[data-density="station"] * {
-  cursor: none !important;
+   `?station` also runs on a laptop with a real mouse/trackpad, though
+   (this is a UI density, not a "this device is a kiosk" flag), so this
+   is gated on (hover: none) and (pointer: coarse) — true for a
+   touchscreen with no other input, false for a laptop's trackpad/mouse
+   even in station density. !important because styles.css sets
+   `cursor: pointer` on individual interactive elements, which would
+   otherwise win over this on specificity. station.js's tap-ripple
+   (below) replaces the hidden cursor with feedback that actually means
+   something on a touchscreen: where you just tapped, not where a mouse
+   happens to be. */
+@media (hover: none) and (pointer: coarse) {
+  [data-density="station"] * {
+    cursor: none !important;
+  }
 }
 
 .station-tap-ripple {
