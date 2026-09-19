@@ -620,6 +620,21 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
   el.className = 'station'
   el.append(topbar, body, flashEl, failureEl, tabsBar)
 
+  // The system cursor is hidden on the station (theme.css) — a touch
+  // leaves no mark otherwise, and a wall panel gets tapped by more than
+  // one person. A brief dot where you actually touched replaces it.
+  // Touch only: a mouse (dev tools, testing over a remote desktop) still
+  // has its own pointer to look at.
+  el.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'touch') return
+    const dot = document.createElement('div')
+    dot.className = 'station-tap-ripple'
+    dot.style.left = `${e.clientX}px`
+    dot.style.top = `${e.clientY}px`
+    dot.addEventListener('animationend', () => dot.remove())
+    document.body.append(dot)
+  })
+
   setTab('capture')
   setMode('idle')
 
