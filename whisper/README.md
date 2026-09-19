@@ -49,14 +49,28 @@ yet confirmed against a live mic capture. See Open questions in
 ### Via Docker (how a satellite actually runs this)
 
 Not started by default — `../docker-compose.satellite.yml`'s `whisper`
-entry is behind a Compose profile:
+entry is behind a Compose profile. On a real, already-bootstrapped
+satellite, `../infra/enable-satellite-whisper.sh` does the whole thing in
+one step (writes `WHISPER_URL` into the satellite's own `.env`, enables
+the `whisper` Compose profile, reconciles the stack) — run it once, over
+SSH, as root:
+
+    sudo /opt/capture-satellite/app/infra/enable-satellite-whisper.sh
+
+That's a deliberate opt-in step, not baked into first-boot provisioning
+— see the script's own header comment for why (same treatment Dirigera
+pairing gets). Doing it by hand instead is just the two things that
+script automates:
 
     docker compose -f docker-compose.satellite.yml --profile whisper up -d
 
-Or add `COMPOSE_PROFILES=whisper` to the satellite box's own `.env` so
-`capture-satellite-sync.timer`'s regular `docker compose up` picks it up
-without a one-off manual flag. Once it's running, set the `satellite`
-service's own `WHISPER_URL` (see `../satellite/.env.example`) — both
+Or add `COMPOSE_PROFILES=whisper` to the satellite box's own compose
+project `.env` (`/opt/capture-satellite/app/.env` — not the same file as
+the `satellite` container's own `/opt/capture-satellite/.env`, see the
+Compose file's comment) so `capture-satellite-sync.timer`'s regular
+`docker compose up` picks it up without a one-off manual flag. Either
+way, set the `satellite` service's own `WHISPER_URL` (see
+`../satellite/.env.example`) — both
 containers share the host network namespace
 (`network_mode: host`), so the default `http://127.0.0.1:5001` just
 works with no further config.
