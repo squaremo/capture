@@ -636,13 +636,13 @@ Recorded during hands-on debugging of `capture-station-1`:
   Dockerfile), so the emulated CPU's reported features didn't match the
   real Pi's, baking in an instruction the real hardware couldn't
   execute (SIGILL). Fixed by forcing a portable, non-native build
-  (`-DGGML_NATIVE=OFF`) in `whisper/Dockerfile`. Transcription itself
-  (ffmpeg → whisper.cpp → transcript text, end to end via a real
-  `arecord` capture and the mic button) not yet re-verified against
-  this fixed image — check next real test.
-- Making the WM8960 the system's default audio-out device (`pcm.!default`
-  or the PipeWire/Pulse equivalent) so local TTS playback (see "Voice
-  output: local TTS" above) actually comes out of it rather than
-  whatever Chromium picks by default — not yet configured, and depends
-  on which audio stack this Raspberry Pi OS Trixie image actually runs
-  (bare ALSA vs. PulseAudio vs. PipeWire), not yet confirmed.
+  (`-DGGML_NATIVE=OFF`) in `whisper/Dockerfile`. **Re-verified against
+  the fixed image**: real speech recognition via the mic button on
+  `capture-station-1` now works end to end (mic → whisper-stream →
+  transcript in the capture textarea).
+- ~~Making the WM8960 the system's default audio-out device~~
+  **Confirmed working**: local TTS playback (Piper, via the `tts`
+  service) is now audible through the WM8960 HAT on `capture-station-1`
+  — read-aloud on a resolved item plays out loud on real hardware, no
+  further audio-routing configuration needed beyond what's already
+  documented above.
