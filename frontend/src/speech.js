@@ -1,14 +1,30 @@
 import { icon } from './components/icons.js'
 
-// Read-aloud via the browser's built-in SpeechSynthesis — no server
-// involvement, same shape as capture's other browser-native voice feature
-// (SpeechRecognition, used for capture input). Speaking-by-default is a
-// per-device preference, not a person's: a wall station wants it, a phone
-// in a meeting doesn't. So it's stored the same way theme/checklist ticks
-// are — localStorage, per this browser, not synced anywhere.
+// Read-aloud — either the browser's built-in SpeechSynthesis, or (on a
+// satellite with the separate `tts` service running — see
+// satellite/services/tts.js and tts/README.md) a local Piper voice via
+// POST /api/speak. Same shape as capture's other browser-native voice
+// feature (SpeechRecognition, used for capture input) had before
+// whisper-stream: one engine, picked once at startup from runtime
+// config, same call sites either way. 'local' isn't just a privacy
+// nicety here the way whisper-stream's mic mode is — Chromium's Linux
+// build (what the kiosk runs) typically ships with no speechSynthesis
+// voices installed at all, so 'browser' can be silently non-functional
+// on a station specifically. See designs/satellite-hardware.md's
+// playback section.
 const KEY = 'capture:speech'
 
+// 'browser' (default) or 'local' — set once at startup via
+// configureSpeech(), the same way api.js's configureApi() sets its own
+// module-level BASE from runtime config (see config.js).
+let SPEECH_MODE = 'browser'
+
+export function configureSpeech({ speechMode } = {}) {
+  SPEECH_MODE = speechMode === 'local' ? 'local' : 'browser'
+}
+
 export function isSpeechSupported() {
+  if (SPEECH_MODE === 'local') return true // POST /api/speak needs no browser API at all
   return typeof window !== 'undefined' && 'speechSynthesis' in window
 }
 
@@ -29,14 +45,56 @@ export function setSpeechEnabled(enabled) {
   }
 }
 
+// One shared <audio> element for 'local' mode, reused across calls
+// rather than a fresh one per speak() — created lazily so this module
+// has no effect at import time on a deployment that never uses 'local'.
+let audioEl = null
+function getAudioEl() {
+  audioEl ??= new Audio()
+  return audioEl
+}
+
 // Always speaks, regardless of the default-on/off setting — this is the
 // per-item "say it" button's job: hear this one result on demand, whether
-// or not auto-speak is turned on. Cancels whatever's mid-sentence first,
-// so a repeat tap or a fresh result never queues up behind an old one.
+// or not auto-speak is turned on. Cancels/stops whatever's mid-sentence
+// first, so a repeat tap or a fresh result never queues up behind an old
+// one — true of both engines, just a different API each way.
 export function speak(text) {
-  if (!text || !isSpeechSupported()) return
+  if (!text) return
+  if (SPEECH_MODE === 'local') {
+    speakLocal(text)
+    return
+  }
+  if (!isSpeechSupported()) return
   window.speechSynthesis.cancel()
   window.speechSynthesis.speak(new SpeechSynthesisUtterance(text))
+}
+
+// Relative fetch — same origin as this page, since 'local' mode only
+// ever gets selected when a satellite is the one serving the frontend
+// (see the module doc comment), same reasoning as capture.js's
+// whisper-stream POST /api/transcribe.
+async function speakLocal(text) {
+  const el = getAudioEl()
+  el.pause()
+  try {
+    const res = await fetch('/api/speak', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error(data.error || `speak failed: ${res.status}`)
+    }
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    el.src = url
+    el.onended = el.onerror = () => URL.revokeObjectURL(url)
+    await el.play()
+  } catch (err) {
+    console.error('Local speech failed:', err)
+  }
 }
 
 // The default-on path: called at each point a result becomes available,
