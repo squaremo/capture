@@ -390,6 +390,90 @@ so it always falls back to `webspeech`. `whisper-gpio`, once it exists,
 would report `voiceMode: 'whisper-gpio'` (or both, if a satellite ever
 wants the on-screen button available too) the same way.
 
+## Voice output: local TTS (implemented)
+
+The mirror image of `whisper-stream` above (text in, audio out instead
+of audio in, text out), for the same underlying reason the wishlist's
+"speaker for reading results aloud" needed one: `frontend/src/
+speech.js`'s existing `speak()`/`speakIfEnabled()` used the browser's
+own `speechSynthesis` unconditionally, which is a real gap on the
+station specifically — Linux Chromium (what the kiosk runs) typically
+ships with **no `speechSynthesis` voices installed at all**, so
+read-aloud could be silently non-functional there even though the code
+runs fine on a laptop.
+
+**Engine: Piper** — a small, fast neural TTS (ONNX-based), genuinely
+natural-sounding at `medium` quality and light enough to run real-time
+on a Pi 4 alongside the Chromium kiosk, unlike heavier options (Coqui
+TTS) or robotic-but-tiny ones (`espeak-ng`). Unlike Whisper's tiny/base
+RAM-CPU tension, Piper doesn't force that tradeoff — `medium` quality is
+comfortably affordable here.
+
+**Shape**: a separate, optional `tts/` service/image, exactly mirroring
+`whisper/` — own `Dockerfile`, own small Fastify wrapper
+(`server.js`/`synthesize.js`), gated behind its own Compose profile in
+`docker-compose.satellite.yml` (`profiles: ["tts"]`) so a satellite that
+hasn't opted in never pulls Piper or a voice model. `satellite/
+services/tts.js` is a thin HTTP client to it (`TTS_URL`), proxied
+through a new `POST /api/speak` on the satellite itself — same
+same-origin/localhost-only reasoning as `POST /api/transcribe` (see the
+"Why is there a proxy route" discussion this design session had: the
+browser can only reach the satellite's own Tailscale-facing address,
+never the sibling containers' loopback-bound ports directly, and
+keeping those services localhost-only is what lets them skip auth/TLS
+entirely). `infra/enable-satellite-tts.sh` turns it on for an
+already-bootstrapped satellite the same one-command way
+`enable-satellite-whisper.sh` does, and composes cleanly with it
+(`COMPOSE_PROFILES=whisper,tts`).
+
+**Voices: baked in, not built in, and not just one.** Piper ships with
+no voice at all — every voice is a separate model (`<name>.onnx` +
+`<name>.onnx.json`) from
+[`rhasspy/piper-voices`](https://huggingface.co/rhasspy/piper-voices).
+Rather than hardcode a single voice into the image, `tts/Dockerfile`'s
+`PIPER_VOICES` build arg downloads a curated handful at build time
+(default: three `en_GB` medium voices — `en_GB-alan-medium`,
+`en_GB-cori-medium`, `en_GB-northern_english_male-medium`, matching the
+app's own dialect) with no runtime network dependency once the image
+exists; `PIPER_VOICE` (an env var — a runtime choice, no rebuild) picks
+the default among them, and any call can override it per-request via
+`voice` in `POST /synthesize`'s body. `GET /voices` lists what's
+actually on disk. Swapping the whole *set* (e.g. adding a non-GB accent
+as an option) needs a rebuild with a different `PIPER_VOICES`; swapping
+which one speaks by default doesn't.
+
+**Frontend**: `speech.js` gained a `SPEECH_MODE` ('browser' or 'local'),
+set once at startup via `configureSpeech(config)` (called from
+`main.js`, same pattern as `api.js`'s `configureApi()`) from `GET
+/config.json`'s new `speechMode` field — `'local'` when the satellite's
+own `TTS_URL` is set, `'browser'` otherwise, unchanged from today. Every
+existing call site (`speak(text)`/`speakIfEnabled(text)` — the "say it"
+buttons, auto-speak-on-resolve, the station's flash strip) is untouched;
+only `speech.js` itself branches, same shape `whisper-stream` used to
+keep `capture.js`'s call sites stable. `speakLocal()` POSTs to `/api/
+speak`, gets WAV bytes back, and plays them through one shared, lazily
+created `<audio>` element — `.pause()` on a fresh call before starting
+the next one gives the same "a repeat tap never queues up behind an old
+one" contract `window.speechSynthesis.cancel()` gave before.
+
+**Still open, genuinely outside code**: getting whatever plays back to
+actually come out of the WM8960 HAT's speaker rather than whatever
+Chromium picks as its default audio sink. That's an ALSA/PulseAudio
+default-device setting on the Pi's OS (`pcm.!default` in `/etc/
+asound.conf`/`~/.asoundrc`, or the PipeWire/Pulse equivalent, pointing
+at `hw:wm8960soundcard,0` — see "WM8960 audio HAT" above for the card
+name confirmed on real hardware), not something `speech.js` or `tts/`
+can control from the browser or Node side. Not yet configured — worth
+doing once the kiosk's actual audio stack (bare ALSA vs. PulseAudio vs.
+PipeWire on this Raspberry Pi OS Trixie image) is confirmed, rather than
+guessed at here.
+
+Unverified against real Pi hardware yet, same caveat as `whisper-stream`
+— written and buildable, not yet confirmed against a live playback or a
+real arm64 image pull/run. The exact Piper release tag/asset names in
+`tts/Dockerfile` are also worth double-checking against
+<https://github.com/rhasspy/piper/releases> before a first real build.
+
 ## OS maintenance: unattended-upgrades
 
 A satellite is headless kit with no one watching for OS security updates,
@@ -542,3 +626,9 @@ Recorded during hands-on debugging of `capture-station-1`:
 - Hardware is now in hand (Pi 4B, WM8960 HAT) but not yet booted, so
   most of the above — this driver included — is still unverified against
   anything real.
+- Making the WM8960 the system's default audio-out device (`pcm.!default`
+  or the PipeWire/Pulse equivalent) so local TTS playback (see "Voice
+  output: local TTS" above) actually comes out of it rather than
+  whatever Chromium picks by default — not yet configured, and depends
+  on which audio stack this Raspberry Pi OS Trixie image actually runs
+  (bare ALSA vs. PulseAudio vs. PipeWire), not yet confirmed.

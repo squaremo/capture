@@ -48,6 +48,23 @@ services:
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
 
+  # Local speech synthesis (playback) — the mirror image of `whisper`
+  # above (text in, audio out instead of audio in, text out). Same
+  # opt-in reasoning: a satellite that hasn't set this up should never
+  # pull Piper or a voice model. Enable it the same way:
+  # `docker compose --profile tts up -d`, or `COMPOSE_PROFILES=tts` (or
+  # `whisper,tts` if both are wanted) in this project's own .env (see
+  # the `whisper` service's comment above for exactly which .env file).
+  # Once running, point the `satellite` service's own TTS_URL (see
+  # satellite/.env.example) at it — default http://127.0.0.1:5002.
+  tts:
+    image: ghcr.io/squaremo/capture-tts:latest
+    restart: unless-stopped
+    network_mode: host
+    profiles: ["tts"]
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
   watchtower:
     image: nickfedor/watchtower
     restart: unless-stopped

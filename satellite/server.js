@@ -7,6 +7,7 @@ import { dirname, join } from 'path'
 import * as sonos from './services/sonos.js'
 import * as dirigera from './services/dirigera.js'
 import * as whisper from './services/whisper.js'
+import * as tts from './services/tts.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -69,6 +70,7 @@ const CAPABILITIES = [
   'sonos',
   ...(dirigera.isConfigured() ? ['dirigera'] : []),
   ...(whisper.isConfigured() ? ['whisper'] : []),
+  ...(tts.isConfigured() ? ['tts'] : []),
 ]
 
 const testPageHtml = readFileSync(join(__dirname, 'public/index.html'), 'utf8')
@@ -102,6 +104,15 @@ app.get('/config.json', async () => ({
   // existing browser-only mode) everywhere else, unchanged from today.
   // See designs/satellite-hardware.md's "Voice input: three modes".
   voiceMode: whisper.isConfigured() ? 'whisper-stream' : 'webspeech',
+  // Tells speech.js (frontend/src/speech.js) which read-aloud engine to
+  // use — 'local' only when the separate `tts` service is configured
+  // (TTS_URL set — see services/tts.js and tts/README.md), 'browser'
+  // (the existing speechSynthesis mode) everywhere else. Worth having:
+  // Chromium on Linux (what the kiosk runs) typically ships with no
+  // speechSynthesis voices installed at all, so 'browser' can be
+  // silently non-functional on a station specifically — see designs/
+  // satellite-hardware.md's playback section.
+  speechMode: tts.isConfigured() ? 'local' : 'browser',
 }))
 
 // ── UI ─────────────────────────────────────────────────────
@@ -278,6 +289,32 @@ app.post('/api/transcribe', async (req, reply) => {
   try {
     const text = await whisper.transcribe(req.body)
     return { text }
+  } catch (err) {
+    return reply.code(422).send({ error: err.message })
+  }
+})
+
+// Synthesizes speech for local read-aloud — the mirror image of
+// /api/transcribe above (text in, audio out instead of audio in, text
+// out). speech.js (frontend) calls this instead of the browser's own
+// speechSynthesis when GET /config.json's speechMode is 'local'. Just
+// proxies to the separate `tts` service (services/tts.js) — this
+// satellite never runs Piper itself, see tts/README.md for why that's a
+// distinct, optional image. Always returns 422 rather than 500 on a
+// pipeline failure (service unreachable, unknown voice, empty text) —
+// same shape as /api/transcribe.
+app.post('/api/speak', async (req, reply) => {
+  if (!tts.isConfigured()) {
+    return reply.code(400).send({ error: 'tts not configured on this satellite (TTS_URL unset)' })
+  }
+  const { text, voice } = req.body ?? {}
+  if (typeof text !== 'string' || !text.trim()) {
+    return reply.code(400).send({ error: 'text is required' })
+  }
+  try {
+    const wav = await tts.synthesize(text, voice)
+    reply.type('audio/wav')
+    return wav
   } catch (err) {
     return reply.code(422).send({ error: err.message })
   }

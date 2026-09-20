@@ -7,7 +7,7 @@ import { createLocalActivity } from './components/localActivity.js'
 import { createStationShell } from './components/station.js'
 import { createStationsIndicator, createStationClock } from './components/stations.js'
 import { createThemeToggle } from './themes.js'
-import { createSpeechToggleButton, speakIfEnabled } from './speech.js'
+import { createSpeechToggleButton, speakIfEnabled, configureSpeech } from './speech.js'
 import { loadConfig } from './config.js'
 import {
   configureApi, postCapture, getItem, getItems, approveItem, vetoItem, getVersion, getSatellites,
@@ -26,6 +26,7 @@ init()
 async function init() {
   const config = await loadConfig()
   configureApi(config)
+  configureSpeech(config)
 
   // index.html's inline pre-paint script already guessed data-density from
   // the ?station query param, since it has to run before this config fetch
