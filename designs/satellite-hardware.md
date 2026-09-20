@@ -626,6 +626,20 @@ Recorded during hands-on debugging of `capture-station-1`:
 - Hardware is now in hand (Pi 4B, WM8960 HAT) but not yet booted, so
   most of the above — this driver included — is still unverified against
   anything real.
+- ~~The `whisper/` image's arm64 build — unverified against real Pi
+  hardware~~ **Confirmed and fixed**: `whisper-cli` built and ran, but
+  crashed (a null exit code — killed by a signal, not a clean error)
+  partway through loading the model on real hardware, every time. Root
+  cause: `whisper.cpp`/ggml's CMake build defaults to `GGML_NATIVE=ON`,
+  auto-detecting CPU SIMD features at *build* time — fine natively, but
+  this image cross-builds for `linux/arm64` via QEMU emulation (see the
+  Dockerfile), so the emulated CPU's reported features didn't match the
+  real Pi's, baking in an instruction the real hardware couldn't
+  execute (SIGILL). Fixed by forcing a portable, non-native build
+  (`-DGGML_NATIVE=OFF`) in `whisper/Dockerfile`. Transcription itself
+  (ffmpeg → whisper.cpp → transcript text, end to end via a real
+  `arecord` capture and the mic button) not yet re-verified against
+  this fixed image — check next real test.
 - Making the WM8960 the system's default audio-out device (`pcm.!default`
   or the PipeWire/Pulse equivalent) so local TTS playback (see "Voice
   output: local TTS" above) actually comes out of it rather than
