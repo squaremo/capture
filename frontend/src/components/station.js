@@ -32,7 +32,7 @@ const TOOL_LABELS = {
   control_light: 'will control lights',
 }
 
-export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEditFavourite, onFavourite, onListTextChange, defaultHouse, localActivity } = {}) {
+export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEditFavourite, onFavourite, onListTextChange, defaultHouse, voiceMode, localActivity } = {}) {
   let tab = 'capture'      // 'capture' | 'favourites' | 'earlier'
   let mode = 'idle'        // 'idle' | 'thinking' | 'review' | 'list' | 'compose'
   let active = null        // the item 'thinking'/'review'/'list' is about
@@ -82,6 +82,7 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
     onSubmit: (text, house) => onSubmit?.(text, house),
     defaultHouse,
     hideHouseChooser: true,
+    voiceMode,
   })
   paneIdle.append(captureInput.el)
 

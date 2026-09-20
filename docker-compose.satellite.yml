@@ -23,6 +23,31 @@ services:
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
 
+  # Local speech-to-text for the whisper-stream voice-input mode (see
+  # designs/satellite-hardware.md and whisper/README.md) — a separate
+  # image from `satellite` above so a box with no mic hardware, or one
+  # that just hasn't opted in yet, never pulls whisper.cpp/ffmpeg/the
+  # model file at all. `profiles: [whisper]` means Compose skips this
+  # entirely by default; enable it with `docker compose --profile whisper
+  # up -d`, or persistently by writing `COMPOSE_PROFILES=whisper` to a
+  # `.env` file in this compose project's own working directory
+  # (/opt/capture-satellite/app on a real satellite, where
+  # infra/cloud-init-satellite.yaml.tpl's capture-satellite-sync.timer
+  # re-runs `docker compose up` every 5 minutes) — Compose's CLI reads
+  # its own .env from the project directory; that's a different file
+  # from the `satellite` service's own /opt/capture-satellite/.env above
+  # (an app-level env_file, a separate mechanism). Once running, point
+  # the `satellite` service's own WHISPER_URL (see
+  # satellite/.env.example) at it — both share the host network
+  # namespace, so the default (http://127.0.0.1:5001) just works.
+  whisper:
+    image: ghcr.io/squaremo/capture-whisper:latest
+    restart: unless-stopped
+    network_mode: host
+    profiles: ["whisper"]
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
   watchtower:
     image: nickfedor/watchtower
     restart: unless-stopped

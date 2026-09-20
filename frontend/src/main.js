@@ -209,6 +209,7 @@ async function init() {
 
   const station = config.isStation ? createStationShell({
     defaultHouse: config.defaultHouse,
+    voiceMode: config.voiceMode,
     localActivity,
     // The list pane's own edits — "done shopping" and the add row — are
     // the same PATCH the inbox's are (see onShoppingListChange above).
@@ -313,6 +314,7 @@ async function init() {
   // ── Capture input ─────────────────────────────────────────
   const captureInput = createCaptureInput({
     defaultHouse: config.defaultHouse,
+    voiceMode: config.voiceMode,
     onSubmit: (text, house) => submitCapture(text, house),
   })
 

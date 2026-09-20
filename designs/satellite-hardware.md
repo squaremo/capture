@@ -34,7 +34,7 @@ rather than a second, Android-specific app.
 | Compute | Raspberry Pi 4 (2GB) | Enough for Chromium kiosk + a small local Whisper model. Pi 5 was considered and rejected specifically for this build — see the audio jack note below. |
 | Screen | Official Raspberry Pi Touch Display 2, **7"** (DSI, portrait-native 720×1280) | Clean cabling, long-term official driver support. A budget HDMI touchscreen (e.g. SunFounder 5" 800×480) is a cheaper fallback with bulkier cabling. Corrected from an earlier "5"" here — the unit actually in hand is the 7" model; see "Touch Display 2 setup" below for what it took to get both video and touch working. |
 | Mic/Speaker | ~~Plain USB microphone capsule~~ / ~~Pi 4's 3.5mm jack~~ — **superseded**: a WM8960-codec audio HAT (Waveshare), now actually in hand | Combines mic array + speaker output on one board via I2S, driven by an out-of-tree DKMS module (see "WM8960 audio HAT" below) rather than USB/analog-jack. This specific board has a pass-through header exposing the full 40-pin GPIO, unlike the generic WM8960 boards a first search turned up — confirmed by hand, not assumed — so it doesn't reopen the ReSpeaker rejection's GPIO-header problem below after all. |
-| Physical PTT button | Standalone arcade/momentary push-button, wired to a free GPIO pin + GND, panel-mounted through the case | Still viable via the WM8960 HAT's pass-through header, above. |
+| Physical PTT button | ~~Standalone arcade/momentary push-button~~ — **superseded, planned**: a custom-built control board (indicator lights, volume rocker, PTT button — see "Custom control board" below), not yet built | Still viable via the WM8960 HAT's pass-through header, above — the board just adds more I/O on that same header than a bare momentary switch needed. |
 | Case | SmartiPi Touch 2 | Purpose-built for a Pi + official touch display. Panel-mounting the button means drilling one hole per unit — needs a repeatable jig/template if this gets built more than once. |
 | microSD | 32GB | |
 
@@ -193,6 +193,50 @@ changes together leave the entire 40-pin header free, which is what makes
 wiring a standalone, externally-mounted button straightforward instead of
 fighting for header space.
 
+## Custom control board (planned, not yet built)
+
+Supersedes the Parts list's original "standalone arcade/momentary
+push-button" row above. Not started — captured here so the plan exists
+before it's forgotten, same reason `designs/satellite-hardware.md` as a
+whole exists. A small board, panel-mounted into the case alongside the
+touchscreen, carrying:
+
+- **Indicator lights** — status at a glance without waking the screen
+  (recording/listening, transcribing, error at minimum; exact states not
+  decided). Needs GPIO *output* pins, unlike the PTT button's input-only
+  requirement, and probably wants driving through a shift register or a
+  couple of transistors rather than raw GPIO if there's more than one or
+  two LEDs, to avoid eating the whole free header for lighting alone.
+- **Volume rocker** — two momentary contacts (up/down) rather than the
+  single PTT switch this doc assumed until now. Software side not
+  designed yet — presumably a local-only, ungated control in the same
+  spirit as the local Sonos/Dirigera panel's volume slider
+  (`frontend/src/components/localActivity.js`, see
+  `designs/satellites.md`'s Safety section: direct manual control at the
+  physical device is a different trust level from an LLM-proposed
+  action), but whether it targets Sonos volume, the WM8960's own output
+  level, or something else isn't decided.
+- **PTT button** — the same role the standalone arcade button would have
+  played; see `whisper-gpio` below.
+
+**This changes what `whisper-gpio`'s "GPIO script" needs to watch and
+drive** — more than the bare momentary-switch assumption the Voice input
+section below was written against. It's not just reading one pin
+anymore: driving indicator lights (so "listening"/"transcribing"/"error"
+states are visible without the screen), debouncing two more inputs for
+the volume rocker, and only then the original single PTT-press-and-hold
+read. Whether that's still one script or wants splitting (a PTT/
+recording piece vs. a status-lights piece, e.g. one process per concern)
+isn't decided — revisit once the board's actual pinout exists to design
+against, rather than guessing now. The WM8960 HAT's pass-through header
+still has the free GPIO for all of this — confirmed to exist, not yet
+confirmed to be *enough* pins for lights + rocker + button together.
+
+`whisper-gpio` itself stays not-started until this board exists — see
+the Voice input section's table below, unchanged in scope, just now
+explicitly waiting on real hardware to design the GPIO side against
+rather than an assumed single button.
+
 ## Voice input: three modes
 
 The existing voice button (`voiceBtn` in `frontend/src/components/
@@ -208,13 +252,43 @@ including the two new ones.
 | Mode | Trigger | Where it runs | Transcription |
 |---|---|---|---|
 | `webspeech` (existing) | Click to start, click to stop | Entirely in-page | Browser's built-in Web Speech API, cloud-processed |
-| `whisper-stream` (new) | Hold to record, release to stop | In-page, on-screen button | `MediaRecorder` captures while held; on release, the page itself POSTs the audio to a local `whisper.cpp` HTTP endpoint and gets the transcript back synchronously in the response |
+| `whisper-stream` (**implemented**) | Hold to record, release to stop | In-page, on-screen button | `MediaRecorder` captures while held (capped at 25s — see below); on release, the page itself POSTs the audio to `POST /api/transcribe` and gets the transcript back synchronously in the response |
 | `whisper-gpio` (new) | Hold the physical button, release to stop | Outside the browser entirely | A background script (the `station/wakeword.py`-shaped piece, not yet written) watches the GPIO pin directly, records for the duration held, and calls the same local `whisper.cpp` endpoint |
 
 `webspeech` stays exactly as it is — it's the right tradeoff for laptop
 dev, where convenience beats privacy and there's no satellite hardware
-involved anyway. The other two are satellite-only and share one local
-`whisper.cpp` service; they differ only in what triggers the recording.
+involved anyway. The other two are satellite-only.
+
+**`whisper-stream` is implemented** (`createCaptureInput`'s
+`setupWhisperStream()` in `frontend/src/components/capture.js`,
+`POST /api/transcribe` in `satellite/server.js`) but **not the local
+`whisper.cpp` service itself** the way this section originally
+described it — that ended up as a separate, optional `whisper/`
+directory/image (own `Dockerfile`, own Fastify server) rather than code
+baked into the satellite, specifically so a box with no mic hardware, or
+one that hasn't opted in, never pulls whisper.cpp/ffmpeg/the model at
+all. `satellite/services/whisper.js` is just an HTTP client to it
+(`WHISPER_URL`); see `whisper/README.md` and
+`infra/enable-satellite-whisper.sh` (the one-command way to turn it on
+for an already-bootstrapped box) for the actual shape. `whisper-gpio`
+would still share that same service once it exists — only what triggers
+the recording differs.
+
+Unverified against real Pi hardware yet either way — written and
+buildable, not yet confirmed against a live mic capture or a real
+arm64 image build (whisper.cpp is built from source in `whisper/
+Dockerfile`'s multi-stage build specifically because no arm64 binary
+release exists to just fetch).
+
+The 25s hold cap (`WHISPER_MAX_RECORD_MS` in `capture.js`) comes from
+Whisper's own architecture, not a UX guess: the encoder always processes
+a fixed 30-second window per call (positional embeddings sized for
+exactly that), so anything longer either gets silently truncated or
+needs chunking — 25s leaves headroom under that hard limit rather than
+capping right at it. Model choice is `tiny.en`, baked into the
+`whisper/` image — see the RAM/CPU tradeoff discussion this design
+session had: `base` is roughly 2x `tiny`'s footprint on a Pi 4 2GB
+that's already running a Chromium kiosk.
 
 ### The bridge `whisper-gpio` needs that `whisper-stream` doesn't
 
@@ -304,12 +378,17 @@ so it's handled the same way as `thinking` here.
 
 ### Mode selection
 
-Not yet decided in detail, but the natural fit is a runtime config flag
-alongside `defaultHouse`/`backendUrl` in `GET /config.json` (see House
-attribution in `designs/satellites.md`) — a satellite build reports
-itself as `whisper-stream`(+`whisper-gpio`), everything else defaults to
-`webspeech`. Keeps the same build-once/configure-per-deployment split
-already used for house identity.
+**Implemented**, via `GET /config.json`'s `voiceMode` field, alongside
+`defaultHouse`/`backendUrl` (see House attribution in
+`designs/satellites.md`) — same build-once/configure-per-deployment
+split already used for house identity. `satellite/server.js` reports
+`voiceMode: 'whisper-stream'` when `WHISPER_URL` is set (i.e. the
+separate `whisper` service is configured), `'webspeech'` otherwise;
+`createCaptureInput({ voiceMode })` in `capture.js` picks the mode
+accordingly. The general/laptop deployment has no `/config.json` at all,
+so it always falls back to `webspeech`. `whisper-gpio`, once it exists,
+would report `voiceMode: 'whisper-gpio'` (or both, if a satellite ever
+wants the on-screen button available too) the same way.
 
 ## OS maintenance: unattended-upgrades
 
@@ -428,16 +507,28 @@ Recorded during hands-on debugging of `capture-station-1`:
 
 ## Open questions
 
-- Exact shape of the local `whisper.cpp` service — a small wrapper this
-  project writes, or `whisper.cpp`'s own bundled `server` example reused
-  as-is (it already speaks plain HTTP; would need the SSE push endpoint
-  added or fronted separately for `whisper-gpio`).
-- Model size/quantization for real-time performance on a Pi 4 — `tiny` or
-  `base` English-only is the expectation for a few seconds of
-  push-to-talk speech, not yet benchmarked against real hardware.
-- Provisioning: how the satellite is told which voice-input mode(s) it
-  supports, and how the physical-button GPIO pin assignment and case
-  drill template are documented for repeat builds.
+- ~~Exact shape of the local `whisper.cpp` service~~ **Decided and
+  implemented**: a small hand-written wrapper (`whisper/`), not
+  `whisper.cpp`'s bundled `server` example — a separate, optional
+  image/Compose service from the satellite itself, gated by
+  `WHISPER_URL`/a Compose profile so an opted-out box never pulls it.
+  The SSE push endpoint `whisper-gpio` will need is still open — not
+  added yet, since `whisper-gpio` itself isn't built.
+- Model size/quantization for real-time performance on a Pi 4 —
+  **decided**: `tiny.en`, baked into the `whisper/` image
+  (`WHISPER_MODEL_PATH`), not `base` — see the RAM/CPU tradeoff
+  discussion (`base` is roughly 2x `tiny`'s footprint on a Pi 4 2GB
+  already running a Chromium kiosk). Still not benchmarked against real
+  hardware.
+- ~~Provisioning: how the satellite is told which voice-input mode(s) it
+  supports~~ **Decided and implemented** for `whisper-stream`: `GET
+  /config.json`'s `voiceMode` field (see Mode selection above), and
+  `infra/enable-satellite-whisper.sh` for turning the underlying service
+  on post-boot. The GPIO pin assignment and case drill template question
+  (for `whisper-gpio`) is still open, and now waits on the custom control
+  board (see "Custom control board" above) rather than a standalone
+  button — the pinout question got bigger (lights + rocker + button),
+  not smaller.
 - The `thinking`/`list` queue-and-apply-later behaviour for `whisper-gpio`
   (see Landing a transcript when Station isn't idle) is a proposal, not
   yet validated against how often a physical-button press would actually
