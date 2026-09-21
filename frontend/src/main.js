@@ -64,9 +64,9 @@ async function init() {
   // the header rather than behind the info panel's disclosure, beside
   // the station status dot on a station, sized a touch bigger there to
   // match the station's other icons.
-  const speechToggle = createSpeechToggleButton(config.isStation ? 26 : 20)
+  const speechToggle = createSpeechToggleButton(config.isStation ? 32 : 20)
   speechToggle.el.classList.add('header-speech-toggle')
-  const themeToggle = createThemeToggle(config.isStation ? 26 : 20)
+  const themeToggle = createThemeToggle(config.isStation ? 32 : 20)
   themeToggle.el.classList.add('header-theme-toggle')
 
   const headerBadges = document.createElement('div')

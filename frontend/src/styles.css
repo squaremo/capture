@@ -930,6 +930,11 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   padding: var(--space-3);
   margin: calc(-1 * var(--space-3));
 }
+[data-density="station"] .header-speech-toggle,
+[data-density="station"] .header-theme-toggle {
+  min-width: var(--tap);
+  min-height: var(--tap);
+}
 
 /* ── Stats footer ────────────────────────────────────────── */
 .stats {
