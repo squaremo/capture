@@ -12,7 +12,7 @@ board, rather than crimped/spliced together off-board — a soldering iron
 turned out to be available after all. This removes the earlier
 resistor-to-LED butt-splice step entirely (the board's own copper traces
 do that job now). The board-to-Pi cable stays solderless throughout, via
-a PCB-mount JST-XH header soldered onto the board — see Build approach.
+a PCB-mount 2.54mm shrouded header soldered onto the board — see Build approach.
 
 ## Scope
 
@@ -57,7 +57,7 @@ already built.
     since a minority do ship with a small breakout PCB or header
     pre-attached, but don't assume it). This adds one more small solder
     job: three wire pigtails soldered directly onto the pot's lugs (two
-    outer + wiper), with JST-XH pins crimped onto the pigtails' free ends
+    outer + wiper), with 2.54mm shrouded pins crimped onto the pigtails' free ends
     — see Build approach.
 
 ## Build approach
@@ -73,22 +73,22 @@ stays crimp-only, no solder.
    copper traces, unlike the earlier friction-only plan), so the board
    only needs to break out **3 nets**: white signal, red signal, shared
    ground.
-2. **A JST-XH male header, PCB-mount/through-hole, soldered onto the
+2. **A 2.54mm shrouded male header, PCB-mount/through-hole, soldered onto the
    board** at those 3 net pads — the one other solder job this build
    needs, and it's what lets the cable side stay fully solderless: a
-   JST-XH female housing (crimped onto wire, no soldering) simply plugs
+   2.54mm shrouded female housing (crimped onto wire, no soldering) simply plugs
    onto this header and unplugs again freely.
 3. **A second small soldered board for the MCP3008** — same technique as
    the LED board, just a separate piece of perma-proto sited near the
    pot rather than near the LEDs (keeps the pot's analog wiper wire run
    short). The MCP3008 sits in a **16-pin DIP socket** (soldered to the
    board — the socket takes the heat, not the chip, and lets the chip be
-   pulled/replaced later), wired via board traces to a second JST-XH
+   pulled/replaced later), wired via board traces to a second 2.54mm shrouded
    male header (SPI + power/GND pins) soldered the same way as the LED
    board's header. **The pot's 3 terminals are bare solder lugs**, so
    getting a cable off it needs a small solder step at the pot itself —
    three wire pigtails soldered directly onto the lugs (two outer +
-   wiper) — before JST-XH pins are crimped onto the pigtails' free ends
+   wiper) — before 2.54mm shrouded pins are crimped onto the pigtails' free ends
    to plug into this same board's header.
 4. **Female Dupont crimp terminals at the Pi end** — pushed directly onto
    the Pi's 40-pin GPIO header pins, for the LED cable, the pot-to-MCP3008
@@ -96,9 +96,12 @@ stays crimp-only, no solder.
    need for a separate GPIO breakout HAT: the header pins are standard
    0.1"/2.54mm, the same pitch Dupont terminals are made for.
 
-One crimp tool that handles both 2.54mm Dupont and JST-XH pitch covers
-every crimped connection in the build (confirm before buying — most
-small ratcheting "SN-28B"-style crimpers do, but not all).
+The board-side shrouded connectors and the Pi-side Dupont terminals are
+both 2.54mm pitch, but that doesn't automatically mean one crimp tool's
+jaw fits both — confirm the tool's die profile actually supports both
+connector families' crimp pins before buying, not just that the pitch
+number matches (most small ratcheting "SN-28B"-style crimpers do, but
+not all).
 
 ## BOM
 
@@ -112,12 +115,12 @@ small ratcheting "SN-28B"-style crimpers do, but not all).
 | 6 | ADC | MCP3008 (8-channel, 10-bit, SPI), bare 16-pin DIP chip | 1 | the Pi has no analog input — reads the pot's wiper voltage and reports it over SPI; ships with no breakout board, see items 8/10/11 |
 | 7 | Perma-proto / stripboard | ~half-size, 0.1" pitch | 2 | one for the LED circuit, a second small piece for the MCP3008 assembly (sited near the pot, not the LEDs) |
 | 8 | 16-pin DIP socket | standard 0.3" DIP-16 | 1 | soldered to the second board; the MCP3008 chip plugs into this rather than being soldered directly, so it can be pulled/replaced |
-| 9 | JST-XH male headers, PCB-mount/through-hole | 3-pin ×1 (LED board: white/red signal + shared GND), 3-pin ×1 (MCP3008 board, pot side: 3.3V/GND/wiper), 6-pin ×1 (MCP3008 board, Pi side: MOSI/MISO/SCLK/CS/3.3V/GND) | 3 | soldered onto their respective boards — the other solder jobs alongside items 1–4 and 8, each giving a plug/unplug point for its cable |
-| 10 | JST-XH housings + crimp pins | matching the 3 male headers above (two 3-pin, one 6-pin) | 3 housings, ~12 pins | a small assorted JST-XH kit (2/3/4/6-pin housings + pins) covers this |
+| 9 | 2.54mm shrouded male headers, PCB-mount/through-hole | 3-pin ×1 (LED board: white/red signal + shared GND), 3-pin ×1 (MCP3008 board, pot side: 3.3V/GND/wiper), 6-pin ×1 (MCP3008 board, Pi side: MOSI/MISO/SCLK/CS/3.3V/GND) | 3 | soldered onto their respective boards — the other solder jobs alongside items 1–4 and 8, each giving a plug/unplug point for its cable |
+| 10 | 2.54mm shrouded housings + crimp pins | matching the 3 male headers above (two 3-pin, one 6-pin) | 3 housings, ~12 pins | a small assorted 2.54mm shrouded kit (2/3/4/6-pin housings + pins) covers this |
 | 11 | Female Dupont crimp terminals + housings | 2.54mm pitch, single-row | ~12 (one per signal; shared GND/power legs can reuse Pi pins instead of needing separate terminals) | pushes directly onto the Pi GPIO header; replaces a breakout HAT entirely |
-| 12 | Crimp tool | handles both Dupont (2.54mm) and JST-XH pitch | 1 | confirm both-pitch support before buying |
+| 12 | Crimp tool | supports both the 2.54mm shrouded connector's crimp pins and Dupont's | 1 | same pitch (2.54mm) doesn't guarantee one tool's dies fit both connector families — confirm before buying |
 | 13 | Hookup wire | 22–26AWG, a few colours | short lengths | cable-side legs only — no wire needed on the boards themselves beyond the soldered leads/traces |
-| 14 | Solder + iron | fine 0.6–0.8mm solder | — | for items 1–4, the DIP socket (item 8), both boards' JST headers (item 9), and the pot's 3 pigtail wires onto its solder lugs (item 5) — a handful of simple joints, not a full board's worth |
+| 14 | Solder + iron | fine 0.6–0.8mm solder | — | for items 1–4, the DIP socket (item 8), both boards' shrouded headers (item 9), and the pot's 3 pigtail wires onto its solder lugs (item 5) — a handful of simple joints, not a full board's worth |
 
 Sharing the LED cathodes on one ground trace (now possible since the
 board carries real copper connections) cuts the board's breakout down to
@@ -131,12 +134,12 @@ board carries real copper connections) cuts the board's breakout down to
   40-pin header, so nothing needs tracing back to one single shared point
   off-board.
 - **Pot wiring**: cable from the pot's 3 legs (two outer + wiper) plugs
-  into the MCP3008 board's 3-pin JST header, **not the Pi directly** —
+  into the MCP3008 board's 3-pin shrouded header, **not the Pi directly** —
   one outer leg to 3.3V, the other to GND (making it a voltage divider),
   the wiper into one of the MCP3008's analog input channels via the
   board's own trace.
 - **MCP3008 wiring**: on its board, the socket's pins are wired to two
-  JST-XH male headers — the 3-pin one facing the pot (above) and a 6-pin
+  2.54mm shrouded male headers — the 3-pin one facing the pot (above) and a 6-pin
   one facing the Pi: standard SPI (MOSI, MISO, SCLK, one CS/CE pin) plus
   the chip's own power (3.3V) and GND, all otherwise free on this build
   (SPI isn't used elsewhere on the header).
@@ -148,13 +151,13 @@ board carries real copper connections) cuts the board's breakout down to
   shared ground trace, standard through-hole soldering. Nothing to crimp
   or splice for the LEDs themselves.
 - Signal path end to end for each LED: **GPIO pin → female Dupont → wire
-  → JST-XH female housing → JST-XH male header (soldered to the LED
+  → 2.54mm shrouded female housing → 2.54mm shrouded male header (soldered to the LED
   board) → board trace → resistor → LED leg** (all soldered from the
   header onward).
-- Signal path end to end for the volume reading: **pot leg → JST-XH
-  female housing → JST-XH male header (soldered to the MCP3008 board,
+- Signal path end to end for the volume reading: **pot leg → 2.54mm shrouded
+  female housing → 2.54mm shrouded male header (soldered to the MCP3008 board,
   pot side) → board trace → DIP socket pin → MCP3008 chip → DIP socket
-  pin → board trace → JST-XH male header (Pi side) → JST-XH female
+  pin → board trace → 2.54mm shrouded male header (Pi side) → 2.54mm shrouded female
   housing → wire → female Dupont → Pi SPI/power pin.**
 
 ## Mounting
@@ -175,7 +178,7 @@ board carries real copper connections) cuts the board's breakout down to
   back to the pot, so it's naturally sited near the pot rather than at
   the LED board's location or back at the Pi.
 - Each of the three assemblies here (LED board, pot, MCP3008 board) gets
-  its own independent cable run — JST-XH crimped onto pins, wire run to
+  its own independent cable run — 2.54mm shrouded crimped onto pins, wire run to
   wherever it's routed, female Dupont at the Pi-header end — same
   technique throughout, just not sharing a connector or a run between
   them.
