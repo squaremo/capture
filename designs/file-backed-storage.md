@@ -270,10 +270,19 @@ items) yourself later — not an active design either way.
 ## Config
 
 ```
-DATA_PATH=/data   (was DB_PATH — now a directory, git repo root, not a single file)
+DATA_PATH=/data/notes   (was DB_PATH — now a directory, git repo root, not a single file)
 GIT_REMOTE_URL=https://github.com/<owner>/<repo>.git   (or gitlab.com — either works identically)
 GIT_REMOTE_TOKEN=op://Capture/git-notes/token          (a fine-grained PAT, through secrets.js exactly like LINEAR_API_KEY)
 ```
+
+**A subdirectory of the mounted volume, deliberately, not its root.**
+`SATELLITE_HOUSES_PATH` (`designs/satellites.md`) lives at that volume's
+top level — a sibling of `DATA_PATH`, not inside it. Every store.js write
+only ever `git add`s an explicit `items/`/`favourites/` path, so
+`satellites.json` was already never going to be staged by anything this
+app does — but sitting physically inside a directory that's cloned from
+and pushed to a remote is its own hazard regardless (a stray manual
+`git add -A` there sweeps it in), so it doesn't live there at all.
 
 **Push remote: resolved.** A PAT on a dedicated bot account (GitHub or
 GitLab — host doesn't matter, either works the same way), not the user's
