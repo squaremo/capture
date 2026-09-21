@@ -111,11 +111,11 @@
 [data-density="station"] {
   --rule: 2px;
   --radius: 0px;
-  --fs-body: 15px;
-  --fs-lead: 19px;
-  --fs-logo: 15px;      /* the station wordmark is mono, small and tracked */
-  --fs-icon: 26px;      /* glyphs get bigger on a touchscreen, not smaller */
-  --tap: 48px;          /* minimum touch target */
+  --fs-body: 18px;
+  --fs-lead: 23px;
+  --fs-logo: 17px;      /* the station wordmark is mono, small and tracked */
+  --fs-icon: 32px;      /* glyphs get bigger on a touchscreen, not smaller */
+  --tap: 56px;          /* minimum touch target */
 }
 
 /* No mouse on a touchscreen kiosk — the arrow Chromium still draws (it
