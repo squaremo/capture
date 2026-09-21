@@ -1,10 +1,18 @@
-# Station control board: indicators + volume, solderless
+# Station control board: indicators + volume
 
 Status: BOM decided, not yet built. Refines the "Custom control board"
 section of `designs/satellite-hardware.md` (indicator lights + volume +
 PTT, planned there but undesigned) — this doc is that design. Read
 `satellite-hardware.md` first for how this board fits into the kiosk box
 as a whole (case, screen, WM8960 audio HAT, GPIO header availability).
+
+**Changed from an earlier all-solderless version of this doc**: the two
+LEDs and their resistors are now soldered directly onto the perma-proto
+board, rather than crimped/spliced together off-board — a soldering iron
+turned out to be available after all. This removes the earlier
+resistor-to-LED butt-splice step entirely (the board's own copper traces
+do that job now). The board-to-Pi cable stays solderless throughout, via
+a PCB-mount JST-XH header soldered onto the board — see Build approach.
 
 ## Scope
 
@@ -23,74 +31,78 @@ already built.
   no hard stops," not a knob whose physical position maps to a volume
   percentage — revisit if that distinction turns out to matter in use.
 
-## Build approach: solderless, no solder station available
+## Build approach
 
-No part of this build is soldered. Three techniques cover it:
+Soldering is now in scope for the LEDs and their resistors only —
+everything from the board's edge onward (the cable to the Pi, and the
+encoder, which is a separate breakout module rather than a board-mounted
+part) stays crimp-only, no solder.
 
-1. **Perma-proto/stripboard as a mechanical mounting jig only** — a
-   plated prototyping board is used purely to hold the LEDs and encoder
-   at fixed panel positions (useful for a wall-mounted front panel). Its
-   copper pads are **not** relied on for electrical connection — without
-   solder, pushed-through leads only make friction contact, which isn't
-   reliable for anything that gets moved or lives long-term in an
-   enclosure. All real electrical paths run through crimped connectors
-   instead (next two points).
-2. **JST-XH connectors at the board end** — crimped onto each
-   component's leads, locking (unlike Dupont, which pulls apart), used
-   for the LED and encoder wiring on the board side.
-3. **Female Dupont crimp terminals at the Pi end** — pushed directly onto
-   the Pi's 40-pin GPIO header pins. This removes the need for a separate
-   GPIO breakout HAT: the header pins are standard 0.1"/2.54mm, the same
-   pitch Dupont terminals are made for.
+1. **LEDs + resistors soldered onto the perma-proto board** — each LED's
+   anode goes through its series resistor to a signal pad; both LEDs'
+   cathodes can share a single ground trace on the board itself (real
+   copper traces, unlike the earlier friction-only plan), so the board
+   only needs to break out **3 nets**: white signal, red signal, shared
+   ground.
+2. **A JST-XH male header, PCB-mount/through-hole, soldered onto the
+   board** at those 3 net pads — the one other solder job this build
+   needs, and it's what lets the cable side stay fully solderless: a
+   JST-XH female housing (crimped onto wire, no soldering) simply plugs
+   onto this header and unplugs again freely.
+3. **JST-XH connectors for the encoder** — the encoder is a separate
+   breakout module (KY-040), not mounted on this board, so it keeps the
+   original crimped-JST-XH-onto-its-pins wiring rather than being
+   soldered to anything.
+4. **Female Dupont crimp terminals at the Pi end** — pushed directly onto
+   the Pi's 40-pin GPIO header pins, for both the LED cable and the
+   encoder cable. This removes the need for a separate GPIO breakout HAT:
+   the header pins are standard 0.1"/2.54mm, the same pitch Dupont
+   terminals are made for.
 
 One crimp tool that handles both 2.54mm Dupont and JST-XH pitch covers
-both ends of every wire (confirm before buying — most small ratcheting
-"SN-28B"-style crimpers do, but not all).
+every crimped connection in the build (confirm before buying — most
+small ratcheting "SN-28B"-style crimpers do, but not all).
 
 ## BOM
 
 | # | Item | Spec | Qty | Notes |
 |---|------|------|-----|-------|
-| 1 | White LED | 5mm, standby/on indicator | 1 | |
-| 2 | Red LED | 5mm, live-mic indicator | 1 | |
-| 3 | Resistor, LED (white) | ~330Ω, 1/4W | 1 | inline on the wire, GPIO is 3.3V logic |
-| 4 | Resistor, LED (red) | ~220–330Ω, 1/4W | 1 | red LEDs often want less than white — check the LED's datasheet Vf if available |
-| 5 | Rotary encoder module | KY-040 (breakout, has built-in pull-ups) | 1 | volume control — see Scope above for why an encoder, not a pot |
-| 6 | Perma-proto / stripboard | ~half-size, 0.1" pitch | 1 | mounting jig only, no electrical role |
-| 7 | JST-XH housings + crimp pins | 2-pin ×2 (LEDs), 3-pin ×1 (encoder CLK/DT/common, if the encoder's own push-button isn't wired up this model) | 3 housings, ~7 pins | a small assorted JST-XH kit (2/3/4-pin housings + pins) covers this without buying sizes separately |
-| 8 | Female Dupont crimp terminals + housings | 2.54mm pitch, single-row | ~7 (one per signal, GND legs can share a Pi GND pin instead of needing separate terminals) | pushes directly onto the Pi GPIO header; replaces a breakout HAT entirely |
-| 9 | Crimp tool | handles both Dupont (2.54mm) and JST-XH pitch | 1 | confirm both-pitch support before buying |
-| 10 | Hookup wire | 22–26AWG, a few colours | short lengths | board-side and header-side legs |
-| 11 | Insulated crimp butt-splice connectors | smallest available size (red, ~22–16AWG) | 2 | a generic electrical/automotive crimp kit, not an electronics/JST kit — used to join each resistor's free leg directly to its LED's leg, see Wiring notes below |
+| 1 | White LED | 5mm, standby/on indicator | 1 | soldered to the board |
+| 2 | Red LED | 5mm, live-mic indicator | 1 | soldered to the board |
+| 3 | Resistor, LED (white) | ~330Ω, 1/4W | 1 | soldered in-line on the board, GPIO is 3.3V logic |
+| 4 | Resistor, LED (red) | ~220–330Ω, 1/4W | 1 | soldered in-line on the board — red LEDs often want less than white, check the LED's datasheet Vf if available |
+| 5 | Rotary encoder module | KY-040 (breakout, has built-in pull-ups) | 1 | volume control — see Scope above for why an encoder, not a pot; not board-mounted, wired independently |
+| 6 | Perma-proto / stripboard | ~half-size, 0.1" pitch | 1 | now a real soldered circuit for the two LEDs, not just a mounting jig |
+| 7 | JST-XH male header, PCB-mount/through-hole | 3-pin (white signal, red signal, shared GND) | 1 | soldered onto the board — the one other solder job, gives a plug/unplug point for the cable |
+| 8 | JST-XH housings + crimp pins | 3-pin ×1 (matches the board header, item 7), 3-pin ×1 (encoder CLK/DT/common, if its own push-button isn't wired up this model) | 2 housings, 6 pins | a small assorted JST-XH kit (2/3/4-pin housings + pins) covers this |
+| 9 | Female Dupont crimp terminals + housings | 2.54mm pitch, single-row | ~6 (one per signal; GND legs can share a Pi GND pin instead of needing separate terminals) | pushes directly onto the Pi GPIO header; replaces a breakout HAT entirely |
+| 10 | Crimp tool | handles both Dupont (2.54mm) and JST-XH pitch | 1 | confirm both-pitch support before buying |
+| 11 | Hookup wire | 22–26AWG, a few colours | short lengths | cable-side legs only — no wire needed on the board itself beyond the soldered leads/traces |
+| 12 | Solder + iron | fine 0.6–0.8mm solder | — | only for items 1–4 + 7 — a handful of simple through-hole joints, not a full board's worth |
 
-Connector/pin count assumes the encoder's own click-button is left
-unwired this model (PTT is deferred anyway, and the encoder's button
-isn't needed for volume alone) — 3 signals per LED-or-encoder-leg group,
-9 total, comfortably inside one small assorted crimp kit.
+Sharing the LED cathodes on one ground trace (now possible since the
+board carries real copper connections) cuts the board's breakout down to
+3 nets total, rather than one pair per LED.
 
 ## Wiring notes
 
-- **GND can be shared.** Both LEDs' cathodes and the encoder's GND leg
-  can run to Pi GND pins — there are several on the 40-pin header, so
-  each doesn't need tracing back to one single shared point.
+- **GND can be shared.** Both LEDs' cathodes (tied together on the board
+  via a shared ground trace) and the encoder's GND leg can all run to Pi
+  GND pins — there are several on the 40-pin header, so nothing needs
+  tracing back to one single shared point off-board.
 - **Bare female Dupont pins are exposed metal** until seated on the
   header, same caveat as any Dupont jumper — connect/disconnect with the
   Pi powered off.
-- **LED series resistors have no solder joint to anchor them** — since
-  nothing here is soldered, the resistor is built into the wire assembly
-  at both ends rather than left resting loose against the board:
-  - One resistor leg is crimped directly into the same JST-XH pin barrel
-    as the wire's stripped strands (trim the leg to length first so it
-    doesn't poke out past the barrel).
-  - The resistor's other leg is joined to the LED's leg with a small
-    insulated crimp butt-splice (item 11) — same discipline as the rest
-    of the build (crimp, don't solder, don't rely on the perma-proto
-    board's copper for anything electrical).
+- **LED + resistor wiring is now entirely on-board solder joints** — each
+  LED's anode through its resistor to a signal pad, both cathodes to the
+  shared ground trace, standard through-hole soldering. Nothing to crimp
+  or splice for the LEDs themselves.
 - Signal path end to end for each LED: **GPIO pin → female Dupont → wire
-  → JST-XH pin (crimped together with one resistor leg) → resistor →
-  butt-splice → LED leg.** The encoder's three signal legs (CLK/DT/
-  common) skip the resistor/splice step and go straight from JST-XH pin
-  to encoder leg.
+  → JST-XH female housing → JST-XH male header (soldered to the board) →
+  board trace → resistor → LED leg** (all soldered from the header
+  onward). The encoder's three signal legs (CLK/DT/common) are unrelated
+  to the board — straight from their own JST-XH pin to the encoder's
+  pins, as before.
 
 ## Open questions
 
