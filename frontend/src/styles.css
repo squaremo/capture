@@ -632,6 +632,23 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   text-decoration: line-through;
 }
 
+/* A shopping-list item's category tags (see add_to_shopping_list) — small
+   and quiet, same chip treatment as .integration-tag above, never a signal
+   colour since a tag is metadata, not a status. */
+.item-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.item-tag {
+  padding: 2px 7px;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  font-size: var(--fs-label);
+  color: var(--text-dim);
+}
+
 .checklist-footer {
   display: flex;
   align-items: center;

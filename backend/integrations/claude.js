@@ -157,12 +157,31 @@ const TOOL_REGISTRY = {
     kind: 'final',
     status: 'acted',
     extra: ({ items }) => {
+      const normalized = items.map(normalizeChecklistItem)
       const existing = listItems({ status: 'shopping_list' })[0]
-      const action_result = `Added ${items.join(', ')} to shopping list`
-      if (!existing) return { status: 'shopping_list', text: buildChecklistText(null, items), action_result }
-      const merged = [...parseChecklistText(existing.text).items.map(i => i.text), ...items]
+      const action_result = `Added ${normalized.map(i => i.text).join(', ')} to shopping list`
+      if (!existing) return { status: 'shopping_list', text: buildChecklistText(null, normalized), action_result }
+      const merged = [...parseChecklistText(existing.text).items, ...normalized]
       updateItem(existing.id, { text: buildChecklistText(null, merged) })
       return { action_result, shopping_list_id: existing.id }
+    },
+  },
+  // A pure lookup, not a mutation — "what do I need from the hardware
+  // shop" reads the one shopping list back, filtered to items tagged
+  // that way by add_to_shopping_list above. Same terminal shape as
+  // save_to_inbox (no side effect, no approval); action_result is
+  // generated here since it depends on the list's current contents,
+  // which Claude can't see.
+  list_shopping_by_tag: {
+    kind: 'final',
+    status: 'triaged',
+    extra: ({ tag }) => {
+      const existing = listItems({ status: 'shopping_list' })[0]
+      const items = existing ? parseChecklistText(existing.text).items : []
+      const t = (tag ?? '').toLowerCase().trim()
+      const matched = items.filter(i => i.tags.includes(t))
+      if (!matched.length) return { action_result: `Nothing tagged "${tag}" on the shopping list.` }
+      return { action_result: `${tag}: ${matched.map(i => i.text).join(', ')}` }
     },
   },
   // A one-off, non-acting bit of writing ("compose a poem about horses") —
@@ -208,20 +227,42 @@ const TOOL_REGISTRY = {
 // runtimes don't otherwise share code.
 const CHECKLIST_LINE_RE = /^-\s*\[([ xX])\]\s*(.*)$/
 
+// A shopping-list item can carry 1+ category tags (e.g. "hardware",
+// "waitrose") so list_shopping_by_tag can answer "what do I need from the
+// hardware shop" — stored inline as trailing "#tag" tokens on the same
+// markdown line, rather than a separate column, since there's no shared
+// place to put per-line-item metadata otherwise (the item's own `tags`
+// column classifies the *capture*, not each thing on the list). A
+// checklist's items never carry tags (save_checklist never sets any), so
+// this is invisible there.
+const TAG_RE = /#([a-z0-9_-]+)/gi
+
 function parseChecklistText(text) {
   const titleLines = []
   const items = []
   for (const line of (text ?? '').split('\n')) {
     const m = line.match(CHECKLIST_LINE_RE)
-    if (m) items.push({ checked: m[1].toLowerCase() === 'x', text: m[2] })
+    if (m) {
+      const tags = [...m[2].matchAll(TAG_RE)].map(t => t[1].toLowerCase())
+      items.push({ checked: m[1].toLowerCase() === 'x', text: m[2].replace(TAG_RE, '').trim(), tags })
+    }
     else if (line.trim() && items.length === 0) titleLines.push(line.trim())
   }
   return { title: titleLines.join(' '), items }
 }
 
+// An item is either a bare string (save_checklist's shape — no tags) or
+// { text, tags } (add_to_shopping_list's) — normalized here so
+// buildChecklistText doesn't care which one it's handed.
+function normalizeChecklistItem(item) {
+  return typeof item === 'string' ? { text: item, tags: [] } : { text: item.text, tags: item.tags ?? [] }
+}
+
 function buildChecklistText(title, items) {
   const heading = title ? `${title}\n` : ''
-  return heading + items.map(item => `- [ ] ${item}`).join('\n')
+  return heading + items.map(normalizeChecklistItem)
+    .map(({ text, tags }) => `- [ ] ${text}${tags.length ? ' ' + tags.map(t => `#${t}`).join(' ') : ''}`)
+    .join('\n')
 }
 
 if (LINEAR_ENABLED) {
@@ -405,7 +446,8 @@ Resolve it by calling propose_plan with an ordered list of steps. Available tool
 
 For a capture that just names a checklist with no items (recalling one): find_checklist first, then "if" found go to recall_checklist referencing the match, "unless" found go to a terminal step (save_to_inbox) with action_result noting no matching checklist was found, so they know to capture one with items instead.
 - compose (terminal): args { action_result, tags }. Use when the capture is asking you to write a one-off piece of text — e.g. "compose a poem about horses", "write a haiku about the rain", "make up a short story about a dragon". Unlike every other tool here, action_result for compose IS the composed piece itself, written out in full — not a description of it. Keep it short (a handful of lines) and always kid-friendly: nothing frightening, violent, sad, or otherwise unsuitable for a young child to hear. If the capture is asking your own name, or what/who you are ("what's your name?", "who are you?", "say something about yourself"), treat it as a compose request about yourself: you are Capture, a self-hosted quick-capture assistant that helps jot down notes and tasks, remembers checklists and shopping lists, sets reminders, and can play music or control the lights around the house when asked — write a short poem drawing on those facts, rather than reciting them.
-- add_to_shopping_list (terminal): args { items, tags }. Use when the capture adds one or more things to buy later — e.g. "add milk and eggs to the shopping list", "we need bin bags and stamps", "shopping list: bread, butter". items is an array of short strings, one per thing to buy, taken directly from the capture. Unlike save_checklist there is only ever one shopping list: never give it a title, and never route this to save_checklist instead — each add folds into whatever's already on the list rather than starting a new one. A bare mention of the shopping list with nothing to add (e.g. "what's on the shopping list?", "shopping list") isn't this tool either — use save_to_inbox instead, noting that the shopping list is always visible in its own section of the app.${LINEAR_ENABLED ? `
+- add_to_shopping_list (terminal): args { items, tags }. Use when the capture adds one or more things to buy later — e.g. "add milk and eggs to the shopping list", "we need bin bags and stamps", "shopping list: bread, butter", "pick up calipers next time I'm at a hardware shop". items is an array of { text, tags }: text is the item taken directly from the capture; tags is an array of 0-3 lowercase category tags *you* assign per item, based on where or how it'd be bought — e.g. "pick up calipers next time I'm at a hardware shop" -> { text: "calipers", tags: ["hardware"] }; "milk from waitrose" -> { text: "milk", tags: ["grocery", "waitrose"] }; leave tags empty ([]) if nothing about the item suggests a category. Unlike save_checklist there is only ever one shopping list: never give it a title, and never route this to save_checklist instead — each add folds into whatever's already on the list rather than starting a new one. A bare mention of the shopping list with nothing to add (e.g. "what's on the shopping list?", "shopping list") isn't this tool either — use save_to_inbox instead, noting that the shopping list is always visible in its own section of the app.
+- list_shopping_by_tag (terminal): args { tag }. Use when the capture is asking what's needed from a particular place or category, not adding anything — e.g. "what do I need from the hardware shop", "what's on the list for waitrose". tag is the single category to filter by, lowercase, matching the vocabulary add_to_shopping_list tags items with (e.g. "hardware", "waitrose") — infer it from the capture the same way you'd assign a tag when adding. action_result is generated automatically; don't set it.${LINEAR_ENABLED ? `
 - search_linear_issues (read-only — runs automatically, no approval needed): args { query }. Searches existing Linear issues for a similar title. Outputs: { duplicate_found: boolean, matching_issue: { title, url } | null }.
 - create_linear_task (acting — only proposes; a human must approve before anything is actually created): args { title, description?, tags }. Real project/engineering work that should be tracked in Linear (e.g. "fix the login bug", "add dark mode").` : ''}${PLAYBACK_ENABLED ? `
 - resolve_playback (read-only — runs automatically, no approval needed): args { title, artist?, album?, room, target_house? }. Looks up the actual matching track and speaker for a Sonos playback request — never guess a specific speaker name or track yourself, this does the matching. room is free text like "living room" or "bedroom", passed through as written. target_house should only be set when the capture text unambiguously names one of these houses: ${houseNames.join(', ')}. Leave it unset otherwise — the app fills in the house the capture came from. Outputs: { target_house, track: { title, artist, album, image, matchConfidence }, speaker: { name, confidence } }.
@@ -414,7 +456,7 @@ For a capture that just names a checklist with no items (recalling one): find_ch
 - resolve_light (read-only — runs automatically, no approval needed): args { room, action, brightness?, color?, target_house? }. Looks up the actual matching room for a light-control request via the house's Matter hub — never guess a specific room name yourself, this does the matching. room is free text like "living room", passed through as written. action is "on", "off", or "set" (with brightness — 1-100 — and/or color — a 6-digit hex string — whichever the capture actually specifies, never both unless both are actually asked for: "set the living room lights to green" -> action "set", color "#00ff00" (no brightness); "dim the living room to 20%" -> action "set", brightness 20 (no color); "dim the living room to 20% and make it red" -> action "set", brightness 20, color "#ff0000". For color, figure out the hex value yourself from the named colour, same as you would for any other colour question — room matching is the only thing that gets resolved locally). target_house follows the same rule as resolve_playback's. Outputs: { target_house, room: { name, confidence }, action, brightness, color }.
 - control_light (acting — proposes the exact resolved room; a human must approve before anything happens): args { target_house, room, action, brightness, color, tags }. Always follows resolve_light in the same plan, referencing its whole output: target_house: "\${s1.target_house}", room: "\${s1.room}", action: "\${s1.action}", brightness: "\${s1.brightness}", color: "\${s1.color}" (using whichever step id you gave resolve_light). Never call control_light without a resolve_light step earlier in the same plan.` : ''}
 
-action_result is a short natural-language description of what was done, e.g. "Saved to inbox", "Reminder set: 'Call dentist' — Tomorrow, 9:00am", "Flagged as urgent". Not needed for create_linear_task, control_playback, queue_playback, control_light, or add_to_shopping_list — their descriptions are generated automatically. The one exception is compose, where action_result is the composed piece itself, not a description of it. tags is an array of 1–3 lowercase tags.
+action_result is a short natural-language description of what was done, e.g. "Saved to inbox", "Reminder set: 'Call dentist' — Tomorrow, 9:00am", "Flagged as urgent". Not needed for create_linear_task, control_playback, queue_playback, control_light, add_to_shopping_list, or list_shopping_by_tag — their descriptions are generated automatically. The one exception is compose, where action_result is the composed piece itself, not a description of it. tags is an array of 1–3 lowercase tags (this classifies the capture as a whole — separate from add_to_shopping_list's per-item tags above).
 
 Steps run in the order given. A read-only step's output is not shown to you before you finish planning — you only see it by referencing it later, so cover both outcomes of a boolean output using "if"/"unless" on separate steps rather than guessing which one will happen.
 

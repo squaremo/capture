@@ -7,10 +7,16 @@ vi.mock('@anthropic-ai/sdk', () => ({
 }))
 
 import { processCapture, runProgram, getFormFields } from '../integrations/claude.js'
-import { createItem, getItem, updateItem } from '../db.js'
+import { createItem, getItem, updateItem, listItems } from '../db.js'
 
 beforeEach(() => {
   mockCreate.mockClear()
+  // The db isn't reset between tests, so a shopping-list item left behind
+  // by one test (there's only ever meant to be one) would otherwise leak
+  // into the next test that expects to find none, or exactly its own.
+  for (const item of listItems({ status: 'shopping_list' })) {
+    updateItem(item.id, { status: 'triaged' })
+  }
 })
 
 function respondWithPlan(steps) {
@@ -134,6 +140,39 @@ describe('processCapture', () => {
     expect(result.action_result).toBe('Added bread to shopping list')
     expect(result.shopping_list_id).toBe(list.id)
     expect(getItem(list.id).text).toBe('- [ ] milk\n- [ ] bread')
+  })
+
+  it('add_to_shopping_list stores per-item tags inline and keeps them on later folds', async () => {
+    const list = createItem('add calipers to shopping list')
+    updateItem(list.id, { status: 'shopping_list', text: '- [ ] calipers #hardware' })
+
+    respondWithStep('add_to_shopping_list', {
+      items: [{ text: 'milk', tags: ['grocery', 'waitrose'] }],
+      tags: [],
+    })
+    const result = await processCapture('milk from waitrose')
+    expect(result.status).toBe('acted')
+    expect(result.shopping_list_id).toBe(list.id)
+    expect(getItem(list.id).text).toBe('- [ ] calipers #hardware\n- [ ] milk #grocery #waitrose')
+  })
+
+  it('list_shopping_by_tag lists only items tagged that way, and says so when none match', async () => {
+    const list = createItem('shopping list')
+    updateItem(list.id, {
+      status: 'shopping_list',
+      text: '- [ ] calipers #hardware\n- [ ] milk #grocery #waitrose\n- [ ] screws #hardware',
+    })
+
+    respondWithStep('list_shopping_by_tag', { tag: 'hardware' })
+    const result = await processCapture('what do I need from the hardware shop')
+    expect(result.status).toBe('triaged')
+    expect(result.action_result).toBe('hardware: calipers, screws')
+
+    // Same list, with the hardware-tagged rows since removed.
+    updateItem(list.id, { text: '- [ ] milk #grocery #waitrose' })
+    respondWithStep('list_shopping_by_tag', { tag: 'hardware' })
+    const second = await processCapture('what do I need from the hardware shop')
+    expect(second.action_result).toBe('Nothing tagged "hardware" on the shopping list.')
   })
 
   it('maps compose → acted, with action_result being the composed piece itself', async () => {

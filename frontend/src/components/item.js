@@ -50,20 +50,38 @@ const ROLE_VARS = {
 // these" mark — see makeLocalTicks() below.
 const CHECKLIST_LINE_RE = /^-\s*\[([ xX])\]\s*(.*)$/
 
+// A shopping-list item can carry category tags (see add_to_shopping_list in
+// backend/integrations/claude.js) stored inline as trailing "#tag" tokens
+// on the same line — a checklist's items never have any, since
+// save_checklist never sets them.
+const TAG_RE = /#([a-z0-9_-]+)/gi
+
 export function parseChecklist(text) {
   const title = []
   const items = []
   for (const line of (text ?? '').split('\n')) {
     const m = line.match(CHECKLIST_LINE_RE)
-    if (m) items.push(m[2])
+    if (m) {
+      const tags = [...m[2].matchAll(TAG_RE)].map(t => t[1].toLowerCase())
+      items.push({ text: m[2].replace(TAG_RE, '').trim(), tags })
+    }
     else if (line.trim() && items.length === 0) title.push(line.trim())
   }
   return { title: title.join(' '), items }
 }
 
+// An item is either a bare string (no tags) or { text, tags } — accepted
+// interchangeably so callers that only ever deal in plain labels
+// (appendShoppingItem, below) don't need to know about tags at all.
+function normalizeItem(item) {
+  return typeof item === 'string' ? { text: item, tags: [] } : item
+}
+
 export function buildChecklistMarkdown(title, items) {
   const heading = title ? `${title}\n` : ''
-  return heading + items.map(text => `- [ ] ${text}`).join('\n')
+  return heading + items.map(normalizeItem)
+    .map(({ text, tags }) => `- [ ] ${text}${tags?.length ? ' ' + tags.map(t => `#${t}`).join(' ') : ''}`)
+    .join('\n')
 }
 
 // A small per-device tick store, keyed by item id and sized/padded to the
@@ -252,11 +270,11 @@ export function renderChecklist(itemId, { items }) {
   const checkedCount = checked.filter(Boolean).length
   return `
     <ul class="checklist">
-      ${items.map((text, i) => `
+      ${items.map((item, i) => `
         <li class="checklist-item${checked[i] ? ' checklist-item--checked' : ''}">
           <label>
             <input type="checkbox" data-action="toggle-checklist" data-index="${i}" ${checked[i] ? 'checked' : ''}>
-            <span>${escHtml(text)}</span>
+            <span>${escHtml(item.text)}</span>
           </label>
         </li>
       `).join('')}
@@ -266,6 +284,14 @@ export function renderChecklist(itemId, { items }) {
       <button class="btn-checklist-reset" data-action="reset-checklist">reset</button>
     </div>
   `
+}
+
+// Renders an item's tags (if any) as small chips — shared by
+// renderShoppingList below. A checklist item never has tags, so this is
+// only ever called there.
+function renderTags(tags) {
+  if (!tags?.length) return ''
+  return `<span class="item-tags">${tags.map(t => `<span class="item-tag">#${escHtml(t)}</span>`).join('')}</span>`
 }
 
 // The shopping list's mirror image of renderChecklist(): items accumulate
@@ -284,11 +310,12 @@ export function renderShoppingList(itemId, { items }) {
   const checkedCount = checked.filter(Boolean).length
   return `
     <ul class="checklist">
-      ${items.map((text, i) => `
+      ${items.map((item, i) => `
         <li class="checklist-item${checked[i] ? ' checklist-item--checked' : ''}">
           <label>
             <input type="checkbox" data-action="toggle-shopping-item" data-index="${i}" ${checked[i] ? 'checked' : ''}>
-            <span>${escHtml(text)}</span>
+            <span>${escHtml(item.text)}</span>
+            ${renderTags(item.tags)}
           </label>
         </li>
       `).join('')}
