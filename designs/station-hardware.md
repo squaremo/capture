@@ -52,13 +52,20 @@ already built.
     replaces, a plain pot has no SW leg. If a mute/shutdown/PTT button is
     still wanted alongside the volume knob, it now needs its own
     standalone momentary switch — see Open questions below.
+  - **Terminals are bare solder lugs, not pins or JST** — standard for a
+    panel-mount pot (check the specific listing/datasheet before buying,
+    since a minority do ship with a small breakout PCB or header
+    pre-attached, but don't assume it). This adds one more small solder
+    job: three wire pigtails soldered directly onto the pot's lugs (two
+    outer + wiper), with JST-XH pins crimped onto the pigtails' free ends
+    — see Build approach.
 
 ## Build approach
 
-Soldering is now in scope for the LEDs and their resistors only —
-everything from the board's edge onward (the cable to the Pi, and the
-pot/MCP3008 assembly, which lives separately from the LED board) stays
-crimp-only, no solder.
+Soldering is in scope for three things: the LEDs + their resistors, the
+MCP3008's DIP socket, and three pigtail wires onto the pot's bare solder
+lugs. Everything else (every cable run, board to board or board to Pi)
+stays crimp-only, no solder.
 
 1. **LEDs + resistors soldered onto the perma-proto board** — each LED's
    anode goes through its series resistor to a signal pad; both LEDs'
@@ -78,10 +85,11 @@ crimp-only, no solder.
    board — the socket takes the heat, not the chip, and lets the chip be
    pulled/replaced later), wired via board traces to a second JST-XH
    male header (SPI + power/GND pins) soldered the same way as the LED
-   board's header. **JST-XH connectors for the pot's 3 legs** (two outer
-   + wiper) run from the pot itself into this same board's header
-   footprint, crimped rather than soldered — the pot isn't a soldered
-   part, only the MCP3008 assembly is.
+   board's header. **The pot's 3 terminals are bare solder lugs**, so
+   getting a cable off it needs a small solder step at the pot itself —
+   three wire pigtails soldered directly onto the lugs (two outer +
+   wiper) — before JST-XH pins are crimped onto the pigtails' free ends
+   to plug into this same board's header.
 4. **Female Dupont crimp terminals at the Pi end** — pushed directly onto
    the Pi's 40-pin GPIO header pins, for the LED cable, the pot-to-MCP3008
    wiring, and the MCP3008's SPI connection to the Pi. This removes the
@@ -109,7 +117,7 @@ small ratcheting "SN-28B"-style crimpers do, but not all).
 | 11 | Female Dupont crimp terminals + housings | 2.54mm pitch, single-row | ~12 (one per signal; shared GND/power legs can reuse Pi pins instead of needing separate terminals) | pushes directly onto the Pi GPIO header; replaces a breakout HAT entirely |
 | 12 | Crimp tool | handles both Dupont (2.54mm) and JST-XH pitch | 1 | confirm both-pitch support before buying |
 | 13 | Hookup wire | 22–26AWG, a few colours | short lengths | cable-side legs only — no wire needed on the boards themselves beyond the soldered leads/traces |
-| 14 | Solder + iron | fine 0.6–0.8mm solder | — | for items 1–4, the DIP socket (item 8), and both boards' JST headers (item 9) — a handful of simple through-hole joints on two small boards, not a full board's worth |
+| 14 | Solder + iron | fine 0.6–0.8mm solder | — | for items 1–4, the DIP socket (item 8), both boards' JST headers (item 9), and the pot's 3 pigtail wires onto its solder lugs (item 5) — a handful of simple joints, not a full board's worth |
 
 Sharing the LED cathodes on one ground trace (now possible since the
 board carries real copper connections) cuts the board's breakout down to
