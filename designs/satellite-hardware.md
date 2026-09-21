@@ -198,8 +198,11 @@ fighting for header space.
 Supersedes the Parts list's original "standalone arcade/momentary
 push-button" row above. Not started — captured here so the plan exists
 before it's forgotten, same reason `designs/satellite-hardware.md` as a
-whole exists. A small board, panel-mounted into the case alongside the
-touchscreen, carrying:
+whole exists. **BOM and wiring now designed** in
+`designs/station-hardware.md` — read that for the actual parts list and
+solderless build approach (a volume rotary encoder rather than a rocker,
+and PTT deliberately deferred to the next model). A small board,
+panel-mounted into the case alongside the touchscreen, carrying:
 
 - **Indicator lights** — status at a glance without waking the screen
   (recording/listening, transcribing, error at minimum; exact states not
