@@ -61,6 +61,7 @@ both ends of every wire (confirm before buying — most small ratcheting
 | 8 | Female Dupont crimp terminals + housings | 2.54mm pitch, single-row | ~7 (one per signal, GND legs can share a Pi GND pin instead of needing separate terminals) | pushes directly onto the Pi GPIO header; replaces a breakout HAT entirely |
 | 9 | Crimp tool | handles both Dupont (2.54mm) and JST-XH pitch | 1 | confirm both-pitch support before buying |
 | 10 | Hookup wire | 22–26AWG, a few colours | short lengths | board-side and header-side legs |
+| 11 | Insulated crimp butt-splice connectors | smallest available size (red, ~22–16AWG) | 2 | a generic electrical/automotive crimp kit, not an electronics/JST kit — used to join each resistor's free leg directly to its LED's leg, see Wiring notes below |
 
 Connector/pin count assumes the encoder's own click-button is left
 unwired this model (PTT is deferred anyway, and the encoder's button
@@ -76,11 +77,20 @@ isn't needed for volume alone) — 3 signals per LED-or-encoder-leg group,
   header, same caveat as any Dupont jumper — connect/disconnect with the
   Pi powered off.
 - **LED series resistors have no solder joint to anchor them** — since
-  nothing here is soldered, keep the resistor in-line inside the wire run
-  (twisted/crimped into the same lead as the LED, not just resting in a
-  board hole) so it can't work loose.
-- Signal path end to end: **GPIO pin → female Dupont → wire (± inline
-  resistor for the LEDs) → JST-XH → LED/encoder leg.**
+  nothing here is soldered, the resistor is built into the wire assembly
+  at both ends rather than left resting loose against the board:
+  - One resistor leg is crimped directly into the same JST-XH pin barrel
+    as the wire's stripped strands (trim the leg to length first so it
+    doesn't poke out past the barrel).
+  - The resistor's other leg is joined to the LED's leg with a small
+    insulated crimp butt-splice (item 11) — same discipline as the rest
+    of the build (crimp, don't solder, don't rely on the perma-proto
+    board's copper for anything electrical).
+- Signal path end to end for each LED: **GPIO pin → female Dupont → wire
+  → JST-XH pin (crimped together with one resistor leg) → resistor →
+  butt-splice → LED leg.** The encoder's three signal legs (CLK/DT/
+  common) skip the resistor/splice step and go straight from JST-XH pin
+  to encoder leg.
 
 ## Open questions
 
