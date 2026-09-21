@@ -104,6 +104,24 @@ board carries real copper connections) cuts the board's breakout down to
   to the board — straight from their own JST-XH pin to the encoder's
   pins, as before.
 
+## Mounting
+
+- **LEDs**: fixed to the perma-proto board by their own soldered leads —
+  no separate mounting hardware, the board is the panel position.
+- **Rotary encoder**: not on the board — it isn't near the LEDs, and
+  mounts itself the same way a potentiometer does. The encoder body has
+  a threaded metal bushing around the shaft; drill one round hole in the
+  case at the shaft's diameter, push the bushing through from behind, and
+  secure with the nut (and lock washer, if supplied) from the front. The
+  small breakout PCB (the 5-pin part) needs no fixing of its own — it
+  hangs rigidly off the back of the panel-mounted body. Check the panel's
+  wall thickness against the bushing's threaded length before drilling;
+  a thick wall can leave too little thread proud for the nut.
+- Being a separate location from the LED board, the encoder gets its own
+  independent cable — JST-XH crimped onto its pins, wire run to wherever
+  it's routed, female Dupont at the Pi-header end — same technique as the
+  LED cable, just not sharing a connector or a run with it.
+
 ## Open questions
 
 - Exact GPIO pin assignments (BCM numbers for the two LEDs and the
