@@ -127,10 +127,27 @@ board carries real copper connections) cuts the board's breakout down to
 - Exact GPIO pin assignments (BCM numbers for the two LEDs and the
   encoder's CLK/DT) — not yet chosen; do this once the WM8960 HAT's
   pass-through header pinout is checked against what's already spoken
-  for (see `satellite-hardware.md`'s WM8960 section).
+  for (see `satellite-hardware.md`'s WM8960 section). The WM8960 HAT
+  reserves 8 pins: I2S audio (GPIO18/19/20/21), I2C1 codec control
+  (GPIO2/3), and the HAT ID EEPROM (GPIO0/1, reserved on every
+  HAT-format board regardless of which one). Plenty of the remaining 18
+  GPIO-capable header pins are free for this board's 5 signals.
+- **Open: what the encoder's own push-button does — mute, or shutdown?**
+  Whichever way this goes affects the pin choice for that one signal:
+  `dtoverlay=gpio-shutdown`'s "press again to power back on" behaviour is
+  hardwired to GPIO3 specifically, but GPIO3 is exactly the pin the
+  WM8960 HAT's I2C1 uses for codec control (see above) — the two would
+  conflict if double-purposed. So shutdown-with-button-wake isn't
+  cleanly available on this hardware; a shutdown button here would have
+  to be software-only (clean halt via a watcher script on any free GPIO,
+  but then booting again means physically unplugging and replugging
+  power, no button-press wake). Mute has no such constraint and can go
+  on any free pin. Left open for now — pick before wiring the encoder's
+  SW leg.
 - Software side: how the LEDs get driven (which states light which LED)
   and how encoder turns map to a volume change — not designed yet, next
   topic.
 - PTT, when it's added in the next model: whether it reuses the
   encoder's own push-button (already present on the KY-040, just unwired
-  this round) or a standalone switch.
+  this round) or a standalone switch — also depends on how the
+  mute-vs-shutdown question above lands, since that button can't be both.
