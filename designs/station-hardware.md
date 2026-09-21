@@ -144,6 +144,15 @@ board carries real copper connections) cuts the board's breakout down to
   power, no button-press wake). Mute has no such constraint and can go
   on any free pin. Left open for now — pick before wiring the encoder's
   SW leg.
+  - **Future alternative, not needed now**: a dedicated power-control
+    add-on (e.g. Pimoroni OnOff SHIM) would give real shutdown-with-wake
+    without touching GPIO3 at all — these switch the actual 5V rail via
+    their own latching circuit, so they work off any GPIO pin regardless
+    of what the WM8960 HAT is doing on I2C1. The cost is physical
+    stacking: the WM8960 HAT already occupies the 40-pin header, so this
+    would need a GPIO extension/stacking header to fit both boards.
+    Worth revisiting if shutdown-with-wake turns out to matter enough in
+    practice to justify the extra part and stacking complexity.
 - Software side: how the LEDs get driven (which states light which LED)
   and how encoder turns map to a volume change — not designed yet, next
   topic.
