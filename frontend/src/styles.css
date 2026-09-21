@@ -1005,7 +1005,7 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
    the flush-left labels all live in the base styles, so the station and
    the laptop are recognisably the same application. */
 [data-density="station"] {
-  --fs-label: 12px;
+  --fs-label: 14px;
 }
 
 [data-density="station"] html,
@@ -1311,8 +1311,8 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   gap: var(--space-2);
 }
 [data-density="station"] .controls-transport-btn {
-  height: 48px;
-  width: 64px;
+  height: 56px;
+  width: 72px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -1321,6 +1321,7 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   border: 2px solid var(--border);
   color: var(--text);
 }
+[data-density="station"] .controls-transport-btn svg { width: 26px; height: 26px; }
 [data-density="station"] .controls-transport-btn--play {
   width: 96px;
   background: var(--sig-act);
@@ -1347,6 +1348,7 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   margin-bottom: var(--space-3);
 }
 [data-density="station"] .controls-light-icon { display: flex; color: var(--text-dim); }
+[data-density="station"] .controls-light-icon svg { width: 24px; height: 24px; }
 [data-density="station"] .controls-light-name { font-size: 17px; font-weight: 600; }
 [data-density="station"] .controls-light-status {
   margin-left: auto;
@@ -1634,7 +1636,7 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 [data-density="station"] .station-tabs {
   display: flex;
   flex-shrink: 0;
-  height: 72px;
+  height: 84px;
   border-top: var(--rule) solid var(--border);
 }
 [data-density="station"] .station-tab {
@@ -1824,6 +1826,15 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   min-height: var(--tap);
   padding-inline: var(--space-5);
   font-size: var(--fs-body);
+}
+[data-density="station"] .btn-submit svg,
+[data-density="station"] .btn-voice svg {
+  width: 24px;
+  height: 24px;
+}
+[data-density="station"] .btn-speak svg {
+  width: 22px;
+  height: 22px;
 }
 
 /* Light and sound controls are the same control at the same size — that

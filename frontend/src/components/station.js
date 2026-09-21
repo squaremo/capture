@@ -115,7 +115,7 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
         <button type="button" class="station-rail-link" data-action="close-list">close</button>
       </div>
       <div class="station-heading-row">
-        <span class="station-heading-icon">${icon(isShopping ? 'shopping-cart' : 'list-checks', 26)}</span>
+        <span class="station-heading-icon">${icon(isShopping ? 'shopping-cart' : 'list-checks', 30)}</span>
         <h1 class="station-heading">${escHtml(parsed.title || (isShopping ? 'Shopping list' : 'Checklist'))}</h1>
       </div>
       ${isShopping ? renderShoppingList(active.id, parsed) : renderChecklist(active.id, parsed)}
@@ -196,7 +196,7 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
       </div>
       <p class="station-compose-text">${escHtml(active.action_result)}</p>
       <div class="station-compose-actions">
-        <button type="button" class="btn-speak station-speak" data-action="speak" title="Read this out" aria-label="Read this out">${icon('volume-2', 20)}</button>
+        <button type="button" class="btn-speak station-speak" data-action="speak" title="Read this out" aria-label="Read this out">${icon('volume-2', 24)}</button>
         ${isFavouritable
           ? `<button type="button" class="btn-favourite" data-action="favourite" data-id="${active.id}" title="Save as favourite" aria-label="Save as favourite">☆</button>`
           : ''}
@@ -242,7 +242,7 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
           const parsed = parseChecklist(i.text)
           const shopping = i.status === 'shopping_list'
           return `<li class="station-rail-row" data-id="${i.id}">
-            <button type="button" class="station-rail-run">${icon(shopping ? 'shopping-cart' : 'list-checks', 20)}${escHtml(parsed.title || (shopping ? 'Shopping list' : 'Checklist'))}</button>
+            <button type="button" class="station-rail-run">${icon(shopping ? 'shopping-cart' : 'list-checks', 24)}${escHtml(parsed.title || (shopping ? 'Shopping list' : 'Checklist'))}</button>
             <span class="station-rail-time">${parsed.items.length}</span>
           </li>`
         }).join('')}
@@ -269,8 +269,8 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
   reviewActions.className = 'station-review-actions'
   reviewActions.hidden = true
   reviewActions.innerHTML = `
-    <button type="button" class="btn-approve station-approve" data-action="approve">${icon('check', 26)}approve <span class="station-key-hint">&crarr;</span></button>
-    <button type="button" class="btn-veto station-veto" data-action="veto">${icon('x', 22)}veto</button>
+    <button type="button" class="btn-approve station-approve" data-action="approve">${icon('check', 30)}approve <span class="station-key-hint">&crarr;</span></button>
+    <button type="button" class="btn-veto station-veto" data-action="veto">${icon('x', 26)}veto</button>
     <button type="button" class="btn-veto station-later" data-action="later">later <span class="station-key-hint">esc</span></button>
   `
   reviewActions.addEventListener('click', (e) => {
@@ -368,7 +368,7 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
     btn.type = 'button'
     btn.className = 'station-tab'
     btn.dataset.tab = name
-    btn.innerHTML = `${icon(TAB_ICONS[name], 21)}<span>${TAB_LABELS[name]}</span>`
+    btn.innerHTML = `${icon(TAB_ICONS[name], 26)}<span>${TAB_LABELS[name]}</span>`
     btn.addEventListener('click', () => setTab(name))
     tabsBar.append(btn)
     tabButtons[name] = btn
@@ -414,7 +414,7 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
     flashEl.innerHTML = `
       <span class="station-flash-check">&#10003;</span>
       <span class="station-flash-text">${escHtml(item.action_result)}</span>
-      <button type="button" class="btn-speak station-flash-speak" data-action="speak" title="Read this out" aria-label="Read this out">${icon('volume-2', 18)}</button>
+      <button type="button" class="btn-speak station-flash-speak" data-action="speak" title="Read this out" aria-label="Read this out">${icon('volume-2', 22)}</button>
       ${isFavouritable
         ? `<button type="button" class="btn-favourite station-flash-favourite" data-action="favourite" data-id="${item.id}" title="Save as favourite" aria-label="Save as favourite">☆</button>`
         : ''}
@@ -509,7 +509,7 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
       ${item?.action_result
         ? `<div class="station-review-quote">
             <span class="station-review-quote-text">${escHtml(item.action_result)}</span>
-            <button type="button" class="btn-speak station-speak" data-action="speak" title="Read this out" aria-label="Read this out">${icon('volume-2', 20)}</button>
+            <button type="button" class="btn-speak station-speak" data-action="speak" title="Read this out" aria-label="Read this out">${icon('volume-2', 24)}</button>
           </div>`
         : ''}
       ${toolLabel
