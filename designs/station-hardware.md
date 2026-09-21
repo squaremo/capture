@@ -90,18 +90,19 @@ stays crimp-only, no solder.
    three wire pigtails soldered directly onto the lugs (two outer +
    wiper) — before 2.54mm shrouded pins are crimped onto the pigtails' free ends
    to plug into this same board's header.
-4. **Female Dupont crimp terminals at the Pi end** — pushed directly onto
-   the Pi's 40-pin GPIO header pins, for the LED cable, the pot-to-MCP3008
-   wiring, and the MCP3008's SPI connection to the Pi. This removes the
-   need for a separate GPIO breakout HAT: the header pins are standard
-   0.1"/2.54mm, the same pitch Dupont terminals are made for.
-
-The board-side shrouded connectors and the Pi-side Dupont terminals are
-both 2.54mm pitch, but that doesn't automatically mean one crimp tool's
-jaw fits both — confirm the tool's die profile actually supports both
-connector families' crimp pins before buying, not just that the pitch
-number matches (most small ratcheting "SN-28B"-style crimpers do, but
-not all).
+4. **Pre-made female Dupont ends at the Pi end, not self-crimped** —
+   loose Dupont crimp pins/housings turned out to be a hard-to-source
+   niche item, so the plan changed: buy standard **female-to-female
+   Dupont jumper wires** (cheap, sold everywhere) and **cut each one in
+   half**. One half keeps its factory-crimped female Dupont terminal —
+   exactly what's needed to push onto the Pi's 40-pin GPIO header pins —
+   and the cut end is just bare wire, stripped back and crimped with the
+   2.54mm shrouded connector's own pin instead. This removes the need
+   for a separate GPIO breakout HAT (the header pins are standard
+   0.1"/2.54mm, the same pitch Dupont terminals are made for) **and**
+   removes Dupont crimping from the build entirely — the only crimping
+   done by hand is the shrouded connector's own pins, at both ends of
+   every cable.
 
 ## BOM
 
@@ -117,8 +118,8 @@ not all).
 | 8 | 16-pin DIP socket | standard 0.3" DIP-16 | 1 | soldered to the second board; the MCP3008 chip plugs into this rather than being soldered directly, so it can be pulled/replaced |
 | 9 | 2.54mm shrouded male headers, PCB-mount/through-hole | 3-pin ×1 (LED board: white/red signal + shared GND), 3-pin ×1 (MCP3008 board, pot side: 3.3V/GND/wiper), 6-pin ×1 (MCP3008 board, Pi side: MOSI/MISO/SCLK/CS/3.3V/GND) | 3 | soldered onto their respective boards — the other solder jobs alongside items 1–4 and 8, each giving a plug/unplug point for its cable |
 | 10 | 2.54mm shrouded housings + crimp pins | matching the 3 male headers above (two 3-pin, one 6-pin) | 3 housings, ~12 pins | a small assorted 2.54mm shrouded kit (2/3/4/6-pin housings + pins) covers this |
-| 11 | Female Dupont crimp terminals + housings | 2.54mm pitch, single-row | ~12 (one per signal; shared GND/power legs can reuse Pi pins instead of needing separate terminals) | pushes directly onto the Pi GPIO header; replaces a breakout HAT entirely |
-| 12 | Crimp tool | supports both the 2.54mm shrouded connector's crimp pins and Dupont's | 1 | same pitch (2.54mm) doesn't guarantee one tool's dies fit both connector families — confirm before buying |
+| 11 | Female-to-female Dupont jumper wires | any length, cut in half — see Build approach | ~12 half-wires needed (one per signal; shared GND/power legs can reuse Pi pins instead of needing separate ones) | a standard, cheap, widely-stocked item — sidesteps trying to source loose Dupont crimp terminals/housings, which turned out to be hard to find |
+| 12 | Crimp tool | supports the 2.54mm shrouded connector's crimp pins | 1 | the only crimping needed in this build now — Dupont ends come pre-made (item 11), never self-crimped |
 | 13 | Hookup wire | 22–26AWG, a few colours | short lengths | cable-side legs only — no wire needed on the boards themselves beyond the soldered leads/traces |
 | 14 | Solder + iron | fine 0.6–0.8mm solder | — | for items 1–4, the DIP socket (item 8), both boards' shrouded headers (item 9), and the pot's 3 pigtail wires onto its solder lugs (item 5) — a handful of simple joints, not a full board's worth |
 
