@@ -33,7 +33,10 @@ already built.
   well-documented) — between the pot's wiper and the Pi. True *absolute
   digital* rotary encoders exist but are an industrial part with no
   cheap hobbyist breakout; a plain pot read through an ADC is the
-  practical way to get "position = value."
+  practical way to get "position = value." **The MCP3008 ships as a bare
+  16-pin DIP chip, not a breakout module** — unlike the pot or the LEDs,
+  it needs its own small soldered board to have anything to plug a cable
+  into; see Build approach and Mounting below.
   - **Pot spec: 10kΩ, linear taper, detented.** 10kΩ is the standard
     value for feeding an ADC (low enough that noise/leakage don't matter,
     high enough not to load the 3.3V rail). **Linear, not audio/log
@@ -68,12 +71,17 @@ crimp-only, no solder.
    needs, and it's what lets the cable side stay fully solderless: a
    JST-XH female housing (crimped onto wire, no soldering) simply plugs
    onto this header and unplugs again freely.
-3. **JST-XH connectors for the pot and the MCP3008** — the pot's 3 legs
-   (two outer + wiper) and the MCP3008's SPI header are both a separate
-   assembly from this board, so they keep crimped-JST-XH-onto-pins
-   wiring rather than being soldered to anything. The MCP3008 itself is
-   a breakout module with its own pin header, same as the encoder it
-   replaces.
+3. **A second small soldered board for the MCP3008** — same technique as
+   the LED board, just a separate piece of perma-proto sited near the
+   pot rather than near the LEDs (keeps the pot's analog wiper wire run
+   short). The MCP3008 sits in a **16-pin DIP socket** (soldered to the
+   board — the socket takes the heat, not the chip, and lets the chip be
+   pulled/replaced later), wired via board traces to a second JST-XH
+   male header (SPI + power/GND pins) soldered the same way as the LED
+   board's header. **JST-XH connectors for the pot's 3 legs** (two outer
+   + wiper) run from the pot itself into this same board's header
+   footprint, crimped rather than soldered — the pot isn't a soldered
+   part, only the MCP3008 assembly is.
 4. **Female Dupont crimp terminals at the Pi end** — pushed directly onto
    the Pi's 40-pin GPIO header pins, for the LED cable, the pot-to-MCP3008
    wiring, and the MCP3008's SPI connection to the Pi. This removes the
@@ -93,14 +101,15 @@ small ratcheting "SN-28B"-style crimpers do, but not all).
 | 3 | Resistor, LED (white) | ~330Ω, 1/4W | 1 | soldered in-line on the board, GPIO is 3.3V logic |
 | 4 | Resistor, LED (red) | ~220–330Ω, 1/4W | 1 | soldered in-line on the board — red LEDs often want less than white, check the LED's datasheet Vf if available |
 | 5 | Potentiometer | 10kΩ, linear taper, detented | 1 | volume control — see Scope above for the pot vs. encoder decision and the taper/value reasoning; not board-mounted, wired independently |
-| 6 | ADC | MCP3008 (8-channel, 10-bit, SPI) | 1 | the Pi has no analog input — reads the pot's wiper voltage and reports it over SPI (MOSI/MISO/SCLK/CS, all otherwise-free pins) |
-| 7 | Perma-proto / stripboard | ~half-size, 0.1" pitch | 1 | now a real soldered circuit for the two LEDs, not just a mounting jig |
-| 8 | JST-XH male header, PCB-mount/through-hole | 3-pin (white signal, red signal, shared GND) | 1 | soldered onto the board — the one other solder job, gives a plug/unplug point for the cable |
-| 9 | JST-XH housings + crimp pins | 3-pin ×1 (matches the board header, item 8), 3-pin ×1 (pot: two outer legs + wiper), 6-pin ×1 (MCP3008: MOSI/MISO/SCLK/CS + power/GND) | 3 housings, ~12 pins | a small assorted JST-XH kit (2/3/4/6-pin housings + pins) covers this |
-| 10 | Female Dupont crimp terminals + housings | 2.54mm pitch, single-row | ~12 (one per signal; shared GND/power legs can reuse Pi pins instead of needing separate terminals) | pushes directly onto the Pi GPIO header; replaces a breakout HAT entirely |
-| 11 | Crimp tool | handles both Dupont (2.54mm) and JST-XH pitch | 1 | confirm both-pitch support before buying |
-| 12 | Hookup wire | 22–26AWG, a few colours | short lengths | cable-side legs only — no wire needed on the board itself beyond the soldered leads/traces |
-| 13 | Solder + iron | fine 0.6–0.8mm solder | — | only for items 1–4 + 8 — a handful of simple through-hole joints, not a full board's worth |
+| 6 | ADC | MCP3008 (8-channel, 10-bit, SPI), bare 16-pin DIP chip | 1 | the Pi has no analog input — reads the pot's wiper voltage and reports it over SPI; ships with no breakout board, see items 8/10/11 |
+| 7 | Perma-proto / stripboard | ~half-size, 0.1" pitch | 2 | one for the LED circuit, a second small piece for the MCP3008 assembly (sited near the pot, not the LEDs) |
+| 8 | 16-pin DIP socket | standard 0.3" DIP-16 | 1 | soldered to the second board; the MCP3008 chip plugs into this rather than being soldered directly, so it can be pulled/replaced |
+| 9 | JST-XH male headers, PCB-mount/through-hole | 3-pin ×1 (LED board: white/red signal + shared GND), 3-pin ×1 (MCP3008 board, pot side: 3.3V/GND/wiper), 6-pin ×1 (MCP3008 board, Pi side: MOSI/MISO/SCLK/CS/3.3V/GND) | 3 | soldered onto their respective boards — the other solder jobs alongside items 1–4 and 8, each giving a plug/unplug point for its cable |
+| 10 | JST-XH housings + crimp pins | matching the 3 male headers above (two 3-pin, one 6-pin) | 3 housings, ~12 pins | a small assorted JST-XH kit (2/3/4/6-pin housings + pins) covers this |
+| 11 | Female Dupont crimp terminals + housings | 2.54mm pitch, single-row | ~12 (one per signal; shared GND/power legs can reuse Pi pins instead of needing separate terminals) | pushes directly onto the Pi GPIO header; replaces a breakout HAT entirely |
+| 12 | Crimp tool | handles both Dupont (2.54mm) and JST-XH pitch | 1 | confirm both-pitch support before buying |
+| 13 | Hookup wire | 22–26AWG, a few colours | short lengths | cable-side legs only — no wire needed on the boards themselves beyond the soldered leads/traces |
+| 14 | Solder + iron | fine 0.6–0.8mm solder | — | for items 1–4, the DIP socket (item 8), and both boards' JST headers (item 9) — a handful of simple through-hole joints on two small boards, not a full board's worth |
 
 Sharing the LED cathodes on one ground trace (now possible since the
 board carries real copper connections) cuts the board's breakout down to
@@ -113,11 +122,15 @@ board carries real copper connections) cuts the board's breakout down to
   MCP3008's GND pin can all run to Pi GND pins — there are several on the
   40-pin header, so nothing needs tracing back to one single shared point
   off-board.
-- **Pot wiring**: one outer leg to a Pi 3.3V pin, the other outer leg to
-  GND (making it a voltage divider), and the middle leg (wiper) to one of
-  the MCP3008's analog input channels — not to the Pi directly.
-- **MCP3008 wiring**: standard SPI — MOSI, MISO, SCLK, and one CS/CE pin,
-  plus its own power (3.3V) and GND. All otherwise free on this build
+- **Pot wiring**: cable from the pot's 3 legs (two outer + wiper) plugs
+  into the MCP3008 board's 3-pin JST header, **not the Pi directly** —
+  one outer leg to 3.3V, the other to GND (making it a voltage divider),
+  the wiper into one of the MCP3008's analog input channels via the
+  board's own trace.
+- **MCP3008 wiring**: on its board, the socket's pins are wired to two
+  JST-XH male headers — the 3-pin one facing the pot (above) and a 6-pin
+  one facing the Pi: standard SPI (MOSI, MISO, SCLK, one CS/CE pin) plus
+  the chip's own power (3.3V) and GND, all otherwise free on this build
   (SPI isn't used elsewhere on the header).
 - **Bare female Dupont pins are exposed metal** until seated on the
   header, same caveat as any Dupont jumper — connect/disconnect with the
@@ -127,33 +140,37 @@ board carries real copper connections) cuts the board's breakout down to
   shared ground trace, standard through-hole soldering. Nothing to crimp
   or splice for the LEDs themselves.
 - Signal path end to end for each LED: **GPIO pin → female Dupont → wire
-  → JST-XH female housing → JST-XH male header (soldered to the board) →
-  board trace → resistor → LED leg** (all soldered from the header
-  onward). The pot and MCP3008 are unrelated to this board — the pot's
-  three legs and the MCP3008's SPI/power pins each go straight from their
-  own JST-XH pin to the Pi via Dupont, as before.
+  → JST-XH female housing → JST-XH male header (soldered to the LED
+  board) → board trace → resistor → LED leg** (all soldered from the
+  header onward).
+- Signal path end to end for the volume reading: **pot leg → JST-XH
+  female housing → JST-XH male header (soldered to the MCP3008 board,
+  pot side) → board trace → DIP socket pin → MCP3008 chip → DIP socket
+  pin → board trace → JST-XH male header (Pi side) → JST-XH female
+  housing → wire → female Dupont → Pi SPI/power pin.**
 
 ## Mounting
 
 - **LEDs**: fixed to the perma-proto board by their own soldered leads —
   no separate mounting hardware, the board is the panel position.
-- **Potentiometer**: not on the board — it isn't near the LEDs. Most pots
-  (including detented ones) have the same threaded metal bushing around
-  the shaft that a rotary encoder does; drill one round hole in the case
-  at the shaft's diameter, push the bushing through from behind, and
-  secure with the nut (and lock washer, if supplied) from the front.
-  Check the panel's wall thickness against the bushing's threaded length
-  before drilling; a thick wall can leave too little thread proud for
-  the nut.
-- **MCP3008**: a small breakout module with no panel-facing part — it
-  doesn't need to sit at the pot's location, and can just be tucked
-  anywhere convenient with a short lead back to the pot's wiper, or
-  mounted near the Pi itself. Not a panel-mount part.
-- Being separate from the LED board, the pot and the MCP3008 each get
-  their own independent cable — JST-XH crimped onto pins, wire run to
+- **Potentiometer**: not on either board — it's panel-mounted on its
+  own. Most pots (including detented ones) have the same threaded metal
+  bushing around the shaft that a rotary encoder does; drill one round
+  hole in the case at the shaft's diameter, push the bushing through
+  from behind, and secure with the nut (and lock washer, if supplied)
+  from the front. Check the panel's wall thickness against the bushing's
+  threaded length before drilling; a thick wall can leave too little
+  thread proud for the nut.
+- **MCP3008 board**: no panel-facing part of its own, so it doesn't need
+  drilling or a bushing — it just needs somewhere to sit (screwed down,
+  stood off, or simply tucked out of the way) with a short cable run
+  back to the pot, so it's naturally sited near the pot rather than at
+  the LED board's location or back at the Pi.
+- Each of the three assemblies here (LED board, pot, MCP3008 board) gets
+  its own independent cable run — JST-XH crimped onto pins, wire run to
   wherever it's routed, female Dupont at the Pi-header end — same
-  technique as the LED cable, just not sharing a connector or a run
-  with it.
+  technique throughout, just not sharing a connector or a run between
+  them.
 
 ## Open questions
 
