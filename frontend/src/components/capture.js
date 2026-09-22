@@ -64,6 +64,16 @@ export function createCaptureInput({ onSubmit, defaultHouse, hideHouseChooser = 
 
   houseRow.append(houseDot, houseSelect)
 
+  // Clear sits at the far left of the row under the field — away from
+  // send, so a thumb reaching for one never lands on the other. Disabled
+  // while there's nothing to clear.
+  const clearBtn = document.createElement('button')
+  clearBtn.className = 'btn-clear'
+  clearBtn.setAttribute('aria-label', 'Clear')
+  clearBtn.title = 'clear'
+  clearBtn.innerHTML = icon('delete', 22)
+  clearBtn.disabled = true
+
   const buttonGroup = document.createElement('div')
   buttonGroup.className = 'button-group'
 
@@ -82,7 +92,7 @@ export function createCaptureInput({ onSubmit, defaultHouse, hideHouseChooser = 
   hint.title = 'send'
 
   buttonGroup.append(hint, voiceBtn, submitBtn)
-  controls.append(houseRow, buttonGroup)
+  controls.append(clearBtn, houseRow, buttonGroup)
   section.append(label, textarea, controls)
 
   // ⌘↵ / Ctrl↵ to submit
@@ -94,6 +104,13 @@ export function createCaptureInput({ onSubmit, defaultHouse, hideHouseChooser = 
   })
 
   submitBtn.addEventListener('click', submit)
+
+  textarea.addEventListener('input', updateClear)
+  clearBtn.addEventListener('click', () => {
+    textarea.value = ''
+    updateClear()
+    textarea.focus()
+  })
 
   if (voiceMode === 'whisper-stream') setupWhisperStream()
   else setupWebSpeech()
@@ -113,6 +130,7 @@ export function createCaptureInput({ onSubmit, defaultHouse, hideHouseChooser = 
 
       recognition.onresult = (e) => {
         textarea.value = e.results[0][0].transcript
+        updateClear()
         voiceBtn.classList.remove('recording')
         textarea.focus()
       }
@@ -213,6 +231,7 @@ export function createCaptureInput({ onSubmit, defaultHouse, hideHouseChooser = 
         const data = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(data.error || `transcribe failed: ${res.status}`)
         textarea.value = data.text
+        updateClear()
         textarea.focus()
       } catch (err) {
         console.error('Transcription failed:', err)
@@ -237,11 +256,16 @@ export function createCaptureInput({ onSubmit, defaultHouse, hideHouseChooser = 
     houseDot.hidden = !(defaultHouse && houseSelect.value === defaultHouse)
   }
 
+  function updateClear() {
+    clearBtn.disabled = textarea.value === ''
+  }
+
   function submit() {
     const text = textarea.value.trim()
     if (!text) return
     onSubmit(text, houseSelect.value || undefined)
     textarea.value = ''
+    updateClear()
     textarea.focus()
   }
 
