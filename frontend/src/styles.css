@@ -1074,6 +1074,7 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 [data-density="station"] .station-pane[hidden],
 [data-density="station"] .station-tabpanel[hidden],
 [data-density="station"] .station-rail-column[hidden],
+[data-density="station"] .station-aside[hidden],
 [data-density="station"] .station-review-actions[hidden],
 [data-density="station"] .station-flash[hidden],
 [data-density="station"] .station-failure[hidden],
@@ -1249,8 +1250,8 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 }
 
 /* A composition (see compose in claude.js) is read here at full size,
-   the way review's action-quote or a list's rows get the whole pane —
-   not truncated in the header's flash strip like an ordinary result. */
+   with the aside to itself the way an open list's rows are — not
+   truncated in the header's flash strip like an ordinary result. */
 [data-density="station"] .station-compose-text {
   white-space: pre-line;
   font-size: var(--fs-display);
@@ -1285,11 +1286,57 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   min-height: 0;
 }
 
-[data-density="station"] .station-tabpanel--controls .local-activity {
+[data-density="station"] .station-tabpanel--controls .local-activity,
+[data-density="station"] .station-aside .local-activity {
   padding: 0;
   margin: 0;
   border-bottom: none;
 }
+
+/* An empty rail column (no favourites, no lists) gives its width to the
+   aside rather than holding a blank 340px strip. */
+[data-density="station"] .station-rail-column:not(:has(> :not([hidden]))) {
+  display: none;
+}
+
+/* ── Ancillary screen (station.js's aside) ───────────────────
+   Flow, not detection: a flex: 1 sibling after the idle pane and rail,
+   so it takes whatever .station-capture has left — the width to the
+   right in landscape, the height below in portrait — with no
+   orientation branch of its own. It's also a size container, so what's
+   inside picks its layout from the room it actually got (the queries
+   below), which covers panels other than the 720×1280 one too. */
+[data-density="station"] .station-aside {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-5);
+  container: station-aside / size;
+}
+
+/* Nothing to show — no list or composition open, and nothing to
+   control (no satellite serving this page, or nothing on it yet:
+   localActivity.el hides itself) — means no aside at all, and the idle
+   layout is exactly what it was without one. */
+[data-density="station"] .station-aside:not(:has(> :not([hidden]))) {
+  display: none;
+}
+
+/* An open list or composition has the aside to itself; the Controls
+   panel waits behind it (and stays a tab away). The panes scroll with
+   the aside rather than on their own, and its padding replaces theirs. */
+[data-density="station"] .station-aside > .station-pane:not([hidden]) ~ .local-activity {
+  display: none;
+}
+[data-density="station"] .station-aside > .station-pane {
+  padding: 0;
+  overflow: visible;
+}
+
+/* The controls' own layout adapts to the aside's size in the
+   "Ancillary screen: container queries" block below — after the
+   Controls rules, so they win on source order. */
 
 /* ── Controls tab (rich): Music, Lights grid, capabilities footer —
    see STATIONS_AND_CONTROLS.md §5/§3. localActivity.js's 'rich' variant
@@ -1801,8 +1848,8 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 }
 
 /* ── Station list pane ───────────────────────────────────────
-   A recalled list fills the slot the capture field was in — one thing at
-   a time, same as review. The rows are the shared .checklist styles from
+   A recalled list opens in the idle screen's aside (see Ancillary screen
+   above), beside a capture field that stays live. The rows are the shared .checklist styles from
    the Lists block above, so a list ticks the same here as on the phone;
    only the pane around them is station-specific. */
 [data-density="station"] .station-pane--list {
@@ -1872,6 +1919,36 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   height: var(--tap);
 }
 
+/* ── Ancillary screen: container queries ─────────────────────
+   Sized off the aside itself (container station-aside, above), not the
+   viewport: landscape beside a full rail leaves ~470px, portrait ~670px,
+   and landscape with no rail more again. */
+@container station-aside (max-width: 560px) {
+  [data-density="station"] .controls-lights-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* Transport drops under the track title onto a row of its own, and
+     the volume slider takes whatever that row has left. */
+  [data-density="station"] .controls-music-transport {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  [data-density="station"] .controls-volume {
+    flex: 1;
+    min-width: 0;
+    width: auto;
+  }
+}
+
+/* Too small to use by touch (an odd panel, or a window someone resized
+   during testing): leave the space blank rather than cram it. Only the
+   controls — an open list or poem still shows, scrolling if it must. */
+@container station-aside (max-width: 280px) or (max-height: 200px) {
+  [data-density="station"] .station-aside .local-activity {
+    display: none;
+  }
+}
+
 /* ── Station, portrait (720×1280 as mounted) ─────────────────
    Tall and narrow: one column, and the vertical room goes to whichever
    pane is active. The capture field can be generous here — there is
@@ -1890,6 +1967,17 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
      720px of width has no room for a second column. */
   [data-density="station"] .station-rail-column {
     display: none;
+  }
+
+  /* With the aside showing, the capture field gives up its centring and
+     sits at the top at its natural height; the aside takes the rest.
+     Without one, the idle pane still fills and centres as before. */
+  [data-density="station"] .station-capture:has(> .station-aside:not([hidden]) > :not([hidden])) .station-pane--idle {
+    flex: 0 0 auto;
+  }
+
+  [data-density="station"] .station-aside {
+    border-top: var(--rule) solid var(--border);
   }
 }
 
@@ -1923,6 +2011,10 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 
   [data-density="station"] .station-rail {
     padding: var(--space-5) var(--space-4) 0;
+  }
+
+  [data-density="station"] .station-aside {
+    border-left: var(--rule) solid var(--border);
   }
 }
 

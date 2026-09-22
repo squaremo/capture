@@ -184,9 +184,9 @@ async function init() {
       return
     }
     // A composition (see compose in claude.js) is the deliverable itself —
-    // same reasoning as item.js's isComposition — so it gets its own
-    // full-pane read rather than being flashed and dismissed like an
-    // ordinary action_result.
+    // same reasoning as item.js's isComposition — so it opens in the
+    // station's aside, to be read beside a ready capture field, rather than
+    // being flashed and dismissed like an ordinary action_result.
     if (item.status === 'acted' && item.executed_action?.tool === 'compose') {
       station.setMode('compose', item)
       return

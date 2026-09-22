@@ -34,8 +34,10 @@ const TOOL_LABELS = {
 
 export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEditFavourite, onFavourite, onListTextChange, defaultHouse, voiceMode, localActivity } = {}) {
   let tab = 'capture'      // 'capture' | 'favourites' | 'earlier'
-  let mode = 'idle'        // 'idle' | 'thinking' | 'review' | 'list' | 'compose'
-  let active = null        // the item 'thinking'/'review'/'list' is about
+  let mode = 'idle'        // 'idle' | 'thinking' | 'review'
+  let active = null        // the item 'thinking'/'review' is about
+  let asideView = null     // null (controls) | 'list' | 'compose' — see the aside below
+  let asideItem = null     // the list/composition the aside is showing
   let items = []           // last known items, for the rail and the open list
   let waiting = []         // set-aside items, FIFO
   let failure = null       // persists until retried
@@ -97,18 +99,20 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
     if (e.target.closest('[data-action="speak"]')) speak(active?.action_result)
   })
 
-  // A recalled list takes the same slot the capture field and the review
-  // pane use — one thing at a time. The rows are the shared .checklist
-  // markup out of item.js, so a list looks and ticks the same here as in
-  // the phone's inbox; only the pane around them is station-specific.
+  // A recalled list opens in the aside, beside/under a capture field
+  // that stays live — it's read (or shopped from) alongside whatever
+  // comes next, not a screen to dismiss before capturing again. The rows
+  // are the shared .checklist markup out of item.js, so a list looks and
+  // ticks the same here as in the phone's inbox; only the pane around
+  // them is station-specific.
   const paneList = document.createElement('div')
   paneList.className = 'station-pane station-pane--list'
   paneList.hidden = true
 
   function renderList() {
-    if (!active) return
-    const isShopping = active.status === 'shopping_list'
-    const parsed = parseChecklist(active.text)
+    if (!asideItem) return
+    const isShopping = asideItem.status === 'shopping_list'
+    const parsed = parseChecklist(asideItem.text)
     paneList.innerHTML = `
       <div class="station-pane-top">
         <span class="station-pane-label" data-role="think">${isShopping ? 'shopping list' : 'checklist'}</span>
@@ -118,7 +122,7 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
         <span class="station-heading-icon">${icon(isShopping ? 'shopping-cart' : 'list-checks', 30)}</span>
         <h1 class="station-heading">${escHtml(parsed.title || (isShopping ? 'Shopping list' : 'Checklist'))}</h1>
       </div>
-      ${isShopping ? renderShoppingList(active.id, parsed) : renderChecklist(active.id, parsed)}
+      ${isShopping ? renderShoppingList(asideItem.id, parsed) : renderChecklist(asideItem.id, parsed)}
       ${isShopping
         ? `<form class="station-list-add" data-action="add-row">
             <input type="text" name="label" class="station-list-add-input" placeholder="add to the list" autocomplete="off">
@@ -129,10 +133,10 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
   }
 
   // The pane has no .item wrapper to read an id off, unlike the inbox —
-  // the open list *is* `active`, so the id comes from there.
+  // the open list *is* `asideItem`, so the id comes from there.
   function listActionContext() {
     return {
-      findItem: (id) => items.find(i => i.id === id) ?? (active?.id === id ? active : null),
+      findItem: (id) => items.find(i => i.id === id) ?? (asideItem?.id === id ? asideItem : null),
       rerenderItem: () => renderList(),
       onTextChange: (id, text) => onListTextChange?.(id, text),
     }
@@ -140,14 +144,14 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
 
   paneList.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-action]')
-    if (!btn || !active) return
+    if (!btn || !asideItem) return
     if (btn.dataset.action === 'close-list') {
-      setMode('idle')
+      setAside(null)
       return
     }
     handleListAction({
       action: btn.dataset.action,
-      id: active.id,
+      id: asideItem.id,
       index: parseInt(btn.dataset.index, 10),
       ...listActionContext(),
     })
@@ -155,12 +159,12 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
 
   paneList.addEventListener('submit', (e) => {
     const form = e.target.closest('[data-action="add-row"]')
-    if (!form || !active) return
+    if (!form || !asideItem) return
     e.preventDefault()
     const input = form.querySelector('input[name="label"]')
     handleListAction({
       action: 'add-shopping-item',
-      id: active.id,
+      id: asideItem.id,
       label: input.value,
       ...listActionContext(),
     })
@@ -172,33 +176,33 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
   })
 
   // A composition (see compose in claude.js) is the deliverable itself,
-  // not a status to flash and dismiss — it gets the same full-pane
-  // treatment as review/list, one thing filling the screen while it's
-  // read, rather than being squeezed through the header's flash strip
-  // like every other resolved item's action_result.
+  // not a status to flash and dismiss — it gets the aside to itself, like
+  // an open list, rather than being squeezed through the header's flash
+  // strip like every other resolved item's action_result. It stays up
+  // until closed or replaced; nothing waits on it being dismissed.
   const paneCompose = document.createElement('div')
   paneCompose.className = 'station-pane station-pane--compose'
   paneCompose.hidden = true
   paneCompose.addEventListener('click', (e) => {
-    if (e.target.closest('[data-action="speak"]')) { speak(active?.action_result); return }
+    if (e.target.closest('[data-action="speak"]')) { speak(asideItem?.action_result); return }
     const favBtn = e.target.closest('[data-action="favourite"]')
     if (favBtn) { onFavourite?.(favBtn.dataset.id); return }
-    if (e.target.closest('[data-action="close-compose"]')) setMode('idle')
+    if (e.target.closest('[data-action="close-compose"]')) setAside(null)
   })
 
   function renderCompose() {
-    if (!active) return
-    const isFavouritable = active.status === 'acted' && Boolean(active.executed_action)
+    if (!asideItem) return
+    const isFavouritable = asideItem.status === 'acted' && Boolean(asideItem.executed_action)
     paneCompose.innerHTML = `
       <div class="station-pane-top">
         <span class="station-pane-label" data-role="done">composed</span>
         <button type="button" class="station-rail-link" data-action="close-compose">done</button>
       </div>
-      <p class="station-compose-text">${escHtml(active.action_result)}</p>
+      <p class="station-compose-text">${escHtml(asideItem.action_result)}</p>
       <div class="station-compose-actions">
         <button type="button" class="btn-speak station-speak" data-action="speak" title="Read this out" aria-label="Read this out">${icon('volume-2', 24)}</button>
         ${isFavouritable
-          ? `<button type="button" class="btn-favourite" data-action="favourite" data-id="${active.id}" title="Save as favourite" aria-label="Save as favourite">☆</button>`
+          ? `<button type="button" class="btn-favourite" data-action="favourite" data-id="${asideItem.id}" title="Save as favourite" aria-label="Save as favourite">☆</button>`
           : ''}
       </div>
     `
@@ -261,9 +265,24 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
   railColumn.className = 'station-rail-column'
   railColumn.append(rail.el, railLists)
 
+  // The ancillary screen: whatever space the idle layout leaves over —
+  // beside the rail in landscape, under the capture field in portrait.
+  // It shows an open list or composition when there is one (asideView),
+  // and the Controls panel (now-playing, lights) otherwise, so the
+  // commonest direct controls are in view without a tab tap. No orientation logic
+  // here: it's a flex: 1 sibling, so flow alone puts it wherever there's
+  // room, and it's a CSS size container, so its contents pick a layout
+  // from the space it actually got (see styles.css's .station-aside).
+  // localActivity.el is one element (one poll loop, one source of
+  // truth), so it moves between here and the Controls tab — see
+  // placeLocalActivity() — rather than being rendered twice.
+  const aside = document.createElement('div')
+  aside.className = 'station-aside'
+  aside.append(paneList, paneCompose)
+
   const stationCapture = document.createElement('div')
   stationCapture.className = 'station-capture'
-  stationCapture.append(paneIdle, paneThinking, paneReview, paneList, paneCompose, railColumn)
+  stationCapture.append(paneIdle, paneThinking, paneReview, railColumn, aside)
 
   const reviewActions = document.createElement('div')
   reviewActions.className = 'station-review-actions'
@@ -374,8 +393,18 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
     tabButtons[name] = btn
   }
 
+  // The Controls tab wins when it's the one showing; otherwise the panel
+  // sits in the idle screen's aside. Inserted before controlsEmpty so its
+  // `.local-activity[hidden] + .station-controls-empty` rule still holds.
+  function placeLocalActivity() {
+    if (!localActivity) return
+    if (tab === 'controls') controlsTab.insertBefore(localActivity.el, controlsEmpty)
+    else aside.append(localActivity.el)
+  }
+
   function setTab(name) {
     tab = name
+    placeLocalActivity()
     captureTab.hidden = name !== 'capture'
     favTab.hidden = name !== 'favourites'
     controlsTab.hidden = name !== 'controls'
@@ -519,20 +548,31 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
     `
   }
 
+  // What the aside shows: an open list, a composition, or (null) the
+  // Controls panel — which CSS hides whenever a pane is showing instead.
+  function setAside(view, item = null) {
+    asideView = view
+    asideItem = view ? item : null
+    paneList.hidden = view !== 'list'
+    paneCompose.hidden = view !== 'compose'
+    if (view === 'list') renderList()
+    if (view === 'compose') renderCompose()
+  }
+
   function setMode(newMode, data) {
+    // 'list' and 'compose' aren't screens of their own: they open in the
+    // aside and leave the station idle, capture field ready. main.js still
+    // routes them through here. With the rail beside it (landscape), a
+    // list can be swapped for another without going anywhere.
+    if (newMode === 'list' || newMode === 'compose') {
+      setAside(newMode, data)
+      newMode = 'idle'
+    }
     mode = newMode
-    paneList.hidden = newMode !== 'list'
-    paneCompose.hidden = newMode !== 'compose'
-    if (newMode === 'list') {
-      // The rail stays up here, unlike thinking/review: it is how you get
-      // from one shop's list to another's without going back to idle.
-      active = data
-      paneIdle.hidden = true
-      paneThinking.hidden = true
-      paneReview.hidden = true
-      railColumn.hidden = false
-      renderList()
-    } else if (newMode === 'idle') {
+    // Idle only: thinking/review take the full width. Whatever the aside
+    // held comes back with idle, until it's closed or replaced.
+    aside.hidden = newMode !== 'idle'
+    if (newMode === 'idle') {
       active = null
       paneIdle.hidden = false
       paneThinking.hidden = true
@@ -553,13 +593,6 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
       paneReview.hidden = false
       railColumn.hidden = true
       renderReview()
-    } else if (newMode === 'compose') {
-      active = data
-      paneIdle.hidden = true
-      paneThinking.hidden = true
-      paneReview.hidden = true
-      railColumn.hidden = true
-      renderCompose()
     }
     syncReviewActionsVisibility()
   }
@@ -649,10 +682,10 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
     // An open list is a view onto an item main.js re-fetches after a
     // removal or an append — pick the fresh copy up rather than leaving
     // the pre-PATCH text on a wall-mounted screen nobody is looking at.
-    if (mode === 'list' && active) {
-      const fresh = items.find(i => i.id === active.id)
+    if (asideView === 'list' && asideItem) {
+      const fresh = items.find(i => i.id === asideItem.id)
       if (fresh) {
-        active = fresh
+        asideItem = fresh
         renderList()
       }
     }
@@ -674,7 +707,10 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
     focusInput,
     // Nothing on screen that a reload would lose: back at the empty
     // capture field, no retry bar. Set-aside items don't count — they're
-    // rebuilt from the server's awaiting_approval items on load anyway.
+    // rebuilt from the server's awaiting_approval items on load anyway —
+    // and nor does an open list/composition in the aside: it's left up
+    // rather than dismissed now, and a reload only happens once the panel
+    // has gone dark (stationUpdate.js), so nobody is reading it.
     isAtRest() {
       return mode === 'idle' && !failure && !captureInput.el.querySelector('textarea')?.value
     },
