@@ -34,13 +34,19 @@ charting, for less than Beszel gives for free.
 
 ## Setup
 
+(Also step 5 of `infra/BOOTSTRAP-SATELLITE.md`, for a new station.)
+
 1. Merge to `main` — `capture-sync` brings up the hub and nginx's new
    :8090 listener on its next run (≤5 min), no SSH needed.
 2. Open `https://<server>.<tailnet>.ts.net:8090` and create the admin
    account (the first visitor gets to — fine on a single-user tailnet,
    but do it straight away).
-3. **Add system** in the hub UI: name it after the house, and copy the
-   public key and token it shows.
+3. **Add system** in the hub UI and submit it — submitting is what
+   registers the token (closing without submitting leaves the agent
+   rejected with "Invalid token"). Name it after the house; Host is the
+   Pi's tailnet hostname and Port the default 45876 — both required by
+   the form, neither used, since the agent dials out and has SSH off.
+   Copy the public key and token it shows.
 4. On the Pi:
    ```sh
    sudo /opt/capture-satellite/app/infra/enable-satellite-telemetry.sh \
