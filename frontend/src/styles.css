@@ -335,6 +335,12 @@ header {
   text-transform: uppercase;
   color: var(--text-dimmer, var(--text-dim));
 }
+/* Touch-only (no mouse or trackpad anywhere) almost always means no
+   physical keyboard either, so the shortcut hint is just noise. `any-`
+   rather than the primary pointer, so a touchscreen laptop keeps it. */
+@media not (any-pointer: fine) {
+  .capture-hint { display: none; }
+}
 
 .house-row {
   display: flex;
