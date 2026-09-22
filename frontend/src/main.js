@@ -5,6 +5,7 @@ import { createVersionInfo } from './components/versionInfo.js'
 import { createFavouritesSidebar } from './components/favourites.js'
 import { createLocalActivity } from './components/localActivity.js'
 import { createStationShell } from './components/station.js'
+import { watchForStationUpdates } from './stationUpdate.js'
 import { createStationsIndicator, createStationClock } from './components/stations.js'
 import { createThemeToggle } from './themes.js'
 import { createSpeechToggleButton, speakIfEnabled, configureSpeech } from './speech.js'
@@ -509,6 +510,7 @@ async function init() {
     // that for free; toggling stationsIndicator.bandEl's hidden attribute
     // is all that's needed to open/close it.
     app.append(header, stationsIndicator.bandEl, station.el)
+    watchForStationUpdates({ isSafeToReload: station.isAtRest })
   } else {
     app.append(header, layout, stats, versionInfo.footerEl)
   }
