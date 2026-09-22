@@ -336,6 +336,22 @@ write_files:
       [Install]
       WantedBy=multi-user.target
 
+  # Pre-grant Station's page the microphone, for the whisper-stream mic
+  # button. Without this, getUserMedia() raises Chromium's "allow
+  # microphone?" prompt — which a --kiosk window can hide, so the mic
+  # just silently fails. The first working mic test was granted by
+  # tapping Allow on that prompt, which only lives in ${KIOSK_USER}'s
+  # Chromium profile and was lost on the next profile reset. A managed
+  # policy is system config instead, so it survives that. Scoped to
+  # http://localhost only (the one origin the kiosk ever loads), not a
+  # blanket AudioCaptureAllowed. Debian's `chromium` package reads
+  # /etc/chromium/policies/managed/.
+  - path: /etc/chromium/policies/managed/capture-kiosk.json
+    content: |
+      {
+        "AudioCaptureAllowedUrls": ["http://localhost"]
+      }
+
   # labwc's own autostart mechanism — run once labwc itself has
   # started, in place of cage's old "take the one client as a command-
   # line argument" model. Backgrounded (`&`) since labwc's autostart
