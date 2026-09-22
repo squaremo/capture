@@ -1276,16 +1276,6 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   border-bottom: none;
 }
 
-/* The rail column holds the favourites rail (recall-and-replay). Local
-   device controls (now-playing etc) live behind their own bottom tab
-   instead — see the Controls tab entry in station.js — summoned on
-   demand rather than sat permanently in view. */
-[data-density="station"] .station-rail-column {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
 [data-density="station"] .station-tabpanel--controls .local-activity,
 [data-density="station"] .station-aside .local-activity {
   padding: 0;
@@ -1293,14 +1283,14 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   border-bottom: none;
 }
 
-/* An empty rail column (no favourites, no lists) gives its width to the
-   aside rather than holding a blank 340px strip. */
-[data-density="station"] .station-rail-column:not(:has(> :not([hidden]))) {
+/* No rail beside the capture field in either orientation: idle is two
+   panels, capture and the aside. Favourites are behind their tab. */
+[data-density="station"] .station-rail-column {
   display: none;
 }
 
 /* ── Ancillary screen (station.js's aside) ───────────────────
-   Flow, not detection: a flex: 1 sibling after the idle pane and rail,
+   Flow, not detection: a flex: 1 sibling after the idle pane,
    so it takes whatever .station-capture has left — the width to the
    right in landscape, the height below in portrait — with no
    orientation branch of its own. It's also a size container, so what's
@@ -1921,8 +1911,8 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 
 /* ── Ancillary screen: container queries ─────────────────────
    Sized off the aside itself (container station-aside, above), not the
-   viewport: landscape beside a full rail leaves ~470px, portrait ~670px,
-   and landscape with no rail more again. */
+   viewport: landscape leaves ~810px beside the capture column, portrait
+   ~670px under it. */
 @container station-aside (max-width: 560px) {
   [data-density="station"] .controls-lights-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -1963,12 +1953,6 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
     min-height: 132px;
   }
 
-  /* Favourites are a panel behind a tab, not a permanent sidebar —
-     720px of width has no room for a second column. */
-  [data-density="station"] .station-rail-column {
-    display: none;
-  }
-
   /* With the aside showing, the capture field gives up its centring and
      sits at the top at its natural height; the aside takes the rest.
      Without one, the idle pane still fills and centres as before. */
@@ -1983,8 +1967,8 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 
 /* ── Station, landscape (1280×720, panel on its side) ────────
    Width to spare, height at a premium: in idle mode the capture field
-   takes a fixed left column with the rail beside it; thinking/review
-   have no rail to share with, so they take the full width. */
+   takes a fixed left column with the aside beside it — two panels;
+   thinking/review take the full width. */
 @media (orientation: landscape) {
   [data-density="station"] .station-capture {
     flex-direction: row;
@@ -2002,20 +1986,6 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
     min-height: 88px;
   }
 
-  /* Favourites earn the right column when there is width for one — the
-     few things actually run here, with the full list behind the tab. */
-  [data-density="station"] .station-rail-column {
-    flex: 0 0 340px;
-    border-left: var(--rule) solid var(--border);
-  }
-
-  [data-density="station"] .station-rail {
-    padding: var(--space-5) var(--space-4) 0;
-  }
-
-  [data-density="station"] .station-aside {
-    border-left: var(--rule) solid var(--border);
-  }
 }
 
 /* No hover on a touchscreen: state has to be visible at rest. */
