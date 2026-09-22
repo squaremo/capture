@@ -51,6 +51,8 @@ Confirm the device shows up at `tailscale.com/admin/machines`, then open `https:
 
 ## After this
 
+To add a satellite (Pi station) for a house, see [`BOOTSTRAP-SATELLITE.md`](BOOTSTRAP-SATELLITE.md).
+
 Nothing here needs repeating. Ongoing deploys, config changes, and secret additions all flow through `git push` — see the main [README](../README.md#how-deployment-works). For anything that still needs a server visit, use `ssh admin@...` + `sudo -i`, not the Hetzner Console — the Console doesn't reliably support pasting, so it's a fallback for when SSH itself is somehow unreachable, not the everyday path.
 
 Note: Hetzner has no way to re-apply new cloud-init/user-data to an existing server short of a full **rebuild**, which reinstalls the OS and wipes the disk (including captured data in `/opt/capture/data`). Don't do that to fix a config mistake — edit files directly on the running server instead.
