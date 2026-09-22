@@ -7,16 +7,21 @@
 // goes dark. That's swayidle's call (infra/cloud-init-satellite.yaml.tpl —
 // backlight off after 30s with no input), which the page can't observe
 // directly, but the kiosk is fullscreen so the input swayidle watches is
-// the input this page gets; the same 30s of silence here lands on the
-// same moment. The check itself is local — reg.update() re-fetches sw.js
-// from whatever served this page, i.e. the satellite's own nginx, which
+// the input this page gets. Waiting a little longer than swayidle does
+// (35s vs 30s) keeps it on the dark side of that moment rather than
+// racing it — the page's timer can start early relative to swayidle's
+// (e.g. a mouse move wakes swayidle but isn't one of INPUT_EVENTS), and
+// a reload landing just before the blank would be visible.
+//
+// The check itself is local — reg.update() re-fetches sw.js from
+// whatever served this page, i.e. the satellite's own nginx, which
 // Watchtower keeps on the latest frontend image.
 //
 // The service worker is autoUpdate (vite.config.js: skipWaiting +
 // clientsClaim), so a new one takes control by itself once installed;
 // all that's left here is reloading onto it — and only while the station
 // is at rest (isSafeToReload), never mid-capture or mid-review.
-const IDLE_MS = 30_000
+const IDLE_MS = 35_000
 const INPUT_EVENTS = ['pointerdown', 'keydown', 'input', 'wheel']
 
 export function watchForStationUpdates({ isSafeToReload }) {
