@@ -65,6 +65,34 @@ services:
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
 
+  # System telemetry agent (Beszel) — reports CPU/memory/disk/network,
+  # the Pi's SoC temperature (cpu_thermal, read from /sys), and per-
+  # container stats (via the read-only Docker socket) to the Beszel hub on
+  # the central box (see docker-compose.yml's `beszel` service), which
+  # stores and charts them. Opt-in via `profiles: [telemetry]`, same as
+  # whisper/tts, because it can't start without per-box credentials the
+  # hub issues: infra/enable-satellite-telemetry.sh writes them to
+  # /opt/capture-satellite/beszel-agent.env (kept out of the `satellite`
+  # container's own .env — neither container needs the other's secrets)
+  # and turns the profile on. Outbound WebSocket to the hub only:
+  # DISABLE_SSH stops the agent also opening its default SSH listener on
+  # :45876, which under network_mode: host would be reachable from the
+  # whole house LAN, not just the tailnet.
+  beszel-agent:
+    image: henrygd/beszel-agent:latest
+    restart: unless-stopped
+    network_mode: host
+    profiles: ["telemetry"]
+    env_file:
+      - /opt/capture-satellite/beszel-agent.env
+    environment:
+      DISABLE_SSH: "true"
+    volumes:
+      - /opt/capture-satellite/beszel-agent:/var/lib/beszel-agent
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
   watchtower:
     image: nickfedor/watchtower
     restart: unless-stopped

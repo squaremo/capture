@@ -18,11 +18,33 @@ services:
     ports:
       - "80:80"
       - "443:443"
+      # Beszel hub UI + agent WebSocket (see the `beszel` service below)
+      - "8090:8090"
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - /etc/tailscale/certs:/etc/nginx/certs:ro
     depends_on:
       - backend
+      - beszel
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  # System telemetry hub (Beszel) — charts CPU/memory/disk/network/
+  # temperatures and per-container stats for every satellite Pi (and this
+  # box too, if an agent is ever added here). Agents dial *in* to it over
+  # a WebSocket (see docker-compose.satellite.yml's `beszel-agent`), so
+  # this box never needs to reach a satellite. Not published directly —
+  # nginx terminates TLS for it on :8090, same Tailscale cert as the app.
+  # Its data lives outside /opt/capture/data on purpose: that directory is
+  # the item store's git repo (backend/store.js), and a SQLite time-series
+  # DB churning in there would be committed noise.
+  beszel:
+    image: henrygd/beszel:latest
+    restart: unless-stopped
+    volumes:
+      - /opt/capture/beszel:/beszel_data
+    expose:
+      - "8090"
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
 
