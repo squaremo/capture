@@ -1056,9 +1056,9 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 /* ── Station shell (station.js) ──────────────────────────────
    One thing at a time: `.station` replaces `.layout` entirely when
    config.isStation is true (see main.js) — the phone/laptop's
-   `.capture`/`.favourites` classes are still reused (the station mounts
-   its own createCaptureInput() and createFavouritesRail() instances,
-   see station.js/favourites.js), just inside a different structure. */
+   `.capture` class is still reused (the station mounts its own
+   createCaptureInput() instance, see station.js), just inside a
+   different structure. */
 [data-density="station"] .station {
   flex: 1;
   min-height: 0;
@@ -1073,7 +1073,7 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
    whose own class sets `display` regardless of hidden state. */
 [data-density="station"] .station-pane[hidden],
 [data-density="station"] .station-tabpanel[hidden],
-[data-density="station"] .station-rail-column[hidden],
+[data-density="station"] .station-aside[hidden],
 [data-density="station"] .station-review-actions[hidden],
 [data-density="station"] .station-flash[hidden],
 [data-density="station"] .station-failure[hidden],
@@ -1223,8 +1223,7 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 }
 
 [data-density="station"] .station-tabpanel--favourites,
-[data-density="station"] .station-tabpanel--controls,
-[data-density="station"] .station-tabpanel--earlier {
+[data-density="station"] .station-tabpanel--controls {
   padding: var(--space-4);
   overflow-y: auto;
 }
@@ -1249,8 +1248,8 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 }
 
 /* A composition (see compose in claude.js) is read here at full size,
-   the way review's action-quote or a list's rows get the whole pane —
-   not truncated in the header's flash strip like an ordinary result. */
+   with the aside to itself the way an open list's rows are — not
+   truncated in the header's flash strip like an ordinary result. */
 [data-density="station"] .station-compose-text {
   white-space: pre-line;
   font-size: var(--fs-display);
@@ -1275,21 +1274,51 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   border-bottom: none;
 }
 
-/* The rail column holds the favourites rail (recall-and-replay). Local
-   device controls (now-playing etc) live behind their own bottom tab
-   instead — see the Controls tab entry in station.js — summoned on
-   demand rather than sat permanently in view. */
-[data-density="station"] .station-rail-column {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-[data-density="station"] .station-tabpanel--controls .local-activity {
+[data-density="station"] .station-tabpanel--controls .local-activity,
+[data-density="station"] .station-aside .local-activity {
   padding: 0;
   margin: 0;
   border-bottom: none;
 }
+
+/* ── Ancillary screen (station.js's aside) ───────────────────
+   Flow, not detection: a flex: 1 sibling after the idle pane,
+   so it takes whatever .station-capture has left — the width to the
+   right in landscape, the height below in portrait — with no
+   orientation branch of its own. It's also a size container, so what's
+   inside picks its layout from the room it actually got (the queries
+   below), which covers panels other than the 720×1280 one too. */
+[data-density="station"] .station-aside {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-5);
+  container: station-aside / size;
+}
+
+/* Nothing to show — no list or composition open, and nothing to
+   control (no satellite serving this page, or nothing on it yet:
+   localActivity.el hides itself) — means no aside at all, and the idle
+   layout is exactly what it was without one. */
+[data-density="station"] .station-aside:not(:has(> :not([hidden]))) {
+  display: none;
+}
+
+/* An open list or composition has the aside to itself; the Controls
+   panel waits behind it (and stays a tab away). The panes scroll with
+   the aside rather than on their own, and its padding replaces theirs. */
+[data-density="station"] .station-aside > .station-pane:not([hidden]) ~ .local-activity {
+  display: none;
+}
+[data-density="station"] .station-aside > .station-pane {
+  padding: 0;
+  overflow: visible;
+}
+
+/* The controls' own layout adapts to the aside's size in the
+   "Ancillary screen: container queries" block below — after the
+   Controls rules, so they win on source order. */
 
 /* ── Controls tab (rich): Music, Lights grid, capabilities footer —
    see STATIONS_AND_CONTROLS.md §5/§3. localActivity.js's 'rich' variant
@@ -1427,12 +1456,6 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 }
 [data-density="station"] .controls-capability-name { font-size: 14px; font-weight: 600; }
 [data-density="station"] .controls-capability-detail { font-size: 13px; font-weight: 500; color: var(--text-dim); }
-
-[data-density="station"] .station-rail {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-}
 
 [data-density="station"] .station-pane-top {
   display: flex;
@@ -1703,26 +1726,6 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 }
 [data-density="station"] .station-tile-btn:hover { color: var(--sig-need); }
 
-[data-density="station"] .station-log { list-style: none; display: flex; flex-direction: column; }
-[data-density="station"] .station-log-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3) 0;
-  border-top: var(--rule) solid var(--border-mid);
-}
-[data-density="station"] .station-log-status {
-  flex-shrink: 0;
-  width: 8ch;
-  text-transform: uppercase;
-  font-size: var(--fs-label);
-  letter-spacing: 0.05em;
-  color: var(--text-dim);
-}
-[data-density="station"] .station-log-row[data-role="done"] .station-log-status { color: var(--sig-done); }
-[data-density="station"] .station-log-row[data-role="fail"] .station-log-status { color: var(--sig-fail); }
-[data-density="station"] .station-log-text { flex: 1; }
-[data-density="station"] .station-log-time { flex-shrink: 0; color: var(--text-dim); font-size: var(--fs-label); }
 
 [data-density="station"] .station-empty {
   color: var(--text-dim);
@@ -1736,73 +1739,20 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 [data-density="station"] .station-controls-empty { display: none; }
 [data-density="station"] .local-activity[hidden] + .station-controls-empty { display: block; }
 
-/* Rail: reuses .favourites (see favourites.js's createFavouritesRail) —
-   these rules are the layout on top of it. */
-[data-density="station"] .station-rail {
-  display: flex;
-  flex-direction: column;
-}
-[data-density="station"] .station-rail-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-bottom: var(--space-2);
-  margin-bottom: var(--space-2);
-  border-bottom: var(--rule) solid var(--border);
-}
-[data-density="station"] .station-rail-heading {
-  font-size: var(--fs-label);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-label);
-  color: var(--text-dim);
-}
-[data-density="station"] .station-rail-heading[data-role="act"] { color: var(--sig-act); }
-[data-density="station"] .station-rail-link {
+/* The close/done link at the top right of an open list or composition. */
+[data-density="station"] .station-pane-link {
   background: transparent;
   color: var(--text-dim);
   font-size: var(--fs-label);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
-[data-density="station"] .station-rail-link:hover { color: var(--text); }
-[data-density="station"] .station-rail-list { list-style: none; display: flex; flex-direction: column; }
-[data-density="station"] .station-rail-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  border-top: var(--rule) solid var(--border-mid);
-}
-[data-density="station"] .station-rail-row:first-child { border-top: none; }
-[data-density="station"] .station-rail-run {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  text-align: left;
-  background: transparent;
-  color: var(--text);
-  padding: var(--space-2) 0;
-}
-[data-density="station"] .station-rail-time { flex-shrink: 0; color: var(--text-dim); font-size: var(--fs-label); }
-[data-density="station"] .station-rail-editor-title { font-size: var(--fs-lead); font-weight: 700; margin-bottom: var(--space-3); }
-[data-density="station"] .station-rail-editor-fields { flex: 1; overflow-y: auto; }
-[data-density="station"] .station-rail-editor-actions {
-  display: flex;
-  gap: var(--space-2);
-  padding-top: var(--space-3);
-  border-top: var(--rule) solid var(--border);
-}
-[data-density="station"] .station-rail-editor-actions .btn-approve,
-[data-density="station"] .station-rail-editor-actions .btn-veto {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
+[data-density="station"] .station-pane-link:hover { color: var(--text); }
 
 /* ── Station list pane ───────────────────────────────────────
-   A recalled list fills the slot the capture field was in — one thing at
-   a time, same as review. The rows are the shared .checklist styles from
+   A recalled list opens in the idle screen's aside (see Ancillary screen
+   above), beside a capture field that stays live; any list can be opened
+   from the Lists tab. The rows are the shared .checklist styles from
    the Lists block above, so a list ticks the same here as on the phone;
    only the pane around them is station-specific. */
 [data-density="station"] .station-pane--list {
@@ -1835,13 +1785,34 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 }
 [data-density="station"] .station-list-add-input::placeholder { color: var(--text-dim); }
 
-/* Lists under the favourites in the rail: fixed height at the bottom of
-   the column, so the favourites keep the scrolling half. */
-[data-density="station"] .station-rail-lists {
-  flex-shrink: 0;
+/* Lists tab: two panels, like home — the index of lists, and the open
+   one beside it (landscape) or under it (portrait; see the orientation
+   blocks below). */
+[data-density="station"] .station-lists-index {
+  min-height: 0;
+  overflow-y: auto;
   padding: var(--space-4);
-  border-top: var(--rule) solid var(--border);
 }
+[data-density="station"] .station-lists-rows { list-style: none; }
+[data-density="station"] .station-lists-rows li + li { border-top: var(--rule) solid var(--border-mid); }
+[data-density="station"] .station-lists-row {
+  width: 100%;
+  min-height: var(--tap);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--fs-body);
+  text-align: left;
+}
+[data-density="station"] .station-lists-row--open {
+  background: var(--bg-raised);
+  color: var(--sig-act);
+}
+[data-density="station"] .station-lists-name { flex: 1; min-width: 0; }
+[data-density="station"] .station-lists-count { flex-shrink: 0; color: var(--text-dim); font-size: var(--fs-label); }
 
 [data-density="station"] .btn-submit,
 [data-density="station"] .btn-voice,
@@ -1872,10 +1843,40 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   height: var(--tap);
 }
 
+/* ── Ancillary screen: container queries ─────────────────────
+   Sized off the aside itself (container station-aside, above), not the
+   viewport: landscape leaves ~810px beside the capture column, portrait
+   ~670px under it. */
+@container station-aside (max-width: 560px) {
+  [data-density="station"] .controls-lights-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* Transport drops under the track title onto a row of its own, and
+     the volume slider takes whatever that row has left. */
+  [data-density="station"] .controls-music-transport {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  [data-density="station"] .controls-volume {
+    flex: 1;
+    min-width: 0;
+    width: auto;
+  }
+}
+
+/* Too small to use by touch (an odd panel, or a window someone resized
+   during testing): leave the space blank rather than cram it. Only the
+   controls — an open list or poem still shows, scrolling if it must. */
+@container station-aside (max-width: 280px) or (max-height: 200px) {
+  [data-density="station"] .station-aside .local-activity {
+    display: none;
+  }
+}
+
 /* ── Station, portrait (720×1280 as mounted) ─────────────────
    Tall and narrow: one column, and the vertical room goes to whichever
    pane is active. The capture field can be generous here — there is
-   nothing to trade against it, and there's no room for the rail. */
+   nothing to trade against it, with the aside taking the rest. */
 @media (orientation: portrait) {
   [data-density="station"] .station-capture {
     flex-direction: column;
@@ -1886,17 +1887,28 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
     min-height: 132px;
   }
 
-  /* Favourites are a panel behind a tab, not a permanent sidebar —
-     720px of width has no room for a second column. */
-  [data-density="station"] .station-rail-column {
-    display: none;
+  /* With the aside showing, the capture field gives up its centring and
+     sits at the top at its natural height; the aside takes the rest.
+     Without one, the idle pane still fills and centres as before. */
+  [data-density="station"] .station-capture:has(> .station-aside:not([hidden]) > :not([hidden])) .station-pane--idle {
+    flex: 0 0 auto;
+  }
+
+  [data-density="station"] .station-aside {
+    border-top: var(--rule) solid var(--border);
+  }
+
+  [data-density="station"] .station-lists-index {
+    flex: 0 1 auto;
+    max-height: 40%;
+    border-bottom: var(--rule) solid var(--border);
   }
 }
 
 /* ── Station, landscape (1280×720, panel on its side) ────────
    Width to spare, height at a premium: in idle mode the capture field
-   takes a fixed left column with the rail beside it; thinking/review
-   have no rail to share with, so they take the full width. */
+   takes a fixed left column with the aside beside it — two panels;
+   thinking/review take the full width. */
 @media (orientation: landscape) {
   [data-density="station"] .station-capture {
     flex-direction: row;
@@ -1914,16 +1926,15 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
     min-height: 88px;
   }
 
-  /* Favourites earn the right column when there is width for one — the
-     few things actually run here, with the full list behind the tab. */
-  [data-density="station"] .station-rail-column {
-    flex: 0 0 340px;
-    border-left: var(--rule) solid var(--border);
+  [data-density="station"] .station-tabpanel--lists {
+    flex-direction: row;
   }
 
-  [data-density="station"] .station-rail {
-    padding: var(--space-5) var(--space-4) 0;
+  [data-density="station"] .station-lists-index {
+    flex: 0 0 420px;
+    border-right: var(--rule) solid var(--border);
   }
+
 }
 
 /* No hover on a touchscreen: state has to be visible at rest. */
@@ -1934,5 +1945,5 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   .btn-clear:hover:not(:disabled),
   .btn-local-pause:hover,
   .station-tile-btn:hover,
-  .station-rail-link:hover { color: inherit; border-color: var(--border); }
+  .station-pane-link:hover { color: inherit; border-color: var(--border); }
 }

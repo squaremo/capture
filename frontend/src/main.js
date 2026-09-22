@@ -165,28 +165,28 @@ async function init() {
 
   function stationAddItem(item) {
     stationItems.unshift(item)
-    station.setLog(stationItems)
+    station.setItems(stationItems)
   }
 
   function stationUpdateItem(updated, matchId = updated.id) {
     const idx = stationItems.findIndex(i => i.id === matchId)
     if (idx === -1) stationItems.unshift(updated)
     else stationItems[idx] = updated
-    station.setLog(stationItems)
+    station.setItems(stationItems)
   }
 
   // Resolution routes to the review pane when the item is awaiting a
   // decision; anything else returns to idle with a flash (or the
-  // persistent failure bar) and is logged in the Earlier tab.
+  // persistent failure bar).
   function settleStationItem(item) {
     if (item.status === 'awaiting_approval') {
       station.setMode('review', item)
       return
     }
     // A composition (see compose in claude.js) is the deliverable itself —
-    // same reasoning as item.js's isComposition — so it gets its own
-    // full-pane read rather than being flashed and dismissed like an
-    // ordinary action_result.
+    // same reasoning as item.js's isComposition — so it opens in the
+    // station's aside, to be read beside a ready capture field, rather than
+    // being flashed and dismissed like an ordinary action_result.
     if (item.status === 'acted' && item.executed_action?.tool === 'compose') {
       station.setMode('compose', item)
       return
@@ -416,7 +416,7 @@ async function init() {
       updateStats()
       if (config.isStation) {
         stationItems = items
-        station.setLog(stationItems)
+        station.setItems(stationItems)
         // Anything still awaiting a decision from before a panel reboot
         // is still awaiting_approval server-side (see CLAUDE.md's Station
         // flow open questions) — surfaced as waiting rather than dropped
