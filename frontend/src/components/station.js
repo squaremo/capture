@@ -672,5 +672,11 @@ export function createStationShell({ onSubmit, onApprove, onVeto, onReplay, onEd
     setHouses: captureInput.setHouses,
     setIntegrations(data) { integrations = data; renderCapabilities() },
     focusInput,
+    // Nothing on screen that a reload would lose: back at the empty
+    // capture field, no retry bar. Set-aside items don't count — they're
+    // rebuilt from the server's awaiting_approval items on load anyway.
+    isAtRest() {
+      return mode === 'idle' && !failure && !captureInput.el.querySelector('textarea')?.value
+    },
   }
 }
