@@ -149,6 +149,37 @@ describe('POST /api/capture', () => {
   })
 })
 
+describe('GET /api/usage', () => {
+  const usage = (input_tokens, output_tokens, cost_usd) => ({
+    model: 'claude-opus-4-6', input_tokens, output_tokens,
+    cache_creation_input_tokens: 0, cache_read_input_tokens: 0, cost_usd,
+  })
+
+  it('records usage on a resolved item and sums it', async () => {
+    const before = (await app.inject({ method: 'GET', url: '/api/usage' })).json()
+    mockProcessCapture.mockResolvedValue({ status: 'triaged', tags: [], action_result: 'Saved to inbox.', usage: usage(1000, 200, 0.01) })
+    const item = await createResolvedItem('buy milk')
+    const saved = (await app.inject({ method: 'GET', url: `/api/items/${item.id}` })).json()
+    expect(saved.usage).toEqual(usage(1000, 200, 0.01))
+
+    const after = (await app.inject({ method: 'GET', url: '/api/usage' })).json()
+    for (const period of ['today', 'month', 'all']) {
+      expect(after[period].calls - before[period].calls).toBe(1)
+      expect(after[period].input_tokens - before[period].input_tokens).toBe(1000)
+      expect(after[period].output_tokens - before[period].output_tokens).toBe(200)
+      expect(after[period].cost_usd - before[period].cost_usd).toBeCloseTo(0.01)
+    }
+  })
+
+  it('records usage on an item whose plan failed after the Claude call', async () => {
+    mockProcessCapture.mockRejectedValue(Object.assign(new Error('boom'), { usage: usage(500, 50, 0.004) }))
+    const item = await createResolvedItem('do the impossible')
+    const saved = (await app.inject({ method: 'GET', url: `/api/items/${item.id}` })).json()
+    expect(saved.status).toBe('failed')
+    expect(saved.usage).toEqual(usage(500, 50, 0.004))
+  })
+})
+
 describe('GET /api/version', () => {
   it('reports backend/config versions and enabled integrations', async () => {
     const reply = await app.inject({ method: 'GET', url: '/api/version' })

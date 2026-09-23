@@ -170,6 +170,7 @@ function serialize(id, fn) {
 const ITEM_UPDATE_KEYS = [
   'status', 'tags', 'action_result', 'pending_action', 'plan_progress',
   'executed_action', 'plan_steps', 'text', 'recalled_checklist_id', 'shopping_list_id',
+  'usage',
 ]
 
 export async function createItem(text, house = null) {
@@ -178,7 +179,7 @@ export async function createItem(text, house = null) {
   const frontmatter = {
     status: 'pending', tags: [], action_result: null, pending_action: null,
     plan_progress: [], house, executed_action: null, plan_steps: [],
-    recalled_checklist_id: null, shopping_list_id: null, created_at,
+    recalled_checklist_id: null, shopping_list_id: null, usage: null, created_at,
   }
   writeNote(itemPath(id), frontmatter, text)
   await stageAndCommit(relItemPath(id), `Capture: ${truncate(text)}`)

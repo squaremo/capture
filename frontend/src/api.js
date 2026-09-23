@@ -25,6 +25,12 @@ export async function getVersion() {
   return res.json()
 }
 
+export async function getUsage() {
+  const res = await fetch(`${BASE}/usage`)
+  if (!res.ok) throw new Error(`fetch usage failed: ${res.status}`)
+  return res.json()
+}
+
 export async function getSatellites() {
   const res = await fetch(`${BASE}/satellites`)
   if (!res.ok) throw new Error(`fetch satellites failed: ${res.status}`)

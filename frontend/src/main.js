@@ -12,7 +12,7 @@ import { createSpeechToggleButton, speakIfEnabled, configureSpeech } from './spe
 import { loadConfig } from './config.js'
 import {
   configureApi, postCapture, getItem, getItems, approveItem, vetoItem, getVersion, getSatellites,
-  favouriteItem, getFavourites, runFavourite, deleteFavourite, patchItem,
+  favouriteItem, getFavourites, runFavourite, deleteFavourite, patchItem, getUsage,
 } from './api.js'
 
 // Runtime config (see config.js) has to resolve before anything below
@@ -309,8 +309,30 @@ async function init() {
   const stats = document.createElement('footer')
   stats.className = 'stats'
 
+  // Claude spend this month (UTC), from GET /api/usage — refreshed on
+  // load and whenever a capture resolves (the only thing that calls
+  // Claude), not on every updateStats(), which fires on each poll tick.
+  let usageText = ''
+
   function updateStats() {
-    stats.textContent = `${inbox.itemCount} items · ${inbox.pendingCount} pending`
+    stats.textContent = [`${inbox.itemCount} items`, `${inbox.pendingCount} pending`, usageText].filter(Boolean).join(' · ')
+  }
+
+  async function loadUsage() {
+    try {
+      const { month } = await getUsage()
+      const tokens = month.input_tokens + month.cache_creation_input_tokens + month.cache_read_input_tokens + month.output_tokens
+      usageText = `${formatTokens(tokens)} tokens · $${month.cost_usd.toFixed(2)} this month`
+      updateStats()
+    } catch {
+      // Backend not available (or predates /api/usage) — just leave it off
+    }
+  }
+
+  function formatTokens(n) {
+    if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`
+    if (n >= 1e3) return `${(n / 1e3).toFixed(1)}k`
+    return String(n)
   }
 
   // ── Capture input ─────────────────────────────────────────
@@ -392,7 +414,10 @@ async function init() {
         // checklist, whatever. That's the proposal text for an
         // awaiting_approval item (see claude.js's describe()) or the
         // final result for anything else.
-        if (item.status !== 'pending') speakIfEnabled(item.action_result)
+        if (item.status !== 'pending') {
+          speakIfEnabled(item.action_result)
+          loadUsage()
+        }
         if (config.isStation) {
           stationUpdateItem(item, id)
           if (item.status === 'pending') station.setMode('thinking', { item })
@@ -515,6 +540,7 @@ async function init() {
     app.append(header, layout, stats, versionInfo.footerEl)
   }
   loadItems()
+  loadUsage()
   loadVersion()
   loadSatellites()
   loadFavourites()

@@ -6,7 +6,7 @@ vi.mock('@anthropic-ai/sdk', () => ({
   default: vi.fn(() => ({ messages: { create: mockCreate } })),
 }))
 
-import { processCapture, runProgram, getFormFields } from '../integrations/claude.js'
+import { processCapture, runProgram, getFormFields, summarizeUsage } from '../integrations/claude.js'
 import { createItem, getItem, updateItem } from '../store.js'
 
 beforeEach(() => {
@@ -265,5 +265,44 @@ describe('getFormFields', () => {
   it('returns an empty list for no steps', () => {
     expect(getFormFields(undefined)).toEqual([])
     expect(getFormFields([])).toEqual([])
+  })
+})
+
+describe('usage', () => {
+  it('prices a response\'s token counts', () => {
+    expect(summarizeUsage('claude-opus-4-6', {
+      input_tokens: 1_000_000, output_tokens: 100_000,
+      cache_creation_input_tokens: 100_000, cache_read_input_tokens: 1_000_000,
+    })).toEqual({
+      model: 'claude-opus-4-6',
+      input_tokens: 1_000_000, output_tokens: 100_000,
+      cache_creation_input_tokens: 100_000, cache_read_input_tokens: 1_000_000,
+      // 5 input + 2.5 output + 0.625 cache write + 0.5 cache read
+      cost_usd: 8.625,
+    })
+  })
+
+  it('leaves cost null for a model with no known price', () => {
+    expect(summarizeUsage('mystery-model', { input_tokens: 10, output_tokens: 5 }).cost_usd).toBeNull()
+  })
+
+  it('attaches usage to processCapture\'s result', async () => {
+    mockCreate.mockResolvedValue({
+      content: [{ type: 'tool_use', name: 'propose_plan', input: { steps: [{ id: 's1', tool: 'save_to_inbox', args: { action_result: 'Saved.' } }] } }],
+      usage: { input_tokens: 2000, output_tokens: 100 },
+    })
+    const result = await processCapture('buy milk')
+    expect(result.usage).toMatchObject({ input_tokens: 2000, output_tokens: 100, cost_usd: 0.0125 })
+  })
+
+  it('attaches usage to the error when the plan fails', async () => {
+    mockCreate.mockResolvedValue({
+      content: [{ type: 'tool_use', name: 'propose_plan', input: { steps: [] } }],
+      usage: { input_tokens: 2000, output_tokens: 100 },
+    })
+    await expect(processCapture('buy milk')).rejects.toMatchObject({
+      message: 'Claude proposed an empty plan',
+      usage: { input_tokens: 2000, output_tokens: 100 },
+    })
   })
 })

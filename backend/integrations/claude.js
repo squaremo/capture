@@ -483,11 +483,41 @@ function conditionHolds(step, bindings) {
   return true
 }
 
+const MODEL = 'claude-opus-4-6'
+
+// USD per million tokens, Anthropic first-party rates. Cache writes (5-min
+// TTL) bill at 1.25x input and cache reads at 0.1x — neither is used today
+// (no cache_control on the request), but the usage block reports them as
+// separate counts, so they're priced rather than silently dropped if
+// caching is ever turned on. Update alongside MODEL when it changes.
+const PRICING = {
+  'claude-opus-4-6': { input: 5, output: 25 },
+}
+
+// Token counts plus what they cost, from one Messages API response's usage
+// block — persisted per item (see server.js) so spend can be totted up
+// from the items themselves; there's no separate metrics store.
+export function summarizeUsage(model, usage) {
+  if (!usage) return null
+  const input_tokens = usage.input_tokens ?? 0
+  const output_tokens = usage.output_tokens ?? 0
+  const cache_creation_input_tokens = usage.cache_creation_input_tokens ?? 0
+  const cache_read_input_tokens = usage.cache_read_input_tokens ?? 0
+  const price = PRICING[model]
+  const cost_usd = price
+    ? (input_tokens * price.input
+      + cache_creation_input_tokens * price.input * 1.25
+      + cache_read_input_tokens * price.input * 0.1
+      + output_tokens * price.output) / 1e6
+    : null
+  return { model, input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens, cost_usd }
+}
+
 export async function processCapture(text, { onStep, house } = {}) {
   let response
   try {
     response = await client.messages.create({
-      model: 'claude-opus-4-6',
+      model: MODEL,
       max_tokens: 1024,
       system: buildSystemPrompt(),
       tools: [buildProposePlanTool()],
@@ -498,13 +528,23 @@ export async function processCapture(text, { onStep, house } = {}) {
     throw new Error(`Claude API error: ${err.message}`)
   }
 
-  const toolUse = response.content.find(b => b.type === 'tool_use')
-  const steps = toolUse?.input?.steps
-  if (!Array.isArray(steps) || steps.length === 0) {
-    throw new Error('Claude proposed an empty plan')
-  }
+  // The tokens were spent whether or not the plan goes on to resolve, so
+  // usage rides along on a thrown error too (err.usage) — server.js
+  // records it on the failed item either way.
+  const usage = summarizeUsage(MODEL, response.usage)
+  const withUsage = result => (usage ? { ...result, usage } : result)
 
-  return runProgram(steps, { house, onStep })
+  try {
+    const toolUse = response.content.find(b => b.type === 'tool_use')
+    const steps = toolUse?.input?.steps
+    if (!Array.isArray(steps) || steps.length === 0) {
+      throw new Error('Claude proposed an empty plan')
+    }
+    return withUsage(await runProgram(steps, { house, onStep }))
+  } catch (err) {
+    if (usage) err.usage = usage
+    throw err
+  }
 }
 
 // Interprets a plan to its final conclusion — shared by a freshly-proposed

@@ -62,7 +62,7 @@ app.post('/api/capture', async (req, reply) => {
       return updateItem(item.id, { plan_progress: planProgress })
     },
   })
-    .then(async ({ status, tags, action_result, pending_action, plan_steps, text, recalled_checklist_id, shopping_list_id, executed_action }) => {
+    .then(async ({ status, tags, action_result, pending_action, plan_steps, text, recalled_checklist_id, shopping_list_id, executed_action, usage }) => {
       // text is only present for save_checklist/add_to_shopping_list — it
       // rewrites the item's own text into a markdown task list (see
       // buildChecklistText() in claude.js). Every other tool leaves the
@@ -79,8 +79,11 @@ app.post('/api/capture', async (req, reply) => {
       // executed_action is only present for compose — it's what makes a
       // freshly-composed item favouritable straight away, same field
       // approve() sets for an acting tool once a human approves it.
+      // usage is the Claude call's token counts + cost (summarizeUsage()
+      // in claude.js) — what GET /api/usage adds up.
       await updateItem(item.id, {
         status, tags, action_result, pending_action: pending_action ?? null, plan_steps,
+        ...(usage !== undefined ? { usage } : {}),
         ...(text !== undefined ? { text } : {}),
         ...(recalled_checklist_id !== undefined ? { recalled_checklist_id } : {}),
         ...(shopping_list_id !== undefined ? { shopping_list_id } : {}),
@@ -93,7 +96,10 @@ app.post('/api/capture', async (req, reply) => {
       // malformed plan, or a readonly step's resolution failing) — this is
       // the "figuring out what to do" half of the pipeline, so say so and
       // let the underlying message say why.
-      await updateItem(item.id, { status: 'failed', action_result: `Couldn't figure out what to do — ${err.message}` })
+      await updateItem(item.id, {
+        status: 'failed', action_result: `Couldn't figure out what to do — ${err.message}`,
+        ...(err.usage ? { usage: err.usage } : {}),
+      })
     })
 
   return reply.code(201).send(withFormFields(item))
@@ -277,6 +283,31 @@ app.get('/api/version', async () => ({
   // resolves, or if Linear isn't configured at all.
   linearTeamName: getLinearTeamNameCached(),
 }))
+
+// GET /api/usage — Claude token counts and cost, summed from each item's
+// recorded usage (see summarizeUsage() in claude.js): today and this
+// calendar month (both UTC) plus all-time. Only captures call Claude —
+// approvals and favourite replays don't — so this is the whole bill.
+// Items that predate usage tracking simply don't count.
+app.get('/api/usage', async () => {
+  const now = new Date().toISOString()
+  const periods = { today: now.slice(0, 10), month: now.slice(0, 7), all: '' }
+  const totals = Object.fromEntries(Object.keys(periods).map(k => [k, {
+    calls: 0, input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, cost_usd: 0,
+  }]))
+  for (const { usage, created_at } of listItems()) {
+    if (!usage) continue
+    for (const [period, prefix] of Object.entries(periods)) {
+      if (!created_at.startsWith(prefix)) continue
+      const t = totals[period]
+      t.calls += 1
+      for (const key of ['input_tokens', 'output_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'cost_usd']) {
+        t[key] += usage[key] ?? 0
+      }
+    }
+  }
+  return totals
+})
 
 // GET /api/satellites — configured houses and their live capabilities,
 // for the UI (an unreachable satellite just reports reachable: false).
