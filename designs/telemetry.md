@@ -13,7 +13,15 @@ a small hub + agent pair.
   which is the item store's git repo) and serves the charts. nginx
   terminates TLS for it on its own port, **:8090**, with the same
   Tailscale cert as the app, and only admits tailnet source addresses.
-- **Agent** — `beszel-agent` service in `docker-compose.satellite.yml`,
+- **Hub's own agent** — `beszel-agent` service in `docker-compose.yml`,
+  so the central box is charted alongside the Pis (CPU, memory, disk,
+  network, and per-container stats for backend/nginx/beszel/watchtower).
+  Same image, wired the other way round: it listens on a unix socket in
+  a directory shared with the hub (`/opt/capture/beszel-socket`) and the
+  hub dials it — Beszel's documented same-host setup — so it needs only
+  the hub's public key, no token, and opens no TCP port. Opt-in behind
+  the `telemetry` profile like the satellite agent.
+- **Satellite agent** — `beszel-agent` service in `docker-compose.satellite.yml`,
   opt-in behind the `telemetry` Compose profile like `whisper`/`tts`.
   Dials *out* to the hub over a WebSocket (`wss://<hub>:8090`), so the hub
   never needs to reach the Pi. `DISABLE_SSH=true` stops it also opening
@@ -36,6 +44,8 @@ charting, for less than Beszel gives for free.
 
 (Also step 5 of `infra/BOOTSTRAP-SATELLITE.md`, for a new station.)
 
+(The satellite steps; the hub's own agent is below.)
+
 1. Merge to `main` — `capture-sync` brings up the hub and nginx's new
    :8090 listener on its next run (≤5 min), no SSH needed.
 2. Open `https://<server>.<tailnet>.ts.net:8090` and create the admin
@@ -55,6 +65,34 @@ charting, for less than Beszel gives for free.
    Writes `/opt/capture-satellite/beszel-agent.env` (0600), turns on the
    `telemetry` profile, and starts the agent. Re-run with new values to
    rotate them.
+
+### The hub itself
+
+Same first two steps, then:
+
+1. **Add system** in the hub UI: Name it after the server, **Host / IP**
+   exactly `/beszel_socket/beszel.sock` (the socket path as the hub
+   container sees it), Port left as-is. Submit, and copy the public key.
+2. On the server (`ssh admin@<server>.<tailnet>.ts.net`):
+   ```sh
+   sudo /opt/capture/app/infra/enable-hub-telemetry.sh "ssh-ed25519 AAAA..."
+   ```
+   Writes `/opt/capture/beszel-agent.env` (0600), adds `telemetry` to
+   `COMPOSE_PROFILES` in `/opt/capture/app/.env` (which both
+   `capture.service` and `capture-sync` read, so it survives reboots and
+   syncs), and starts the agent. Re-run with a new key to rotate it.
+
+## Claude token counts and costs
+
+Not in Beszel — it has no custom-metric input (same gap as throttling
+below) — so the app records these itself. Each capture's one Claude call
+stores its `usage` on the item (`input_tokens`, `output_tokens`, cache
+read/write tokens, `model`, and `cost_usd` priced from `PRICING` in
+`backend/integrations/claude.js` — update that table if the model
+changes). Approvals and favourite replays never call Claude, so this is
+the whole bill. `GET /api/usage` sums it for today, this month (UTC) and
+all-time; the inbox's stats footer shows this month's tokens and cost.
+Items from before this existed have no `usage` and just don't count.
 
 ## Gap: throttling / undervoltage
 

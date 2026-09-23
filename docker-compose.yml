@@ -30,8 +30,8 @@ services:
       - "com.centurylinklabs.watchtower.enable=true"
 
   # System telemetry hub (Beszel) — charts CPU/memory/disk/network/
-  # temperatures and per-container stats for every satellite Pi (and this
-  # box too, if an agent is ever added here). Agents dial *in* to it over
+  # temperatures and per-container stats for every satellite Pi, and for
+  # this box itself via `beszel-agent` below. Satellite agents dial *in* to it over
   # a WebSocket (see docker-compose.satellite.yml's `beszel-agent`), so
   # this box never needs to reach a satellite. Not published directly —
   # nginx terminates TLS for it on :8090, same Tailscale cert as the app.
@@ -43,8 +43,41 @@ services:
     restart: unless-stopped
     volumes:
       - /opt/capture/beszel:/beszel_data
+      # Shared with `beszel-agent` below — the hub reaches this box's own
+      # agent through a unix socket in here rather than over the network.
+      - /opt/capture/beszel-socket:/beszel_socket
     expose:
       - "8090"
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  # Telemetry agent for this box itself — same image as a satellite's
+  # (docker-compose.satellite.yml), but connected the other way round:
+  # rather than dialling the hub's WebSocket (which, from the host network
+  # namespace, would mean going out and back in through nginx on :8090),
+  # it listens on a unix socket shared with the `beszel` service above and
+  # the hub dials *it* (Beszel's documented same-host setup). With LISTEN
+  # a socket path there's no TCP listener at all, and with no HUB_URL/TOKEN
+  # the agent runs SSH-only — so the one value it needs is KEY, the hub's
+  # public key. network_mode: host so it sees the host's real interfaces
+  # rather than a container's; the read-only Docker socket gives per-
+  # container stats (backend, nginx, beszel, watchtower). Opt-in behind
+  # the `telemetry` profile, like the satellite agent, because KEY only
+  # exists once the hub has been set up: infra/enable-hub-telemetry.sh
+  # writes it to /opt/capture/beszel-agent.env and turns the profile on.
+  beszel-agent:
+    image: henrygd/beszel-agent:latest
+    restart: unless-stopped
+    network_mode: host
+    profiles: ["telemetry"]
+    env_file:
+      - /opt/capture/beszel-agent.env
+    environment:
+      LISTEN: /beszel_socket/beszel.sock
+    volumes:
+      - /opt/capture/beszel-agent:/var/lib/beszel-agent
+      - /opt/capture/beszel-socket:/beszel_socket
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
 
