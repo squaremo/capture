@@ -144,6 +144,20 @@ board carries real copper connections) cuts the board's breakout down to
   one facing the Pi: standard SPI (MOSI, MISO, SCLK, one CS/CE pin) plus
   the chip's own power (3.3V) and GND, all otherwise free on this build
   (SPI isn't used elsewhere on the header).
+- **The board's own +3.3V and GND "buses" are hand-soldered wire links,
+  not something the board gives for free.** The DIP socket's VDD/VREF/
+  AGND pins are collinear with each other (same column of holes) but not
+  with the two headers' power/GND pins, which sit elsewhere on the
+  board — there's no plausible layout where all the pads in either net
+  land on one pre-existing strip. So this is point-to-point wiring: one
+  short soldered link per pad in the +3.3V net (VDD, VREF, pot-header
+  pin1, Pi-header pin5) and another per pad in the GND net (AGND, DGND,
+  pot-header pin2, Pi-header pin6), daisy-chained pad to pad or star'd
+  into a shared point — either way, the same number of hand-soldered
+  joints, just a layout preference. (This holds even on a genuine
+  Perma-Proto board with dedicated power-rail rows — those still need
+  one wire per pad dropping down to the rail; they turn the daisy-chain
+  into a star, not into something free.)
 - **Bare female Dupont pins are exposed metal** until seated on the
   header, same caveat as any Dupont jumper — connect/disconnect with the
   Pi powered off.
