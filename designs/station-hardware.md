@@ -186,15 +186,22 @@ board carries real copper connections) cuts the board's breakout down to
 
 ## Open questions
 
-- Exact GPIO pin assignments (BCM numbers for the two LEDs, the MCP3008's
-  SPI pins, and any standalone button — see below) — not yet chosen; do
-  this once the WM8960 HAT's pass-through header pinout is checked
-  against what's already spoken for (see `satellite-hardware.md`'s
-  WM8960 section). The WM8960 HAT reserves 8 pins: I2S audio
-  (GPIO18/19/20/21), I2C1 codec control (GPIO2/3), and the HAT ID EEPROM
-  (GPIO0/1, reserved on every HAT-format board regardless of which one).
-  Plenty of the remaining 18 GPIO-capable header pins are free for this
-  board's needs.
+- Exact GPIO pin assignments for the two LED signals (and any standalone
+  button — see below) — not yet chosen; do this once the WM8960 HAT's
+  pass-through header pinout is checked against what's already spoken
+  for (see `satellite-hardware.md`'s WM8960 section). The WM8960 HAT
+  reserves 8 pins: I2S audio (GPIO18/19/20/21), I2C1 codec control
+  (GPIO2/3), and the HAT ID EEPROM (GPIO0/1, reserved on every
+  HAT-format board regardless of which one). Plenty of the remaining 18
+  GPIO-capable header pins are free for these.
+  - **Correction: the MCP3008's SPI pins are not part of this open
+    question** — they're not a free choice the way the LED pins are.
+    CLK/DOUT(MISO)/DIN(MOSI)/CS are the Pi's **fixed hardware SPI0
+    pins** (GPIO11/9/10/8 respectively), the same way I2C1 is fixed to
+    GPIO2/3 for the WM8960 HAT above. Only the two LED signals (and any
+    future button) are genuinely open — the MCP3008 board's Pi-side
+    6-pin header (see BOM item 9, Wiring notes) wires straight to those
+    4 fixed pins plus 3V3/GND, no decision needed.
 - **Open: is a mute/shutdown button still wanted at all, now that the
   volume control is a plain pot?** The rotary encoder this replaces had
   a built-in push-button (SW) that would have hosted mute or shutdown for
