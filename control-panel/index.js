@@ -41,6 +41,20 @@
 //     ALSA capture substream is the WM8960's — confirm with `cat
 //     /proc/asound/cards` + `ls /proc/asound/card0/` on the real box.
 //   - The software-PWM dimming's flicker, noted above.
+//
+// Fan controller (third-party add-on, The Pi Hut's "Fan Controller for
+// Raspberry Pi"): its own 6-pin header is designed to plug onto the
+// Pi's first 6 physical pins, but that puts its GPIO3 control line on
+// the exact pin the WM8960 HAT needs for I2C1 — a real conflict, not
+// hypothetical. Fix: don't plug it on rigidly. Wire 3 individual
+// jumpers instead (same cut-Dupont-jumper + crimp technique as
+// everything else here) — 5V, GND, and its control line onto any free
+// GPIO instead of GPIO3 (the board only cares about 3 of its 6 pins per
+// the product description; the other 3 — including its own GPIO2
+// position — are left unconnected). CTRL_FAN_GPIO below is that control
+// line. On/off only (no PWM/tach pin on this board), so it's driven by
+// a plain temperature threshold with hysteresis rather than anything
+// speed-related.
 
 import { execFile } from 'child_process'
 import { readFileSync } from 'fs'
@@ -81,8 +95,28 @@ const VOLUME_CHANGE_THRESHOLD = 2 // percentage points — avoids spawning amixe
 const DIM_PWM_PERIOD_MS = 20 // ~50Hz software toggle — see flicker caveat above
 const DIM_DUTY_FRACTION = 0.15 // how bright "dimmed" is, as a fraction of full brightness
 
+// Optional — see the fan controller note in the file header. Unset
+// means no fan is wired up; nothing below touches GPIO for it.
+const FAN_GPIO = process.env.CTRL_FAN_GPIO
+  ? parseInt(process.env.CTRL_FAN_GPIO, 10)
+  : null
+// Standard Linux thermal sysfs path, millidegrees C — same reading
+// `vcgencmd measure_temp` reports, just without spawning a process for
+// it. On/off with hysteresis since this fan has no speed control: once
+// it kicks in at FAN_ON_C, it stays on until things cool back down past
+// FAN_OFF_C, rather than chattering right at one threshold. Both values
+// are reasonable Pi 4 defaults, not verified against this box's actual
+// thermal behaviour once it's built and loaded (Chromium kiosk + a
+// small Whisper model) — adjust if it runs hotter or cooler than
+// expected in practice.
+const THERMAL_PATH = '/sys/class/thermal/thermal_zone0/temp'
+const FAN_ON_C = 55
+const FAN_OFF_C = 48
+
 const whiteLed = new Gpio(LED_WHITE_GPIO, 'out')
 const redLed = new Gpio(LED_RED_GPIO, 'out')
+const fanGpio = FAN_GPIO !== null ? new Gpio(FAN_GPIO, 'out') : null
+let fanOn = false
 
 let spi = null
 let smoothedReading = null // 0–1023, null until the first sample lands
@@ -101,6 +135,7 @@ spi = SpiDevice.open(SPI_BUS, SPI_DEVICE, (err) => {
 setInterval(() => {
   pollPot()
   pollMic()
+  pollThermal()
 }, POLL_INTERVAL_MS)
 
 // Sent by swayidle's timeout/resume hooks (see
@@ -117,6 +152,8 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
     redLed.writeSync(0)
     whiteLed.unexport()
     redLed.unexport()
+    fanGpio?.writeSync(0)
+    fanGpio?.unexport()
     spi?.close()
     process.exit(0)
   })
@@ -149,6 +186,24 @@ function pollMic() {
     return // wrong path for this hardware, or nothing's opened the substream yet — leave the LED as last set
   }
   redLed.writeSync(/state:\s*RUNNING/.test(status) ? 1 : 0)
+}
+
+function pollThermal() {
+  if (!fanGpio) return
+  let raw
+  try {
+    raw = readFileSync(THERMAL_PATH, 'utf8')
+  } catch {
+    return // leave the fan as last set rather than guessing
+  }
+  const celsius = parseInt(raw, 10) / 1000
+  if (!fanOn && celsius >= FAN_ON_C) {
+    fanOn = true
+    fanGpio.writeSync(1)
+  } else if (fanOn && celsius <= FAN_OFF_C) {
+    fanOn = false
+    fanGpio.writeSync(0)
+  }
 }
 
 function pollPot() {

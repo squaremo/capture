@@ -122,6 +122,7 @@ stays crimp-only, no solder.
 | 12 | Crimp tool | supports the 2.54mm shrouded connector's crimp pins | 1 | the only crimping needed in this build now — Dupont ends come pre-made (item 11), never self-crimped |
 | 13 | Hookup wire | 22–26AWG, a few colours | short lengths | cable-side legs only — no wire needed on the boards themselves beyond the soldered leads/traces |
 | 14 | Solder + iron | fine 0.6–0.8mm solder | — | for items 1–4, the DIP socket (item 8), both boards' shrouded headers (item 9), and the pot's 3 pigtail wires onto its solder lugs (item 5) — a handful of simple joints, not a full board's worth |
+| 15 | Fan controller | The Pi Hut's "Fan Controller for Raspberry Pi" (already in hand) | 1 | on/off switching only, no PWM/tach — see Fan controller section below for why it's **not** plugged on as the product intends |
 
 Sharing the LED cathodes on one ground trace (now possible since the
 board carries real copper connections) cuts the board's breakout down to
@@ -198,6 +199,44 @@ board carries real copper connections) cuts the board's breakout down to
   technique throughout, just not sharing a connector or a run between
   them.
 
+## Fan controller (third-party add-on)
+
+[The Pi Hut's "Fan Controller for Raspberry Pi"](https://thepihut.com/products/fan-controller-for-raspberry-pi)
+— already in hand. A 2-pin output to the fan itself, and a 6-pin (2×3)
+header meant to plug directly onto the Pi's **first 6 physical pins**
+(3.3V/5V/GPIO2/5V/GPIO3/GND), using 5V, GND, and GPIO3 as its control
+line. On/off switching only — no PWM or tach pin, so no speed control,
+just a thermal-threshold on/off.
+
+**Not plugged on as the product intends** — physical pin 5 (GPIO3) is
+exactly the pin the WM8960 HAT uses for I2C1 (SCL1, see §1's pin map),
+so the rigid 6-pin mount would put the fan's control line on the same
+electrical node the audio HAT uses to configure its codec. A real
+conflict, not a hypothetical one.
+
+**Fix**: per the product description, only 3 of its 6 pins actually do
+anything (5V, GND, GPIO3) — pins 1 (3.3V) and 3 (GPIO2) are just
+mechanically present because "first 6 pins" was the easy rigid-mount
+choice for the manufacturer, not because the board needs them
+electrically (worth a continuity check against pin 3/GPIO2 before
+assuming that, but the plain-English description strongly implies it).
+So instead of the rigid plug, three individual jumper wires — same
+cut-Dupont-jumper + crimp technique as everything else in this doc —
+from its header's 5V/GND/GPIO3-position pins to: any free 5V pin, any
+free GND pin, and **any free GPIO** (the board doesn't care which —
+GPIO3 is only "the" pin because that's where it lands when plugged on
+directly, not because its circuitry requires that specific pin). The
+other 3 positions on its header are left unconnected.
+
+**Software**: driven by `control-panel/index.js`'s `CTRL_FAN_GPIO` —
+polls `/sys/class/thermal/thermal_zone0/temp` on the same interval as
+the pot/mic, on/off with hysteresis (on at 55°C, off at 48°C) since
+there's no speed control to modulate instead. Both thresholds are
+reasonable Pi 4 defaults, not yet verified against this box's actual
+thermal behaviour once loaded (Chromium kiosk + a small Whisper model).
+Optional — leaving `CTRL_FAN_GPIO` unset skips all fan logic, same
+gating shape as the LED/mixer/mic vars.
+
 ## Open questions
 
 - Exact GPIO pin assignments for the two LED signals (and any standalone
@@ -212,8 +251,11 @@ board carries real copper connections) cuts the board's breakout down to
     question** — they're not a free choice the way the LED pins are.
     CLK/DOUT(MISO)/DIN(MOSI)/CS are the Pi's **fixed hardware SPI0
     pins** (GPIO11/9/10/8 respectively), the same way I2C1 is fixed to
-    GPIO2/3 for the WM8960 HAT above. Only the two LED signals (and any
-    future button) are genuinely open — the MCP3008 board's Pi-side
+    GPIO2/3 for the WM8960 HAT above. **Now also covers the fan
+    controller's control line** (`CTRL_FAN_GPIO`, see Fan controller
+    section) — any free pin works, no constraint beyond "not already
+    claimed." Otherwise, the two LED signals (and any future button) are
+    genuinely open — the MCP3008 board's Pi-side
     6-pin header (see BOM item 9, Wiring notes) wires straight to those
     4 fixed pins plus 3V3/GND, no decision needed.
 - **Open: is a mute/shutdown button still wanted at all, now that the

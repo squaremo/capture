@@ -170,6 +170,7 @@ write_files:
       CTRL_MIXER_CARD=${CTRL_MIXER_CARD}
       CTRL_MIXER_CONTROL=${CTRL_MIXER_CONTROL}
       CTRL_MIC_STATUS_PATH=${CTRL_MIC_STATUS_PATH}
+      CTRL_FAN_GPIO=${CTRL_FAN_GPIO}
 
   # Plain host systemd, not Docker — see control-panel/index.js's file
   # header for why (direct GPIO/SPI access, same category of problem
