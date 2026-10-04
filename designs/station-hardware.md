@@ -248,10 +248,15 @@ board carries real copper connections) cuts the board's breakout down to
   above) to a 0–100 volume applied via `amixer` against the WM8960
   card, with a hysteresis threshold so tiny jitter doesn't spawn a
   process on every poll. White LED lights as soon as the satellite
-  starts (standby/on); the red LED's driver (`setListening()`) is wired
-  up but has no caller yet, since `whisper-gpio` — the thing that would
-  call it on mic activity — still isn't built (see
-  `satellite-hardware.md`'s Voice input section). Gated by
+  starts (standby/on). The red "live-mic" LED is driven automatically
+  off **ALSA's own capture-substream state**
+  (`/proc/asound/cardN/pcmMc/subX/status`'s `state: RUNNING`), polled on
+  the same interval as the pot, rather than needing `whisper-gpio` (still
+  not built — see `satellite-hardware.md`'s Voice input section) to
+  explicitly call a function on mic activity — this reflects real
+  hardware state regardless of which future code actually opens the mic.
+  `setListening()` stays exported as a manual fallback, only taking
+  effect while the `/proc` read fails. Gated by
   `CTRL_LED_WHITE_GPIO`/`CTRL_LED_RED_GPIO` both being set, same pattern
   as `services/whisper.js`'s `WHISPER_URL` gate, so a satellite with no
   control board never opens GPIO/SPI at all.
@@ -260,7 +265,10 @@ board carries real copper connections) cuts the board's breakout down to
   not work on this box's Trixie kernel (swap for a libgpiod-based
   package if not); `CTRL_MIXER_CONTROL`'s default (`Speaker`) is a guess
   at the WM8960's actual ALSA control name, not confirmed — run `amixer
-  -c wm8960soundcard scontrols` on the real box once it's built.
+  -c wm8960soundcard scontrols` on the real box once it's built;
+  `CTRL_MIC_STATUS_PATH`'s default (`card0/pcm0c/sub0`) is a similar
+  guess at which ALSA capture substream is the WM8960's — confirm with
+  `cat /proc/asound/cards` + `ls /proc/asound/card0/`.
 - PTT, when it's added in the next model: since the volume control no
   longer carries a built-in button, PTT now needs its own standalone
   switch regardless — same open part as the mute/shutdown question above,

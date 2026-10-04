@@ -21,8 +21,12 @@
 //     confirmed WM8960 ALSA control name — run `amixer -c wm8960soundcard
 //     scontrols` on the real box and set this explicitly once known
 //     (see infra/satellite-smoke-test.md's `alsamixer -c 0` step).
+//   - CTRL_MIC_STATUS_PATH's default (card0/pcm0c) is a guess at which
+//     ALSA capture substream is the WM8960's — confirm with `cat
+//     /proc/asound/cards` + `ls /proc/asound/card0/` on the real box.
 
 import { execFile } from 'child_process'
+import { readFileSync } from 'fs'
 import Gpio from 'onoff'
 import SpiDevice from 'spi-device'
 
@@ -42,6 +46,16 @@ const MCP3008_CHANNEL = 0 // only CH0 is wired, to the pot's wiper
 
 const MIXER_CARD = process.env.CTRL_MIXER_CARD || 'wm8960soundcard'
 const MIXER_CONTROL = process.env.CTRL_MIXER_CONTROL || 'Speaker'
+
+// ALSA's own live capture-substream state, not an application-level flag
+// — true whenever anything (whisper-gpio once it exists, a manual
+// `arecord` test, anything) actually has the mic open, so the red LED
+// reflects real hardware state rather than needing every future caller
+// to remember to call setListening() below. No inotify equivalent exists
+// for /proc pseudo-files, so this is polled on the same interval as the
+// pot rather than watched.
+const MIC_STATUS_PATH = process.env.CTRL_MIC_STATUS_PATH
+  || '/proc/asound/card0/pcm0c/sub0/status'
 
 const POLL_INTERVAL_MS = 150
 const SMOOTHING_ALPHA = 0.2 // exponential moving average, 0–1: higher = more responsive, noisier
@@ -71,7 +85,10 @@ export async function start() {
     if (err) throw err
   })
 
-  pollHandle = setInterval(pollPot, POLL_INTERVAL_MS)
+  pollHandle = setInterval(() => {
+    pollPot()
+    pollMic()
+  }, POLL_INTERVAL_MS)
 }
 
 export function stop() {
@@ -91,16 +108,29 @@ export function stop() {
   lastAppliedVolume = null
 }
 
-// Integration point for whisper-gpio (see designs/satellite-hardware.md's
-// Voice input section) once it exists — nothing calls this yet, since
-// that script isn't built. Left wired up now rather than added later, so
-// the red LED's actual behaviour doesn't need a second pass once it is.
+// Manual override — not the primary mechanism (pollMic() below drives
+// the red LED automatically off ALSA's own capture state), but left
+// exported as a fallback in case CTRL_MIC_STATUS_PATH turns out wrong
+// for this hardware, or a future caller wants to light it for a reason
+// that isn't the mic literally being open (e.g. a "thinking" state).
+// Only takes effect while pollMic() can't read MIC_STATUS_PATH — each
+// successful read overwrites whatever this set, next poll tick.
 export function setListening(isListening) {
   redLed?.writeSync(isListening ? 1 : 0)
 }
 
 export function getVolume() {
   return lastAppliedVolume
+}
+
+function pollMic() {
+  let status
+  try {
+    status = readFileSync(MIC_STATUS_PATH, 'utf8')
+  } catch {
+    return // wrong path for this hardware, or nothing's opened the substream yet — leave the LED as last set
+  }
+  redLed?.writeSync(/state:\s*RUNNING/.test(status) ? 1 : 0)
 }
 
 function pollPot() {
