@@ -242,9 +242,25 @@ board carries real copper connections) cuts the board's breakout down to
     would need a GPIO extension/stacking header to fit both boards.
     Worth revisiting if shutdown-with-wake turns out to matter enough in
     practice to justify the extra part and stacking complexity.
-- Software side: how the LEDs get driven (which states light which LED)
-  and how the pot's ADC reading maps to a volume change (including the
-  log-curve mapping noted in Scope above) — not designed yet, next topic.
+- **Software side: implemented.** `satellite/services/controlPanel.js` —
+  polls the MCP3008 over SPI0 at ~150ms, smooths the reading (EMA) and
+  maps it through a squared curve (software audio-taper, see Scope
+  above) to a 0–100 volume applied via `amixer` against the WM8960
+  card, with a hysteresis threshold so tiny jitter doesn't spawn a
+  process on every poll. White LED lights as soon as the satellite
+  starts (standby/on); the red LED's driver (`setListening()`) is wired
+  up but has no caller yet, since `whisper-gpio` — the thing that would
+  call it on mic activity — still isn't built (see
+  `satellite-hardware.md`'s Voice input section). Gated by
+  `CTRL_LED_WHITE_GPIO`/`CTRL_LED_RED_GPIO` both being set, same pattern
+  as `services/whisper.js`'s `WHISPER_URL` gate, so a satellite with no
+  control board never opens GPIO/SPI at all.
+  **Unverified against real hardware**, flagged in the file itself:
+  `onoff`'s sysfs GPIO interface is deprecated on recent kernels and may
+  not work on this box's Trixie kernel (swap for a libgpiod-based
+  package if not); `CTRL_MIXER_CONTROL`'s default (`Speaker`) is a guess
+  at the WM8960's actual ALSA control name, not confirmed — run `amixer
+  -c wm8960soundcard scontrols` on the real box once it's built.
 - PTT, when it's added in the next model: since the volume control no
   longer carries a built-in button, PTT now needs its own standalone
   switch regardless — same open part as the mute/shutdown question above,
