@@ -242,33 +242,65 @@ board carries real copper connections) cuts the board's breakout down to
     would need a GPIO extension/stacking header to fit both boards.
     Worth revisiting if shutdown-with-wake turns out to matter enough in
     practice to justify the extra part and stacking complexity.
-- **Software side: implemented.** `satellite/services/controlPanel.js` —
-  polls the MCP3008 over SPI0 at ~150ms, smooths the reading (EMA) and
-  maps it through a squared curve (software audio-taper, see Scope
-  above) to a 0–100 volume applied via `amixer` against the WM8960
-  card, with a hysteresis threshold so tiny jitter doesn't spawn a
-  process on every poll. White LED lights as soon as the satellite
-  starts (standby/on). The red "live-mic" LED is driven automatically
-  off **ALSA's own capture-substream state**
-  (`/proc/asound/cardN/pcmMc/subX/status`'s `state: RUNNING`), polled on
-  the same interval as the pot, rather than needing `whisper-gpio` (still
-  not built — see `satellite-hardware.md`'s Voice input section) to
-  explicitly call a function on mic activity — this reflects real
-  hardware state regardless of which future code actually opens the mic.
-  `setListening()` stays exported as a manual fallback, only taking
-  effect while the `/proc` read fails. Gated by
-  `CTRL_LED_WHITE_GPIO`/`CTRL_LED_RED_GPIO` both being set, same pattern
-  as `services/whisper.js`'s `WHISPER_URL` gate, so a satellite with no
-  control board never opens GPIO/SPI at all.
-  **Unverified against real hardware**, flagged in the file itself:
-  `onoff`'s sysfs GPIO interface is deprecated on recent kernels and may
-  not work on this box's Trixie kernel (swap for a libgpiod-based
-  package if not); `CTRL_MIXER_CONTROL`'s default (`Speaker`) is a guess
-  at the WM8960's actual ALSA control name, not confirmed — run `amixer
-  -c wm8960soundcard scontrols` on the real box once it's built;
-  `CTRL_MIC_STATUS_PATH`'s default (`card0/pcm0c/sub0`) is a similar
-  guess at which ALSA capture substream is the WM8960's — confirm with
-  `cat /proc/asound/cards` + `ls /proc/asound/card0/`.
+- **Software side: implemented, as a standalone daemon, not inside the
+  satellite app.** `control-panel/index.js` — a new top-level directory
+  sibling to `satellite/`, same shape as `whisper/` — polls the MCP3008
+  over SPI0 at ~150ms, smooths the reading (EMA) and maps it through a
+  squared curve (software audio-taper, see Scope above) to a 0–100
+  volume applied via `amixer` against the WM8960 card, with a hysteresis
+  threshold so tiny jitter doesn't spawn a process on every poll. White
+  LED lights at full brightness as soon as it starts (standby/on). The
+  red "live-mic" LED is driven automatically off **ALSA's own
+  capture-substream state** (`/proc/asound/cardN/pcmMc/subX/status`'s
+  `state: RUNNING`), polled on the same interval as the pot, rather than
+  needing `whisper-gpio` (still not built — see the Voice input section
+  above) to explicitly call a function on mic activity — this reflects
+  real hardware state regardless of which future code actually opens the
+  mic. `setListening()` stays exported as a manual fallback, only taking
+  effect while the `/proc` read fails.
+  - **Runs as its own host-level systemd service
+    (`capture-control-panel.service`), deliberately not inside the
+    Dockerized `satellite/` app.** GPIO/SPI access from inside that
+    container would need its own device-passthrough plumbing — the same
+    category of host-hardware problem `backlight.sh`/
+    `cpufreq-permissions.service` already solve by staying off Docker,
+    rather than solving it twice. Wired into
+    `infra/cloud-init-satellite.yaml.tpl`: a `control-panel.env` file,
+    the systemd unit (`Type=simple`, `Restart=on-failure`), an `npm
+    install` + `systemctl enable --now` in `runcmd` — but **only when
+    `CTRL_LED_WHITE_GPIO`/`CTRL_LED_RED_GPIO` are actually supplied** to
+    `provision-satellite-sd.sh` (both new optional, blank-by-default
+    script inputs), so every satellite without this hardware built yet
+    boots exactly as before, nothing GPIO/SPI-related even attempted.
+  - **Dimming**: the white LED dims (software-toggled duty cycle, not
+    true hardware PWM) while the kiosk display is asleep, undimming on
+    wake — wired into the *existing* `swayidle` `timeout`/`resume` hooks
+    right next to `backlight.sh`'s own calls, via `systemctl kill -s
+    SIGUSR1`/`SIGUSR2 capture-control-panel.service`, guarded by
+    `systemctl is-active --quiet` so it's a silent no-op on any
+    satellite where the service isn't enabled. The software-toggle
+    approach may visibly flicker rather than looking smoothly dim
+    (unverified against a real LED) — if so, the fix is wiring the white
+    LED specifically to GPIO12 or GPIO13 (the Pi's hardware PWM0/PWM1
+    pins, confirmed free in this doc's §1 pin map) and driving it via
+    the kernel's sysfs PWM interface instead, rather than fighting
+    software PWM further. Worth factoring into the still-open LED pin
+    assignment above.
+  - **Unverified against real hardware**, flagged in the file itself:
+    `onoff`'s sysfs GPIO interface is deprecated on recent kernels and
+    may not work on this box's Trixie kernel (swap for a libgpiod-based
+    package if not); `CTRL_MIXER_CONTROL`'s default (`Speaker`) is a
+    guess at the WM8960's actual ALSA control name, not confirmed — run
+    `amixer -c wm8960soundcard scontrols` on the real box once it's
+    built; `CTRL_MIC_STATUS_PATH`'s default (`card0/pcm0c/sub0`) is a
+    similar guess at which ALSA capture substream is the WM8960's —
+    confirm with `cat /proc/asound/cards` + `ls /proc/asound/card0/`;
+    the dimming's flicker, noted above.
+  - **Known gap**: `capture-satellite-sync.timer`'s periodic `git pull`
+    doesn't also re-run `control-panel/`'s `npm install` on a later
+    dependency change, unlike the Dockerized app (which gets fresh deps
+    baked into each new image). Fine for now — two dependencies, won't
+    change often — but worth fixing if that stops being true.
 - PTT, when it's added in the next model: since the volume control no
   longer carries a built-in button, PTT now needs its own standalone
   switch regardless — same open part as the mute/shutdown question above,

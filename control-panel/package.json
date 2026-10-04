@@ -1,0 +1,13 @@
+{
+  "name": "capture-control-panel",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env index.js"
+  },
+  "dependencies": {
+    "onoff": "^6.0.3",
+    "spi-device": "^3.1.2"
+  }
+}

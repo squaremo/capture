@@ -71,6 +71,16 @@ packages:
   # to use it. install.sh pulls in the codec's own build deps itself
   # (dkms/headers/i2c-tools); this is just the diagnostic tools.
   - alsa-utils
+  # Plain host-level Node, not Docker — for control-panel/ only (the
+  # LED/volume-knob daemon, see capture-control-panel.service below).
+  # Deliberately the opposite choice from the main satellite app
+  # (Docker, per the file header's note on why that replaced an earlier
+  # systemd+npm version) — control-panel/ needs direct GPIO/SPI access,
+  # the same category of host-hardware problem backlight.sh/
+  # cpufreq-permissions.service already solve by staying off Docker,
+  # rather than plumbing device passthrough into a container for it.
+  - nodejs
+  - npm
   # Display stack: labwc, not cage — switched after confirming on real
   # hardware that cage (this OS's packaged version) ignores the DRM
   # `panel_orientation` property entirely; it only supports *static*
@@ -145,6 +155,44 @@ write_files:
     content: |
       HOUSE_ID=${HOUSE_ID}
       BACKEND_URL=${BACKEND_URL}
+
+  # For control-panel/'s own systemd unit below, not the Dockerized app
+  # above — separate file since this one's consumed via
+  # EnvironmentFile=, not Node's --env-file-if-exists. Left with blank
+  # values when CTRL_LED_WHITE_GPIO/CTRL_LED_RED_GPIO aren't supplied to
+  # provision-satellite-sd.sh — harmless, since the unit is only enabled
+  # below when both are actually set.
+  - path: /opt/capture-satellite/control-panel.env
+    permissions: "0600"
+    content: |
+      CTRL_LED_WHITE_GPIO=${CTRL_LED_WHITE_GPIO}
+      CTRL_LED_RED_GPIO=${CTRL_LED_RED_GPIO}
+      CTRL_MIXER_CARD=${CTRL_MIXER_CARD}
+      CTRL_MIXER_CONTROL=${CTRL_MIXER_CONTROL}
+      CTRL_MIC_STATUS_PATH=${CTRL_MIC_STATUS_PATH}
+
+  # Plain host systemd, not Docker — see control-panel/index.js's file
+  # header for why (direct GPIO/SPI access, same category of problem
+  # backlight.sh/cpufreq-permissions.service already solve by staying
+  # off Docker). Type=simple + Restart=on-failure, not oneshot: this is
+  # a long-running poll loop (the pot, the mic's ALSA status), not a
+  # fire-and-forget setup step.
+  - path: /etc/systemd/system/capture-control-panel.service
+    content: |
+      [Unit]
+      Description=Capture control board (LEDs + volume knob)
+      After=multi-user.target
+
+      [Service]
+      Type=simple
+      WorkingDirectory=/opt/capture-satellite/app/control-panel
+      EnvironmentFile=/opt/capture-satellite/control-panel.env
+      ExecStart=/usr/bin/node index.js
+      Restart=on-failure
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
 
   # Type=oneshot + up -d, not Type=simple + a foreground `up` (what an
   # earlier version of this did) — that kept a permanent `docker
@@ -381,9 +429,14 @@ write_files:
       # swayidle already runs its timeout/resume commands via `sh -c`,
       # so a plain `;`-joined string is enough — no need to nest a
       # second `sh -c` inside it.
+      # The `systemctl is-active --quiet ... &&` guard on each signal
+      # line means this is a silent no-op on any satellite where
+      # capture-control-panel.service isn't enabled (no control board
+      # built yet) — same "safe to leave unconfigured" shape as the rest
+      # of that board's provisioning.
       swayidle -w \
-        timeout 30 '/opt/capture-satellite/backlight.sh off; /opt/capture-satellite/cpu-power.sh low' \
-        resume '/opt/capture-satellite/backlight.sh on; /opt/capture-satellite/cpu-power.sh normal' &
+        timeout 30 '/opt/capture-satellite/backlight.sh off; /opt/capture-satellite/cpu-power.sh low; systemctl is-active --quiet capture-control-panel.service && systemctl kill -s SIGUSR1 capture-control-panel.service' \
+        resume '/opt/capture-satellite/backlight.sh on; /opt/capture-satellite/cpu-power.sh normal; systemctl is-active --quiet capture-control-panel.service && systemctl kill -s SIGUSR2 capture-control-panel.service' &
 
   # ${KIOSK_USER}'s login shell runs this once, on tty1 only (not over
   # SSH — this account has no SSH key at all — and not if a compositor
@@ -483,6 +536,20 @@ runcmd:
   - git clone "${REPO_URL}" /opt/capture-satellite/app
   - systemctl enable --now capture-satellite.service
   - systemctl enable --now capture-satellite-sync.timer
+
+  # ── Control board (LEDs + volume knob) ──────────────────────────────
+  # Only enabled when CTRL_LED_WHITE_GPIO/CTRL_LED_RED_GPIO were actually
+  # supplied to provision-satellite-sd.sh (empty string otherwise, per
+  # that script's defaults) — a satellite with no control board built
+  # yet boots exactly as before, nothing GPIO/SPI-related even attempted.
+  # npm install happens here (host-level, not inside a Docker build)
+  # since control-panel/ runs directly on the host; re-running this
+  # provisioning script re-installs if its deps ever change, but
+  # capture-satellite-sync.timer's periodic git pull does NOT currently
+  # also re-run this npm install for a later dependency change — a known
+  # gap, fine for now since this is a two-dependency script that won't
+  # change often.
+  - if [ -n "${CTRL_LED_WHITE_GPIO}" ] && [ -n "${CTRL_LED_RED_GPIO}" ]; then npm --prefix /opt/capture-satellite/app/control-panel install --omit=dev; systemctl enable --now capture-control-panel.service; fi
 
   # ── Kiosk display ────────────────────────────────────────────────────
   - systemctl enable --now seatd

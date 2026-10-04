@@ -7,7 +7,6 @@ import { dirname, join } from 'path'
 import * as sonos from './services/sonos.js'
 import * as dirigera from './services/dirigera.js'
 import * as whisper from './services/whisper.js'
-import * as controlPanel from './services/controlPanel.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -70,7 +69,6 @@ const CAPABILITIES = [
   'sonos',
   ...(dirigera.isConfigured() ? ['dirigera'] : []),
   ...(whisper.isConfigured() ? ['whisper'] : []),
-  ...(controlPanel.isConfigured() ? ['control-panel'] : []),
 ]
 
 const testPageHtml = readFileSync(join(__dirname, 'public/index.html'), 'utf8')
@@ -135,7 +133,6 @@ app.get('/api/status', async () => ({
   capabilities: CAPABILITIES,
   ...sonos.getStatus(),
   ...(await dirigera.getStatus()),
-  ...(controlPanel.isConfigured() ? { volume: controlPanel.getVolume() } : {}),
 }))
 
 // Resolves a room name into a specific speaker, without playing anything
@@ -328,24 +325,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     await app.listen({ port: PORT, host: HOST })
     const scheme = tlsOptions ? 'https' : 'http'
     app.log.info(`satellite "${HOUSE_ID}" listening on ${scheme}://${HOST}:${PORT}`)
-    // Starts the LED/volume-knob control board (see services/controlPanel.js)
-    // once the server itself is up — only on a satellite that actually has
-    // CTRL_LED_WHITE_GPIO/CTRL_LED_RED_GPIO set, so dev boxes and satellites
-    // without this hardware never touch GPIO/SPI at all.
-    if (controlPanel.isConfigured()) {
-      try {
-        await controlPanel.start()
-        app.log.info('control panel started (LEDs + volume knob)')
-      } catch (err) {
-        app.log.error(`control panel failed to start: ${err.message}`)
-      }
-    }
-    for (const sig of ['SIGTERM', 'SIGINT']) {
-      process.on(sig, () => {
-        controlPanel.stop()
-        process.exit(0)
-      })
-    }
     if (!tlsOptions) {
       app.log.warn(
         'No TLS_CERT_PATH/TLS_KEY_PATH set — serving plain HTTP. Voice capture ' +

@@ -75,6 +75,21 @@ REPO_URL="${REPO_URL:-https://github.com/squaremo/capture.git}"
 DISABLE_BLUETOOTH="${DISABLE_BLUETOOTH:-1}"
 DISABLE_HDMI="${DISABLE_HDMI:-1}"
 
+# CTRL_LED_WHITE_GPIO / CTRL_LED_RED_GPIO: BCM pin numbers for the custom
+# control board's two LEDs (designs/station-hardware.md) — left blank by
+# default, same shape as DIRIGERA_ACCESS_TOKEN below being a manual
+# post-boot step: pin assignment is still an open question in that doc,
+# and capture-control-panel.service is only enabled below when both are
+# actually set, so every satellite without this hardware built yet boots
+# exactly as before. CTRL_MIXER_CARD/CTRL_MIXER_CONTROL/
+# CTRL_MIC_STATUS_PATH default to control-panel/index.js's own guesses
+# (unverified against real hardware — see that file) unless overridden.
+CTRL_LED_WHITE_GPIO="${CTRL_LED_WHITE_GPIO:-}"
+CTRL_LED_RED_GPIO="${CTRL_LED_RED_GPIO:-}"
+CTRL_MIXER_CARD="${CTRL_MIXER_CARD:-}"
+CTRL_MIXER_CONTROL="${CTRL_MIXER_CONTROL:-}"
+CTRL_MIC_STATUS_PATH="${CTRL_MIC_STATUS_PATH:-}"
+
 command -v envsubst >/dev/null || {
   echo "envsubst not found (part of gettext) — install it first." >&2
   exit 1
@@ -241,12 +256,12 @@ fi
 HOUSE_ID="$EFFECTIVE_HOUSE_ID"
 MACHINE_HOSTNAME="$EFFECTIVE_MACHINE_HOSTNAME"
 ADMIN_USER="$EFFECTIVE_ADMIN_USER"
-export HOUSE_ID MACHINE_HOSTNAME ADMIN_USER KIOSK_USER ADMIN_SSH_PUBLIC_KEY TAILSCALE_AUTH_KEY BACKEND_URL REPO_URL DISABLE_BLUETOOTH DISABLE_HDMI
+export HOUSE_ID MACHINE_HOSTNAME ADMIN_USER KIOSK_USER ADMIN_SSH_PUBLIC_KEY TAILSCALE_AUTH_KEY BACKEND_URL REPO_URL DISABLE_BLUETOOTH DISABLE_HDMI CTRL_LED_WHITE_GPIO CTRL_LED_RED_GPIO CTRL_MIXER_CARD CTRL_MIXER_CONTROL CTRL_MIC_STATUS_PATH
 
 RENDERED="$(mktemp)"
 trap 'rm -f "$RENDERED"' EXIT
 
-envsubst '$HOUSE_ID $MACHINE_HOSTNAME $ADMIN_USER $KIOSK_USER $ADMIN_SSH_PUBLIC_KEY $TAILSCALE_AUTH_KEY $BACKEND_URL $REPO_URL $DISABLE_BLUETOOTH $DISABLE_HDMI' \
+envsubst '$HOUSE_ID $MACHINE_HOSTNAME $ADMIN_USER $KIOSK_USER $ADMIN_SSH_PUBLIC_KEY $TAILSCALE_AUTH_KEY $BACKEND_URL $REPO_URL $DISABLE_BLUETOOTH $DISABLE_HDMI $CTRL_LED_WHITE_GPIO $CTRL_LED_RED_GPIO $CTRL_MIXER_CARD $CTRL_MIXER_CONTROL $CTRL_MIC_STATUS_PATH' \
   < "$TEMPLATE" > "$RENDERED"
 
 if [ -n "$MERGE" ]; then
